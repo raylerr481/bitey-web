@@ -1,4 +1,5 @@
 const API_BASE = 'https://bitefixes-backend.onrender.com';
+const CHAT_PATH = '/chat';
 const messages = document.getElementById('messages');
 const form = document.getElementById('chat-form');
 const promptInput = document.getElementById('prompt');
@@ -6,7 +7,7 @@ const sendButton = document.getElementById('send');
 const welcome = document.getElementById('welcome');
 const newChat = document.getElementById('new-chat');
 
-const state = { conversationId: null, language: null };
+const state = { conversationId: null, languagePreference: null };
 
 function addMessage(role, text) {
   if (welcome) welcome.remove();
@@ -36,19 +37,22 @@ async function sendMessage(text) {
       message,
       channel: 'web',
       conversation_id: state.conversationId,
-      language: state.language,
+      language_preference: state.languagePreference,
       history: []
     };
-    const response = await fetch(`${API_BASE}/bitey/v1/chat`, {
+    const response = await fetch(`${API_BASE}${CHAT_PATH}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
       body: JSON.stringify(body)
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`HTTP ${response.status}: ${detail.slice(0, 300)}`);
+    }
     const data = await response.json();
     pending.textContent = data.response || data.message || 'No recibí una respuesta de Bitey.';
     state.conversationId = data.conversation_id ?? state.conversationId;
-    state.language = data.language ?? state.language;
+    state.languagePreference = data.language ?? data.language_preference ?? state.languagePreference;
   } catch (error) {
     pending.textContent = 'No pude conectar con Bitey Cloud en este momento. Inténtalo nuevamente.';
     console.error('Bitey Cloud error:', error);
@@ -70,7 +74,12 @@ promptInput.addEventListener('keydown', (event) => {
   }
 });
 
-newChat.addEventListener('click', () => window.location.reload());
+newChat.addEventListener('click', () => {
+  state.conversationId = null;
+  state.languagePreference = null;
+  window.location.reload();
+});
+
 document.querySelectorAll('[data-prompt]').forEach(button => {
   button.addEventListener('click', () => sendMessage(button.dataset.prompt));
 });
