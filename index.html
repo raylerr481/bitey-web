@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Bitey AI — your cloud AI assistant by BiteFixes." />
+  <title>Bitey AI</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Conversation navigation">
+      <div class="brand"><span class="brand-mark">B</span><span>Bitey</span></div>
+      <button id="new-chat" class="new-chat">＋ New chat</button>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-footer">Bitey AI · BiteFixes</div>
+    </aside>
+
+    <main class="chat-area">
+      <header class="topbar">
+        <div class="mobile-brand"><span class="brand-mark">B</span> Bitey</div>
+        <span class="status"><i></i> Bitey AI</span>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="hero-mark">B</div>
+          <h1>Hola, soy Bitey.</h1>
+          <p>¿Qué necesitas resolver?</p>
+          <div class="suggestions">
+            <button data-prompt="Necesito ayuda con mi computadora">Ayuda con mi computadora</button>
+            <button data-prompt="Quiero una solución de IA para mi empresa">IA para mi empresa</button>
+            <button data-prompt="Necesito investigar una información">Investigar información</button>
+            <button data-prompt="Necesito solicitar un presupuesto">Solicitar presupuesto</button>
+          </div>
+        </div>
+      </section>
+
+      <form id="chat-form" class="composer">
+        <textarea id="prompt" rows="1" placeholder="Pregunta a Bitey..." autocomplete="off"></textarea>
+        <button id="send" type="submit" aria-label="Enviar">➤</button>
+      </form>
+      <div class="disclaimer">Bitey puede cometer errores. Verifica información importante.</div>
+    </main>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>
