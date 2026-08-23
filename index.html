@@ -1,46 +1,50 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Bitey IA — the web-based supracerebro of the Bitey platform." />
-  <title>Bitey IA</title>
+  <meta name="description" content="Bitey IA — Supracerebro de la plataforma Bitey." />
+  <meta name="theme-color" content="#ffffff" />
+  <title>Bitey IA — Supracerebro</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar" aria-label="Conversation navigation">
-      <div class="brand"><span class="brand-mark">B</span><span>Bitey IA</span></div>
-      <button id="new-chat" class="new-chat">＋ New chat</button>
+    <aside class="sidebar" aria-label="Navegación de conversaciones">
+      <div class="brand"><span class="brand-mark">B</span><div><strong>Bitey IA</strong><small>Supracerebro</small></div></div>
+      <button id="new-chat" class="new-chat"><span>＋</span> Nueva conversación</button>
+      <div class="history-title">Conversaciones</div>
+      <nav id="history" class="history" aria-label="Historial"></nav>
       <div class="sidebar-spacer"></div>
-      <div class="sidebar-footer">Bitey IA · Supracerebro</div>
+      <div class="sidebar-footer"><span class="status-dot"></span> Supracerebro online</div>
     </aside>
 
     <main class="chat-area">
       <header class="topbar">
+        <button id="mobile-menu" class="icon-button" aria-label="Abrir menú">☰</button>
         <div class="mobile-brand"><span class="brand-mark">B</span> Bitey IA</div>
-        <span class="status"><i></i> Bitey IA</span>
+        <div class="topbar-right"><span class="status"><i></i> Online</span><button class="icon-button" aria-label="Opciones">•••</button></div>
       </header>
 
       <section id="messages" class="messages" aria-live="polite">
         <div class="welcome" id="welcome">
           <div class="hero-mark">B</div>
           <h1>Hola, soy Bitey.</h1>
-          <p>¿Qué quieres investigar, resolver o crear?</p>
+          <p>Tu Supracerebro para investigar, resolver problemas y desarrollar ideas.</p>
           <div class="suggestions">
-            <button data-prompt="Ayúdame a resolver un problema">Resolver un problema</button>
-            <button data-prompt="Quiero investigar una información en la web">Investigar en la web</button>
-            <button data-prompt="Quiero desarrollar una idea">Desarrollar una idea</button>
-            <button data-prompt="Quiero crear una IA para mi empresa">IA para mi empresa</button>
+            <button data-prompt="Ayúdame a resolver un problema"><strong>Resolver</strong><span>Analiza un problema y encuentra una solución.</span></button>
+            <button data-prompt="Quiero investigar una información en la web"><strong>Investigar</strong><span>Busca, contrasta y organiza información.</span></button>
+            <button data-prompt="Quiero desarrollar una idea"><strong>Desarrollar</strong><span>Convierte una idea en un plan accionable.</span></button>
+            <button data-prompt="Quiero crear una IA para mi empresa"><strong>IA para mi empresa</strong><span>Diseña una estrategia de IA adaptada al negocio.</span></button>
           </div>
         </div>
       </section>
 
-      <form id="chat-form" class="composer">
-        <textarea id="prompt" rows="1" placeholder="Pregunta a Bitey IA..." autocomplete="off"></textarea>
-        <button id="send" type="submit" aria-label="Enviar">➤</button>
+      <form id="chat-form" class="composer" autocomplete="off">
+        <textarea id="prompt" rows="1" placeholder="Pregunta a Bitey IA..." aria-label="Mensaje"></textarea>
+        <button id="send" type="submit" aria-label="Enviar mensaje">➤</button>
       </form>
-      <div class="disclaimer">Bitey IA puede cometer errores. Verifica información importante.</div>
+      <div class="disclaimer">Bitey IA puede cometer errores. Verifica la información importante.</div>
     </main>
   </div>
   <script src="./app.js"></script>
