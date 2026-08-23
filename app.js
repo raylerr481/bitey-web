@@ -1,5 +1,5 @@
-const API_BASE = 'https://bitefixes-backend.onrender.com';
-const CHAT_PATH = '/chat';
+const API_BASE = 'https://bitey-ia-suprabrain.onrender.com';
+const API_PREFIX = '/api/v1';
 const messages = document.getElementById('messages');
 const form = document.getElementById('chat-form');
 const promptInput = document.getElementById('prompt');
@@ -25,6 +25,19 @@ function addMessage(role, text) {
   return bubble;
 }
 
+async function ensureConversation() {
+  if (state.conversationId) return state.conversationId;
+  const response = await fetch(`${API_BASE}${API_PREFIX}/conversations`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+    body: JSON.stringify({ metadata: { channel: 'web', language: state.languagePreference } })
+  });
+  if (!response.ok) throw new Error(`Conversation HTTP ${response.status}`);
+  const data = await response.json();
+  state.conversationId = data.conversation_id;
+  return state.conversationId;
+}
+
 async function sendMessage(text) {
   const message = text.trim();
   if (!message) return;
@@ -33,29 +46,28 @@ async function sendMessage(text) {
   sendButton.disabled = true;
   const pending = addMessage('assistant', 'Bitey está pensando…');
   try {
-    const body = {
-      message,
-      channel: 'web',
-      conversation_id: state.conversationId,
-      language_preference: state.languagePreference,
-      history: []
-    };
-    const response = await fetch(`${API_BASE}${CHAT_PATH}`, {
+    const conversationId = await ensureConversation();
+    const response = await fetch(`${API_BASE}${API_PREFIX}/conversations/${conversationId}/messages`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        message,
+        metadata: {
+          channel: 'web',
+          language: state.languagePreference,
+          interface: 'bitey-web'
+        }
+      })
     });
     if (!response.ok) {
       const detail = await response.text();
       throw new Error(`HTTP ${response.status}: ${detail.slice(0, 300)}`);
     }
     const data = await response.json();
-    pending.textContent = data.response || data.message || 'No recibí una respuesta de Bitey.';
-    state.conversationId = data.conversation_id ?? state.conversationId;
-    state.languagePreference = data.language ?? data.language_preference ?? state.languagePreference;
+    pending.textContent = data.answer || 'No recibí una respuesta de Bitey.';
   } catch (error) {
-    pending.textContent = 'No pude conectar con Bitey Cloud en este momento. Inténtalo nuevamente.';
-    console.error('Bitey Cloud error:', error);
+    pending.textContent = 'No pude conectar con Bitey IA en este momento. Inténtalo nuevamente.';
+    console.error('Bitey IA error:', error);
   } finally {
     sendButton.disabled = false;
     promptInput.focus();
