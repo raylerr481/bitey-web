@@ -2,6 +2,9 @@ name = "bitey-web"
 main = "src/worker.js"
 compatibility_date = "2026-08-23"
 
+[vars]
+SUPRABRAIN_ORIGIN = "https://bitey-ia-suprabrain.onrender.com"
+
 [assets]
 directory = "."
 binding = "ASSETS"
