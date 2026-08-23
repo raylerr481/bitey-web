@@ -1,5 +1,5 @@
 name = "bitey-web"
-main = "src/core/index.js"
+main = "src/worker.js"
 compatibility_date = "2026-08-23"
 
 [assets]
