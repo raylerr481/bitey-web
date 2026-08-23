@@ -18,18 +18,15 @@
       <div class="sidebar-spacer"></div>
       <div class="sidebar-footer"><span class="status-dot"></span> Supracerebro online</div>
     </aside>
-
     <main class="chat-area">
       <header class="topbar">
         <button id="mobile-menu" class="icon-button" aria-label="Abrir menú">☰</button>
         <div class="mobile-brand"><span class="brand-mark">B</span> Bitey IA</div>
-        <div class="topbar-right"><span class="status"><i></i> Online</span><button class="icon-button" aria-label="Opciones">•••</button></div>
+        <div class="topbar-right"><span class="status"><i></i> Online</span><button id="clear-local" class="icon-button" aria-label="Limpiar historial local">•••</button></div>
       </header>
-
       <section id="messages" class="messages" aria-live="polite">
         <div class="welcome" id="welcome">
-          <div class="hero-mark">B</div>
-          <h1>Hola, soy Bitey.</h1>
+          <div class="hero-mark">B</div><h1>Hola, soy Bitey.</h1>
           <p>Tu Supracerebro para investigar, resolver problemas y desarrollar ideas.</p>
           <div class="suggestions">
             <button data-prompt="Ayúdame a resolver un problema"><strong>Resolver</strong><span>Analiza un problema y encuentra una solución.</span></button>
@@ -39,11 +36,12 @@
           </div>
         </div>
       </section>
-
+      <div id="activity" class="activity" hidden><span class="thinking-dots"><i></i><i></i><i></i></span><span id="activity-text">Bitey está pensando…</span></div>
       <form id="chat-form" class="composer" autocomplete="off">
         <textarea id="prompt" rows="1" placeholder="Pregunta a Bitey IA..." aria-label="Mensaje"></textarea>
         <button id="send" type="submit" aria-label="Enviar mensaje">➤</button>
       </form>
+      <div class="composer-hint">Enter para enviar · Shift + Enter para una nueva línea</div>
       <div class="disclaimer">Bitey IA puede cometer errores. Verifica la información importante.</div>
     </main>
   </div>
