@@ -6,7 +6,6 @@ const messages = document.getElementById('messages');
 const form = document.getElementById('chat-form');
 const promptInput = document.getElementById('prompt');
 const sendButton = document.getElementById('send');
-const welcome = document.getElementById('welcome');
 const newChat = document.getElementById('new-chat');
 const history = document.getElementById('history');
 const activity = document.getElementById('activity');
@@ -14,6 +13,13 @@ const activityText = document.getElementById('activity-text');
 const clearLocal = document.getElementById('clear-local');
 const mobileMenu = document.getElementById('mobile-menu');
 const sidebar = document.querySelector('.sidebar');
+const searchChats = document.getElementById('search-chats');
+const searchPanel = document.getElementById('search-panel');
+const historySearch = document.getElementById('history-search');
+const modalBackdrop = document.getElementById('modal-backdrop');
+const modalTitle = document.getElementById('modal-title');
+const modalText = document.getElementById('modal-text');
+const modalClose = document.getElementById('modal-close');
 
 const state = { conversationId: null, languagePreference: null, title: 'Nueva conversación' };
 
@@ -26,18 +32,19 @@ function saveLocalConversation() {
   if (!state.conversationId) return;
   const items = loadLocalConversations().filter(item => item.id !== state.conversationId);
   items.unshift({ id: state.conversationId, title: state.title, updatedAt: Date.now() });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, 30)));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, 50)));
   renderHistory();
 }
 
-function renderHistory() {
+function renderHistory(filter = '') {
   if (!history) return;
-  const items = loadLocalConversations();
+  const query = filter.trim().toLowerCase();
+  const items = loadLocalConversations().filter(item => !query || (item.title || '').toLowerCase().includes(query));
   history.innerHTML = '';
   if (!items.length) {
     const empty = document.createElement('div');
     empty.className = 'history-empty';
-    empty.textContent = 'Tus conversaciones aparecerán aquí.';
+    empty.textContent = query ? 'No se encontraron conversaciones.' : 'Tus conversaciones aparecerán aquí.';
     history.appendChild(empty);
     return;
   }
@@ -59,9 +66,9 @@ function openLocalConversation(id) {
   messages.innerHTML = '';
   const placeholder = document.createElement('div');
   placeholder.className = 'welcome compact-welcome';
-  placeholder.innerHTML = '<div class="hero-mark">B</div><h1>Continuemos.</h1><p>La conversación está asociada al Supracerebro.</p>';
+  placeholder.innerHTML = '<div class="hero-mark">B</div><h1>Continuemos.</h1><p>Esta conversación está asociada al Supracerebro.</p>';
   messages.appendChild(placeholder);
-  renderHistory();
+  renderHistory(historySearch ? historySearch.value : '');
   if (window.innerWidth < 760) sidebar.classList.remove('open');
 }
 
@@ -110,12 +117,13 @@ async function sendMessage(text) {
   if (!message || sendButton.disabled) return;
   addMessage('user', message);
   promptInput.value = '';
+  promptInput.style.height = 'auto';
   sendButton.disabled = true;
   setActivity(true, 'Bitey está procesando tu solicitud…');
   let pending = null;
   try {
     if (!state.title || state.title === 'Nueva conversación') {
-      state.title = message.length > 42 ? `${message.slice(0, 42)}…` : message;
+      state.title = message.length > 50 ? `${message.slice(0, 50)}…` : message;
     }
     const conversationId = await ensureConversation();
     saveLocalConversation();
@@ -147,26 +155,19 @@ async function sendMessage(text) {
 function startNewChat() {
   state.conversationId = null;
   state.title = 'Nueva conversación';
-  messages.innerHTML = `
-    <div class="welcome" id="welcome">
-      <div class="hero-mark">B</div><h1>Hola, soy Bitey.</h1>
-      <p>Tu Supracerebro para investigar, resolver problemas y desarrollar ideas.</p>
-      <div class="suggestions">
-        <button data-prompt="Ayúdame a resolver un problema"><strong>Resolver</strong><span>Analiza un problema y encuentra una solución.</span></button>
-        <button data-prompt="Quiero investigar una información en la web"><strong>Investigar</strong><span>Busca, contrasta y organiza información.</span></button>
-        <button data-prompt="Quiero desarrollar una idea"><strong>Desarrollar</strong><span>Convierte una idea en un plan accionable.</span></button>
-        <button data-prompt="Quiero crear una IA para mi empresa"><strong>IA para mi empresa</strong><span>Diseña una estrategia de IA adaptada al negocio.</span></button>
-      </div>
-    </div>`;
-  bindSuggestions();
+  messages.innerHTML = '<div class="welcome" id="welcome"><div class="hero-mark">B</div><div class="eyebrow">Bitey IA</div><h1>Hola, soy Bitey.</h1><p class="hero-copy">¿En qué estás pensando?</p></div>';
   renderHistory();
+  promptInput.focus();
+  if (window.innerWidth < 760) sidebar.classList.remove('open');
 }
 
-function bindSuggestions() {
-  document.querySelectorAll('[data-prompt]').forEach(button => {
-    button.onclick = () => sendMessage(button.dataset.prompt);
-  });
+function showModal(title, text) {
+  modalTitle.textContent = title;
+  modalText.textContent = text;
+  modalBackdrop.classList.add('open');
 }
+
+function closeModal() { modalBackdrop.classList.remove('open'); }
 
 form.addEventListener('submit', event => { event.preventDefault(); sendMessage(promptInput.value); });
 promptInput.addEventListener('input', () => {
@@ -177,12 +178,31 @@ promptInput.addEventListener('keydown', event => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
 });
 newChat.addEventListener('click', startNewChat);
+
 if (clearLocal) clearLocal.addEventListener('click', () => {
-  if (confirm('¿Limpiar el historial local de este navegador?')) {
-    localStorage.removeItem(STORAGE_KEY);
-    renderHistory();
-  }
+  showModal('Opciones de conversación', 'Puedes limpiar el historial local de este navegador. El historial almacenado en el Supracerebro no se elimina desde aquí.');
 });
+
+if (searchChats) searchChats.addEventListener('click', () => {
+  searchPanel.classList.toggle('open');
+  if (searchPanel.classList.contains('open')) historySearch.focus();
+});
+if (historySearch) historySearch.addEventListener('input', () => renderHistory(historySearch.value));
+
 if (mobileMenu) mobileMenu.addEventListener('click', () => sidebar.classList.toggle('open'));
-bindSuggestions();
+if (modalClose) modalClose.addEventListener('click', closeModal);
+if (modalBackdrop) modalBackdrop.addEventListener('click', event => { if (event.target === modalBackdrop) closeModal(); });
+
+document.querySelectorAll('[data-panel]').forEach(button => {
+  button.addEventListener('click', () => {
+    const labels = { library: 'Biblioteca', projects: 'Proyectos', explore: 'Explorar IA' };
+    showModal(labels[button.dataset.panel] || 'Bitey IA', 'Esta capacidad forma parte de la interfaz del Supracerebro y será conectada progresivamente al backend.');
+  });
+});
+
+document.getElementById('settings')?.addEventListener('click', () => showModal('Configuración', 'Aquí se centralizarán las preferencias de Bitey IA, memoria, privacidad, idioma, apariencia y proveedores.'));
+document.getElementById('help')?.addEventListener('click', () => showModal('Ayuda', 'Bitey IA es el Supracerebro. Escribe tu solicitud en el cuadro de texto para iniciar una conversación.'));
+document.getElementById('profile')?.addEventListener('click', () => showModal('Bitey IA', 'Supracerebro independiente de BiteFixes Backend.'));
+
 renderHistory();
+promptInput.focus();
