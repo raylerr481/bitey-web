@@ -1,0 +1,8 @@
+_worker.js
+worker.js
+src/**
+backend/**
+.github/**
+.git/**
+README.md
+wrangler.toml
