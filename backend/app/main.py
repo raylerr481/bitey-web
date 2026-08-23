@@ -11,7 +11,7 @@ from .schemas import ConversationCreate, MessageCreate, MessageResponse
 
 app = FastAPI(
     title="Bitey IA — Supracerebro Backend",
-    version="0.1.1",
+    version="0.2.0",
     description="General-purpose intelligence backend for Bitey IA.",
 )
 
@@ -30,8 +30,12 @@ providers = ProviderGateway()
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "system": "bitey-ia-supracerebro"}
+async def health() -> dict[str, str | bool]:
+    return {
+        "status": "ok",
+        "system": "bitey-ia-supracerebro",
+        "supabase_persistence": memory.persistent,
+    }
 
 
 @app.get("/api/v1/capabilities")
@@ -40,6 +44,7 @@ async def capabilities() -> dict:
         "conversation": True,
         "dynamic_context": True,
         "memory": True,
+        "persistent_memory": memory.persistent,
         "web_research_planning": True,
         "enterprise_context": "optional",
         "provider_orchestration": True,
@@ -50,7 +55,7 @@ async def capabilities() -> dict:
 @app.post("/api/v1/conversations")
 async def create_conversation(payload: ConversationCreate) -> dict:
     conversation_id = str(uuid4())
-    memory.conversations[conversation_id] = []
+    await memory.create_conversation(conversation_id, payload.metadata)
     return {"conversation_id": conversation_id, "metadata": payload.metadata}
 
 
@@ -69,14 +74,14 @@ async def send_message(conversation_id: str, payload: MessageCreate) -> MessageR
 
     context = context_engine.assemble(message=payload.message, metadata=payload.metadata)
     plan = research_engine.plan(payload.message, context.as_dict())
-    history = memory.history(conversation_id)
-    memory.append(conversation_id, {"role": "user", "content": payload.message})
+    history = await memory.history(conversation_id)
+    await memory.append(conversation_id, {"role": "user", "content": payload.message})
 
     answer = await providers.generate(
         messages=history + [{"role": "user", "content": payload.message}],
         context={**context.as_dict(), "research_plan": plan.__dict__},
     )
-    memory.append(conversation_id, {"role": "assistant", "content": answer})
+    await memory.append(conversation_id, {"role": "assistant", "content": answer})
 
     return MessageResponse(
         conversation_id=conversation_id,
