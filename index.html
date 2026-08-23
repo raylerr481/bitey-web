@@ -3,44 +3,44 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Bitey AI — your cloud AI assistant by BiteFixes." />
-  <title>Bitey AI</title>
+  <meta name="description" content="Bitey IA — the web-based supracerebro of the Bitey platform." />
+  <title>Bitey IA</title>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Conversation navigation">
-      <div class="brand"><span class="brand-mark">B</span><span>Bitey</span></div>
+      <div class="brand"><span class="brand-mark">B</span><span>Bitey IA</span></div>
       <button id="new-chat" class="new-chat">＋ New chat</button>
       <div class="sidebar-spacer"></div>
-      <div class="sidebar-footer">Bitey AI · BiteFixes</div>
+      <div class="sidebar-footer">Bitey IA · Supracerebro</div>
     </aside>
 
     <main class="chat-area">
       <header class="topbar">
-        <div class="mobile-brand"><span class="brand-mark">B</span> Bitey</div>
-        <span class="status"><i></i> Bitey AI</span>
+        <div class="mobile-brand"><span class="brand-mark">B</span> Bitey IA</div>
+        <span class="status"><i></i> Bitey IA</span>
       </header>
 
       <section id="messages" class="messages" aria-live="polite">
         <div class="welcome" id="welcome">
           <div class="hero-mark">B</div>
           <h1>Hola, soy Bitey.</h1>
-          <p>¿Qué necesitas resolver?</p>
+          <p>¿Qué quieres investigar, resolver o crear?</p>
           <div class="suggestions">
-            <button data-prompt="Necesito ayuda con mi computadora">Ayuda con mi computadora</button>
-            <button data-prompt="Quiero una solución de IA para mi empresa">IA para mi empresa</button>
-            <button data-prompt="Necesito investigar una información">Investigar información</button>
-            <button data-prompt="Necesito solicitar un presupuesto">Solicitar presupuesto</button>
+            <button data-prompt="Ayúdame a resolver un problema">Resolver un problema</button>
+            <button data-prompt="Quiero investigar una información en la web">Investigar en la web</button>
+            <button data-prompt="Quiero desarrollar una idea">Desarrollar una idea</button>
+            <button data-prompt="Quiero crear una IA para mi empresa">IA para mi empresa</button>
           </div>
         </div>
       </section>
 
       <form id="chat-form" class="composer">
-        <textarea id="prompt" rows="1" placeholder="Pregunta a Bitey..." autocomplete="off"></textarea>
+        <textarea id="prompt" rows="1" placeholder="Pregunta a Bitey IA..." autocomplete="off"></textarea>
         <button id="send" type="submit" aria-label="Enviar">➤</button>
       </form>
-      <div class="disclaimer">Bitey puede cometer errores. Verifica información importante.</div>
+      <div class="disclaimer">Bitey IA puede cometer errores. Verifica información importante.</div>
     </main>
   </div>
   <script src="./app.js"></script>
