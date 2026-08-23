@@ -1,6 +1,7 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .core.context_engine import ContextEngine
 from .core.memory import MemoryStore
@@ -10,8 +11,16 @@ from .schemas import ConversationCreate, MessageCreate, MessageResponse
 
 app = FastAPI(
     title="Bitey IA — Supracerebro Backend",
-    version="0.1.0",
+    version="0.1.1",
     description="General-purpose intelligence backend for Bitey IA.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 context_engine = ContextEngine()
@@ -47,6 +56,17 @@ async def create_conversation(payload: ConversationCreate) -> dict:
 
 @app.post("/api/v1/conversations/{conversation_id}/messages", response_model=MessageResponse)
 async def send_message(conversation_id: str, payload: MessageCreate) -> MessageResponse:
+    try:
+        UUID(conversation_id)
+    except ValueError:
+        return MessageResponse(
+            conversation_id=conversation_id,
+            answer="La conversación indicada no tiene un identificador válido.",
+            research_required=False,
+            research_reasons=[],
+            providers=providers.available(),
+        )
+
     context = context_engine.assemble(message=payload.message, metadata=payload.metadata)
     plan = research_engine.plan(payload.message, context.as_dict())
     history = memory.history(conversation_id)
