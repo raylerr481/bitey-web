@@ -1,42 +1,81 @@
-# Bitey Web
+# Bitey IA
 
-`bitey-web` is the public web facade for **Bitey**, designed as a ChatGPT-like web experience dedicated to the Bitey AI platform.
+`bitey-web` is the foundation of **Bitey IA**, the complete web-based Bitey intelligence platform. It is intended to become the **supracerebro** of Bitey: a full AI experience comparable in interaction model to ChatGPT or Claude, while remaining provider-neutral and capable of supporting general and enterprise AI contexts.
 
-It is a **channel/interface**, not an independent intelligence engine.
+> Important: this project is independent from `bitefixes-backend`. The BiteFixes backend remains the specialized brain/infrastructure for BiteFixes.com and its authorized channels. It is not being replaced, merged, or modified by this project.
 
-## Architecture
+## Supracerebro mission
+
+Bitey IA is designed to provide the reusable intelligence foundation for:
+
+- natural conversation;
+- context understanding and continuity;
+- memory through explicit adapters;
+- intelligent web research;
+- reasoning and orchestration;
+- external AI provider collaboration;
+- tools and capabilities;
+- enterprise/company context when a tenant enables it;
+- future Bitey products and channels.
+
+The foundation deliberately separates intelligence orchestration from providers, persistence, web-search vendors and business-specific implementations.
+
+## Current foundation
 
 ```text
 User
   ↓
-bitey-web
+Bitey IA Web Experience
   ↓
-Bitey Backend
+Bitey Supracerebro
+  ├─ request normalization
+  ├─ context engine
+  ├─ memory boundary
+  ├─ web research boundary
+  ├─ provider-neutral reasoning
+  └─ tool boundary
   ↓
-Company AI Profile + authorized context
-  ↓
-Bitey IA
-  ├─ knowledge / memory
-  ├─ intelligent web research
-  ├─ service/workflow reasoning
-  └─ external AI collaboration when useful
-  ↓
-response
-  ↓
-bitey-web
+AI providers / research providers / authorized data sources
 ```
 
-The backend is the single source of truth for intelligence, context, memory, research, business rules, tenant isolation and evolution. The web facade should not create a second AI brain or store provider credentials in browser code.
+The initial foundation lives under `src/core/`. It is an orchestration boundary, not yet a claim that every intelligence capability is production-complete.
 
-## Product role
+## Enterprise AI model
 
-Bitey Web provides a dedicated public place where users can interact with Bitey directly, similar in interaction style to a general AI chat application while remaining grounded in Bitey's platform architecture.
+Bitey IA can later apply the enterprise model proven in BiteFixes without copying BiteFixes-specific business logic into this repository:
 
-The experience should feel simple to the user. Internal concepts such as Company AI Profile construction, provider routing and evaluation/evolution should remain server-side unless intentionally exposed as product functionality.
+```text
+Bitey IA
+  ↓
+Enterprise context
+  ↓
+Company AI Profile
+  ↓
+Knowledge + memory + permissions
+  ↓
+Research + reasoning
+  ↓
+Coherent answer / action
+```
 
-## Platform repositories
+The enterprise layer must remain tenant-aware and must never leak one company's private context into another company.
 
-- `bitefixes-backend` — authoritative Bitey IA and intelligence core.
-- `bitey-web` — this public web facade.
-- `bitey-ai` — WordPress channel/plugin.
-- `bitefixes-app` — mobile channel for BiteFixes and Bitey.
+## Repository boundaries
+
+- `bitey-web` — **Bitey IA**, the web supracerebro foundation and web experience.
+- `bitey-ai` — **Bitey Plugin Web**, the WordPress plugin/channel installed on sites such as BiteFixes.com.
+- `bitefixes-backend` — specialized BiteFixes infrastructure and AI brain. It remains independent and is not merged into Bitey IA.
+- `bitefixes-app` — BiteFixes application/extension and remains separate from the Bitey IA supracerebro.
+
+## Naming transition
+
+The intended product names are:
+
+| Current repository | Intended product name |
+| --- | --- |
+| `bitey-web` | **Bitey IA** |
+| `bitey-ai` | **Bitey Plugin Web** |
+| `bitefixes-backend` | **BiteFixes Backend** |
+| `bitefixes-app` | **BiteFixes App** |
+
+The GitHub repository slugs require a repository-level rename operation; until that operation is available, the existing slugs remain stable so no repository is duplicated or lost.
