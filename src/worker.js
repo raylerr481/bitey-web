@@ -1,14 +1,21 @@
-const SUPRABRAIN_ORIGIN = 'https://bitey-ia-suprabrain.onrender.com';
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith('/api/')) {
-      const upstreamUrl = new URL(url.pathname + url.search, SUPRABRAIN_ORIGIN);
+      const origin = env.SUPRABRAIN_ORIGIN;
+      if (!origin) {
+        return new Response(JSON.stringify({ error: 'Supracerebro origin is not configured' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+        });
+      }
+
+      const upstreamUrl = new URL(url.pathname + url.search, origin);
       const headers = new Headers(request.headers);
       headers.set('x-bitey-channel', 'web');
       headers.set('x-bitey-origin', 'cloudflare');
+      headers.set('x-forwarded-host', url.host);
 
       const upstream = await fetch(upstreamUrl, {
         method: request.method,
