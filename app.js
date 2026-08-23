@@ -1,4 +1,4 @@
-const API_BASE = 'https://bitey-ia-suprabrain.onrender.com';
+const API_BASE = window.BITEY_API_BASE || '';
 const API_PREFIX = '/api/v1';
 const STORAGE_KEY = 'bitey_web_conversations_v1';
 
@@ -63,7 +63,6 @@ function openLocalConversation(id) {
   messages.appendChild(placeholder);
   renderHistory();
   if (window.innerWidth < 760) sidebar.classList.remove('open');
-  // The durable history is owned by the backend; this UI does not fabricate it.
 }
 
 function addMessage(role, text) {
@@ -101,8 +100,9 @@ async function ensureConversation() {
 }
 
 function setActivity(visible, text = 'Bitey está pensando…') {
+  if (!activity) return;
   activity.hidden = !visible;
-  activityText.textContent = text;
+  if (activityText) activityText.textContent = text;
 }
 
 async function sendMessage(text) {
@@ -177,12 +177,12 @@ promptInput.addEventListener('keydown', event => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
 });
 newChat.addEventListener('click', startNewChat);
-clearLocal.addEventListener('click', () => {
+if (clearLocal) clearLocal.addEventListener('click', () => {
   if (confirm('¿Limpiar el historial local de este navegador?')) {
     localStorage.removeItem(STORAGE_KEY);
     renderHistory();
   }
 });
-mobileMenu.addEventListener('click', () => sidebar.classList.toggle('open'));
+if (mobileMenu) mobileMenu.addEventListener('click', () => sidebar.classList.toggle('open'));
 bindSuggestions();
 renderHistory();
