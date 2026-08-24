@@ -1,37 +1,41 @@
 # Bitey IA Web
 
-`bitey-web` is the **independent general-purpose Bitey IA product** and its primary Cloudflare web application.
+`bitey-web` is the **general Bitey IA web application and the Cloudflare-hosted supracerebro of Bitey IA**.
 
-## Architecture
+It is the independent general-purpose Bitey IA product. `bitey-ia-app` is its Android/mobile client. Bitey Web is not a BiteFixes application and is not powered by `bitefixes-backend` as its general intelligence layer.
+
+## Product architecture
 
 ```text
-                    BITEY IA
-                 Independent brain
-                       │
-              ┌────────┴────────┐
-              │                 │
-         bitey-web         bitey-ia-app
-          Cloudflare          Android
-              │                 │
-              └────────┬────────┘
-                       │
-              same Bitey IA product
-                       │
-              authorized integrations
-                       │
-                 BiteFixes only
-              enterprise context
+                       BITEY IA
+                  General AI product
+                          │
+                 ┌────────┴────────┐
+                 │                 │
+            bitey-web        bitey-ia-app
+           Supracerebro          Android
+            Cloudflare           client
+                 │                 │
+                 └────────┬────────┘
+                          │
+                  shared Bitey IA
+                    experience
+                          │
+              explicit authorized contracts
+                          │
+                     BiteFixes
+                   enterprise use
 ```
 
 ### Hard boundary
 
-**Bitey Web is NOT powered by `bitefixes-backend`.** The Bitey Web/Cloudflare platform remains the independent intelligence layer. `bitefixes-backend` is only the operational backend for the BiteFixes enterprise system.
+**Bitey Web is the Bitey IA supracerebro.** `bitefixes-backend` is a separate specialized enterprise backend for BiteFixes.com. It must not be treated as the general brain of Bitey IA.
 
-BiteFixes can consume Bitey through an explicit enterprise integration, but BiteFixes data must never become the general brain of Bitey without authorization and tenant isolation.
+BiteFixes may consume Bitey IA capabilities through explicit, authorized enterprise contracts. BiteFixes company data, memory, services and workflows remain isolated and scoped to the BiteFixes enterprise system.
 
 ## Frontend direction
 
-The web interface is intentionally minimal and AI-first, inspired by modern AI assistant usability without copying proprietary implementation or branding.
+The web interface is minimal and AI-first, with a modern assistant-style experience without copying proprietary implementation or branding.
 
 Primary navigation:
 
@@ -47,7 +51,7 @@ Primary navigation:
 
 Chat actions:
 
-- `+` attachments/tools menu
+- Attachments/tools menu
 - Files
 - Images
 - Data files
@@ -56,22 +60,20 @@ Chat actions:
 - Message composer
 - Conversation persistence
 
-The home screen remains uncluttered: one central conversation area, a compact sidebar and a focused composer.
-
 ## Mobile
 
-`bitey-ia-app` is the Android/mobile client of this same general Bitey IA product. It communicates with Bitey Web/Cloudflare contracts, not with BiteFixes Backend as its primary brain.
+`bitey-ia-app` is the **Android/mobile client of this same Bitey IA product**. It communicates with Bitey Web/Cloudflare contracts and must not use BiteFixes Backend as its primary brain.
 
 ## BiteFixes relationship
 
-BiteFixes is a separate company/product ecosystem. Its specialized assistant is **Bitey IA Empresarial**, contextualized for BiteFixes services, customers, CRM, tickets, quotations and business workflows.
+BiteFixes is a separate company/product ecosystem:
 
 ```text
 Bitey IA Web / App
        │
-       │ authorized enterprise context
+       │ authorized enterprise contract
        ▼
-Bitey IA Empresarial
+Bitey IA enterprise channel
        │
        ▼
 BiteFixes Backend
@@ -87,6 +89,7 @@ This integration is contextualized and scoped. It does not redefine Bitey IA's g
 - Cloudflare-native Bitey IA services.
 - Shared product contracts with Bitey IA App.
 - Authorized enterprise integrations.
+- Production deployment through Cloudflare Workers Builds.
 
 ## Does not belong here
 
@@ -96,12 +99,16 @@ This integration is contextualized and scoped. It does not redefine Bitey IA's g
 - Private enterprise data without authorization.
 - Provider secrets in browser code.
 
+## Production and CI/CD
+
+The Worker is connected to GitHub through Cloudflare Workers Builds. Production commits on the configured production branch are built and deployed through Wrangler. Cloudflare documents that a successful build using `npx wrangler deploy` creates a version and promotes it to the active deployment. citeturn0search0turn0search4
+
 ## Current priority
 
 1. Keep Bitey Web minimal and reliable.
 2. Make conversations persist per user.
-3. Build projects/library/profile/settings as real functions.
+3. Make projects, library, profile and settings real functions.
 4. Keep web and Android behavior aligned.
 5. Expand tools, memory, research and agents inside Bitey itself.
 6. Connect BiteFixes only through explicit contextual enterprise contracts.
-7. Validate the deployed Cloudflare Worker after each production change.
+7. Validate the deployed Cloudflare Worker after every production change.
