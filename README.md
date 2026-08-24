@@ -2,77 +2,103 @@
 
 `bitey-web` is the **general Bitey IA web application and intelligence foundation**.
 
-It provides the main user-facing AI experience and is designed to evolve into a provider-neutral, context-aware AI platform with conversation, memory, research, tools and enterprise capabilities.
+It is the main user-facing AI experience for the Bitey ecosystem: a provider-neutral, context-aware AI platform designed to evolve with conversation, memory, research, tools, reasoning and authorized enterprise capabilities.
 
-> **Important boundary:** Bitey IA is independent from the specialized `bitefixes-backend`. It must not absorb BiteFixes-specific business logic.
+## Product identity
 
-## Role
+**Public product:** Bitey IA
+
+Internal architecture may use terms such as intelligence engine, orchestration, memory engine or reasoning engine. The public interface must not expose obsolete product names.
+
+## Architectural boundary
 
 ```text
 User
- ↓
+  ↓
 Bitey IA Web
- ↓
-Bitey intelligence/orchestration
- ├─ context
- ├─ conversation
- ├─ memory boundaries
- ├─ research
- ├─ tools
- ├─ reasoning
- └─ authorized enterprise context
- ↓
+  ↓
+Bitey intelligence / orchestration
+  ├─ conversation + context
+  ├─ memory boundaries
+  ├─ research
+  ├─ reasoning
+  ├─ tools
+  └─ authorized enterprise context
+  ↓
 AI providers / research services / authorized data sources
 ```
 
-## Product responsibilities
+`bitey-web` is independent from `bitefixes-backend`. It must not absorb BiteFixes-specific business logic merely because both projects share architectural patterns.
 
-- General AI conversation experience.
-- Context and conversation continuity.
+## Core responsibilities
+
+- Main Bitey IA web experience.
+- Conversation and context continuity.
 - Intelligent web research.
-- Tool orchestration.
+- Reasoning and tool orchestration.
 - Provider-neutral AI integration.
-- User/project/library experience.
-- Future persistent memory and knowledge retrieval.
-- Authorized enterprise AI experiences without leaking tenant data.
+- Projects, conversations and library UX.
+- Persistent memory and knowledge retrieval as they are implemented.
+- Authorized enterprise AI experiences with strict tenant isolation.
+- Production observability, security and deployment controls.
 
-## What it is NOT
+## What does NOT belong here
 
-- It is not the BiteFixes business backend.
-- It is not the WordPress plugin.
-- It is not the BiteFixes mobile application.
-- It must not contain BiteFixes-only workflows as its core architecture.
+- BiteFixes-only business workflows as the general core.
+- WordPress plugin code.
+- BiteFixes mobile application code.
+- Provider API secrets in browser code.
+- Another independent copy of the BiteFixes enterprise brain.
 
-## Repository ecosystem
+## Ecosystem
 
 | Repository | Product | Role |
 |---|---|---|
 | `bitey-web` | **Bitey IA** | General web AI experience + intelligence foundation |
-| `bitey-ai` | **Bitey AI Enterprise Plugin** | WordPress enterprise channel |
+| `bitey-ai` | **Bitey AI Enterprise WordPress Plugin** | Global WordPress enterprise channel/integration |
 | `bitefixes-backend` | **BiteFixes Backend** | Specialized BiteFixes enterprise backend/brain |
 | `bitefixes-app` | **BiteFixes App** | BiteFixes mobile channel |
 
-## Design principles
+## Enterprise relationship
 
-1. Keep the web experience independent from any single AI provider.
-2. Prefer orchestration and tool selection over hard-coded provider logic.
-3. Treat memory as explicit, authorized and scoped data.
-4. Treat company context as tenant-isolated data.
-5. Keep private credentials out of the browser.
-6. Research current information when freshness is required and preserve evidence boundaries.
-7. Do not claim capabilities that are not actually implemented.
-8. Keep UI, intelligence, persistence and external services separable.
+Bitey IA can use an authorized company context when explicitly configured. Company data must remain tenant-scoped and permission-controlled.
 
-## Development direction
+```text
+Bitey IA
+   ↓
+authorized enterprise context
+   ↓
+Company AI Profile / knowledge / permissions
+   ↓
+research + reasoning + tools
+   ↓
+response or authorized action
+```
 
-Priority order:
+Bitey IA does not automatically inherit private BiteFixes data. Integration must occur through explicit contracts and authorization.
 
-1. Stable chat and responsive dark UI.
-2. Persistent conversations and user identity.
-3. Project and library persistence.
-4. Research engine with evidence/source handling.
+## Development priorities
+
+1. Stable responsive dark UI and reliable chat.
+2. Persistent user identity, conversations and messages.
+3. Persistent projects and library.
+4. Research engine with source/evidence handling.
 5. Memory and knowledge retrieval.
-6. Tool/agent orchestration.
-7. Production observability, security and deployment controls.
+6. Tool and agent orchestration.
+7. Security, observability and controlled production deployment.
 
-The term **Bitey IA** is the public product identity. Internal architectural terminology may describe intelligence/orchestration components, but public UI should not expose obsolete product names.
+## Engineering rules
+
+1. Keep intelligence separate from UI, persistence and external providers.
+2. Keep provider-neutral interfaces wherever practical.
+3. Treat memory as explicit, scoped and authorized.
+4. Preserve tenant isolation for enterprise context.
+5. Never place private API credentials in client-side code.
+6. Do not claim a capability until it is implemented and tested.
+7. Prefer incremental changes over duplicated engines.
+8. Keep compatibility with the authorized backend contracts.
+9. Validate production behavior after deployment, not only source code.
+
+## Development
+
+Use the repository's existing build/test instructions and validate the application locally before deployment. Production deployment is currently associated with the Bitey Web Cloudflare Worker.
