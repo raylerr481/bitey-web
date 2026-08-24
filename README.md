@@ -101,7 +101,7 @@ This integration is contextualized and scoped. It does not redefine Bitey IA's g
 
 ## Production and CI/CD
 
-The Worker is connected to GitHub through Cloudflare Workers Builds. Production commits on the configured production branch are built and deployed through Wrangler. Cloudflare documents that a successful build using `npx wrangler deploy` creates a version and promotes it to the active deployment. citeturn0search0turn0search4
+The Worker is connected to GitHub through Cloudflare Workers Builds. Production commits on the configured production branch are built and deployed through Wrangler. A successful build configured with `npx wrangler deploy` creates a version and promotes it to the active deployment.
 
 ## Current priority
 
