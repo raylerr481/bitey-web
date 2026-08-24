@@ -1,80 +1,78 @@
 # Bitey IA
 
-`bitey-web` is the foundation of **Bitey IA**, the complete web-based **supracerebro** of the Bitey ecosystem. It is intended to provide a full AI experience comparable in interaction model to ChatGPT or Claude, while remaining provider-neutral and capable of general and enterprise AI contexts.
+`bitey-web` is the **general Bitey IA web application and intelligence foundation**.
 
-> **Boundary:** Bitey IA is a separate project from `bitefixes-backend`. It does not replace, merge with, or modify the BiteFixes enterprise brain.
+It provides the main user-facing AI experience and is designed to evolve into a provider-neutral, context-aware AI platform with conversation, memory, research, tools and enterprise capabilities.
 
-## Supracerebro mission
+> **Important boundary:** Bitey IA is independent from the specialized `bitefixes-backend`. It must not absorb BiteFixes-specific business logic.
 
-Bitey IA is the reusable intelligence foundation for:
-
-- natural conversation;
-- context understanding and continuity;
-- explicit memory boundaries;
-- intelligent web research;
-- reasoning and orchestration;
-- external AI provider collaboration;
-- tools and capabilities;
-- enterprise/company context when explicitly authorized;
-- future Bitey products and channels.
-
-The foundation separates intelligence orchestration from providers, persistence, search vendors and business-specific implementations.
-
-## Current foundation
+## Role
 
 ```text
 User
-  ↓
-Bitey IA Web Experience
-  ↓
-Bitey Supracerebro
-  ├─ request normalization
-  ├─ context engine
-  ├─ memory boundary
-  ├─ web research boundary
-  ├─ enterprise context boundary
-  ├─ provider-neutral reasoning
-  └─ tool boundary
-  ↓
-AI providers / research providers / authorized data sources
+ ↓
+Bitey IA Web
+ ↓
+Bitey intelligence/orchestration
+ ├─ context
+ ├─ conversation
+ ├─ memory boundaries
+ ├─ research
+ ├─ tools
+ ├─ reasoning
+ └─ authorized enterprise context
+ ↓
+AI providers / research services / authorized data sources
 ```
 
-The foundation lives under `src/core/`. It is an extensible orchestration base, not a claim that every intelligence capability is already production-complete.
+## Product responsibilities
 
-## Enterprise AI model
+- General AI conversation experience.
+- Context and conversation continuity.
+- Intelligent web research.
+- Tool orchestration.
+- Provider-neutral AI integration.
+- User/project/library experience.
+- Future persistent memory and knowledge retrieval.
+- Authorized enterprise AI experiences without leaking tenant data.
 
-Bitey IA can apply the enterprise model developed and validated through BiteFixes without copying BiteFixes-specific business logic into this repository:
+## What it is NOT
 
-```text
-Bitey IA
-  ↓
-Authorized enterprise context
-  ↓
-Company AI Profile
-  ↓
-Knowledge + memory + permissions
-  ↓
-Research + reasoning
-  ↓
-Coherent answer / action
-```
+- It is not the BiteFixes business backend.
+- It is not the WordPress plugin.
+- It is not the BiteFixes mobile application.
+- It must not contain BiteFixes-only workflows as its core architecture.
 
-Tenant isolation and authorization are mandatory. A company's private context must never become context for another company.
+## Repository ecosystem
 
-## Ecosystem boundaries
+| Repository | Product | Role |
+|---|---|---|
+| `bitey-web` | **Bitey IA** | General web AI experience + intelligence foundation |
+| `bitey-ai` | **Bitey AI Enterprise Plugin** | WordPress enterprise channel |
+| `bitefixes-backend` | **BiteFixes Backend** | Specialized BiteFixes enterprise backend/brain |
+| `bitefixes-app` | **BiteFixes App** | BiteFixes mobile channel |
 
-- `bitey-web` — **Bitey IA**, the web supracerebro and complete ChatGPT/Claude-like AI experience.
-- `bitey-ai` — **Bitey Plugin Web**, the WordPress plugin/channel installed on sites such as BiteFixes.com.
-- `bitefixes-backend` — **BiteFixes enterprise brain/backend**, specialized for BiteFixes.com, its business context and authorized channels such as the website widget, WhatsApp and Telegram. It remains independent.
-- `bitefixes-app` — **BiteFixes App**, the mobile extension/application of BiteFixes.com. It is a channel/client, not another brain.
+## Design principles
 
-## Naming
+1. Keep the web experience independent from any single AI provider.
+2. Prefer orchestration and tool selection over hard-coded provider logic.
+3. Treat memory as explicit, authorized and scoped data.
+4. Treat company context as tenant-isolated data.
+5. Keep private credentials out of the browser.
+6. Research current information when freshness is required and preserve evidence boundaries.
+7. Do not claim capabilities that are not actually implemented.
+8. Keep UI, intelligence, persistence and external services separable.
 
-| Repository | Product name | Role |
-| --- | --- | --- |
-| `bitey-web` | **Bitey IA** | Supracerebro + web AI experience |
-| `bitey-ai` | **Bitey Plugin Web** | WordPress plugin/channel |
-| `bitefixes-backend` | **BiteFixes Backend** | BiteFixes enterprise brain |
-| `bitefixes-app` | **BiteFixes App** | Mobile extension of BiteFixes.com |
+## Development direction
 
-Repository slugs are kept stable where a repository-level rename operation is unavailable through the connected GitHub interface. No duplicate repository is created for a naming change.
+Priority order:
+
+1. Stable chat and responsive dark UI.
+2. Persistent conversations and user identity.
+3. Project and library persistence.
+4. Research engine with evidence/source handling.
+5. Memory and knowledge retrieval.
+6. Tool/agent orchestration.
+7. Production observability, security and deployment controls.
+
+The term **Bitey IA** is the public product identity. Internal architectural terminology may describe intelligence/orchestration components, but public UI should not expose obsolete product names.
