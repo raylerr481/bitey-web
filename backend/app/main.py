@@ -11,7 +11,7 @@ from .schemas import ConversationCreate, MessageCreate, MessageResponse
 
 app = FastAPI(
     title="Bitey IA — Supracerebro Backend",
-    version="0.2.0",
+    version="0.3.0",
     description="General-purpose intelligence backend for Bitey IA.",
 )
 
@@ -46,6 +46,7 @@ async def capabilities() -> dict:
         "memory": True,
         "persistent_memory": memory.persistent,
         "web_research_planning": True,
+        "web_url_fetch": True,
         "enterprise_context": "optional",
         "provider_orchestration": True,
         "providers": providers.available(),
@@ -74,11 +75,31 @@ async def send_message(conversation_id: str, payload: MessageCreate) -> MessageR
 
     context = context_engine.assemble(message=payload.message, metadata=payload.metadata)
     plan = research_engine.plan(payload.message, context.as_dict())
+    sources = await research_engine.fetch_urls(payload.message) if plan.required else []
+    plan.sources = sources
+
     history = await memory.history(conversation_id)
     await memory.append(conversation_id, {"role": "user", "content": payload.message})
 
+    messages = history + [{"role": "user", "content": payload.message}]
+    if sources:
+        usable = [s for s in sources if s.get("ok")]
+        research_context = "\n\n".join(
+            f"SOURCE: {item['url']}\nCONTENT: {item['content']}" for item in usable
+        )
+        if research_context:
+            messages.insert(0, {
+                "role": "system",
+                "content": (
+                    "Bitey IA tiene acceso a investigación web explícita para esta consulta. "
+                    "Usa las fuentes proporcionadas para responder; distingue hechos observados "
+                    "de inferencias y no inventes contenido que no esté en las fuentes.\n\n"
+                    + research_context
+                ),
+            })
+
     answer = await providers.generate(
-        messages=history + [{"role": "user", "content": payload.message}],
+        messages=messages,
         context={**context.as_dict(), "research_plan": plan.__dict__},
     )
     await memory.append(conversation_id, {"role": "assistant", "content": answer})
