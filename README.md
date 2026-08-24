@@ -1,81 +1,91 @@
-# Bitey IA
+# Bitey IA — Independent AI Supracerebro
 
-`bitey-web` is the **general Bitey IA web application and intelligence foundation**.
+`bitey-web` is **Bitey IA**, an independent AI suprabrain (supracerebro) being developed and evolved on **Cloudflare**.
 
-It is the main user-facing AI experience for the Bitey ecosystem: a provider-neutral, context-aware AI platform designed to evolve with conversation, memory, research, tools, reasoning and authorized enterprise capabilities.
+It is the main general-purpose AI system of the Bitey ecosystem. Its purpose is to evolve beyond a conventional chatbot into a context-aware intelligence platform with conversation, memory, research, reasoning, tools, knowledge and agent orchestration.
 
 ## Product identity
 
-**Public product:** Bitey IA
+**Public product:** Bitey IA  
+**Architectural role:** Independent AI supracerebro  
+**Primary platform:** Cloudflare
 
-Internal architecture may use terms such as intelligence engine, orchestration, memory engine or reasoning engine. The public interface must not expose obsolete product names.
+The term **supracerebro** describes the architectural role of Bitey IA. Public UI should use the product name **Bitey IA** and should not expose obsolete branding or internal implementation labels unless intentionally designed for users.
 
 ## Architectural boundary
 
 ```text
-User
-  ↓
-Bitey IA Web
-  ↓
-Bitey intelligence / orchestration
-  ├─ conversation + context
-  ├─ memory boundaries
-  ├─ research
-  ├─ reasoning
-  ├─ tools
-  └─ authorized enterprise context
-  ↓
-AI providers / research services / authorized data sources
+                         BITEY IA
+                 Independent AI Supracerebro
+                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+                bitey-web           Cloudflare
+                    │                   │
+                    └─────────┬─────────┘
+                              │
+                 Intelligence / orchestration
+                 ├─ conversation + context
+                 ├─ memory
+                 ├─ research
+                 ├─ reasoning
+                 ├─ knowledge retrieval
+                 ├─ tools
+                 ├─ agents
+                 └─ authorized enterprise capabilities
+                              │
+             AI providers / research / authorized data
 ```
 
-`bitey-web` is independent from `bitefixes-backend`. It must not absorb BiteFixes-specific business logic merely because both projects share architectural patterns.
+Bitey IA is **independent from `bitefixes-backend`**. BiteFixes-specific business logic must remain in the specialized BiteFixes system.
+
+## Relationship with enterprise systems
+
+Bitey IA can interact with specialized enterprise systems through explicit, authorized contracts.
+
+```text
+Bitey IA — independent supracerebro
+          │
+          ├── authorized enterprise integrations
+          │
+          └── BiteFixes Backend when explicitly authorized
+                         │
+                         └── BiteFixes enterprise intelligence
+```
+
+Bitey IA does not automatically inherit private BiteFixes data. Company context, permissions, credentials and tenant boundaries remain controlled by the authorized enterprise backend.
 
 ## Core responsibilities
 
+- Independent general AI intelligence and orchestration.
 - Main Bitey IA web experience.
 - Conversation and context continuity.
 - Intelligent web research.
 - Reasoning and tool orchestration.
+- Agent workflows.
+- Memory and knowledge retrieval.
 - Provider-neutral AI integration.
-- Projects, conversations and library UX.
-- Persistent memory and knowledge retrieval as they are implemented.
-- Authorized enterprise AI experiences with strict tenant isolation.
-- Production observability, security and deployment controls.
+- Projects, conversations and library experience.
+- Authorized enterprise AI integrations with strict tenant isolation.
+- Cloudflare deployment, observability, security and controlled production evolution.
 
 ## What does NOT belong here
 
 - BiteFixes-only business workflows as the general core.
-- WordPress plugin code.
-- BiteFixes mobile application code.
+- WordPress plugin implementation.
+- BiteFixes mobile application implementation.
 - Provider API secrets in browser code.
-- Another independent copy of the BiteFixes enterprise brain.
+- A duplicate copy of the BiteFixes enterprise brain.
+- Uncontrolled cross-tenant company memory.
 
 ## Ecosystem
 
 | Repository | Product | Role |
 |---|---|---|
-| `bitey-web` | **Bitey IA** | General web AI experience + intelligence foundation |
+| `bitey-web` | **Bitey IA** | Independent AI supracerebro developed on Cloudflare |
 | `bitey-ai` | **Bitey AI Enterprise WordPress Plugin** | Global WordPress enterprise channel/integration |
 | `bitefixes-backend` | **BiteFixes Backend** | Specialized BiteFixes enterprise backend/brain |
 | `bitefixes-app` | **BiteFixes App** | BiteFixes mobile channel |
-
-## Enterprise relationship
-
-Bitey IA can use an authorized company context when explicitly configured. Company data must remain tenant-scoped and permission-controlled.
-
-```text
-Bitey IA
-   ↓
-authorized enterprise context
-   ↓
-Company AI Profile / knowledge / permissions
-   ↓
-research + reasoning + tools
-   ↓
-response or authorized action
-```
-
-Bitey IA does not automatically inherit private BiteFixes data. Integration must occur through explicit contracts and authorization.
 
 ## Development priorities
 
@@ -85,20 +95,22 @@ Bitey IA does not automatically inherit private BiteFixes data. Integration must
 4. Research engine with source/evidence handling.
 5. Memory and knowledge retrieval.
 6. Tool and agent orchestration.
-7. Security, observability and controlled production deployment.
+7. Cloudflare-native intelligence services and integrations.
+8. Security, observability and controlled production deployment.
 
 ## Engineering rules
 
-1. Keep intelligence separate from UI, persistence and external providers.
-2. Keep provider-neutral interfaces wherever practical.
+1. Keep the supracerebro independent from any single provider.
+2. Separate intelligence, UI, persistence and external services.
 3. Treat memory as explicit, scoped and authorized.
 4. Preserve tenant isolation for enterprise context.
 5. Never place private API credentials in client-side code.
 6. Do not claim a capability until it is implemented and tested.
-7. Prefer incremental changes over duplicated engines.
-8. Keep compatibility with the authorized backend contracts.
-9. Validate production behavior after deployment, not only source code.
+7. Prefer incremental evolution over duplicated engines.
+8. Integrate specialized enterprise brains through explicit contracts.
+9. Validate production behavior after Cloudflare deployment, not only source code.
+10. Preserve Bitey IA as an independent product and architectural authority for the general AI layer.
 
-## Development
+## Development and deployment
 
-Use the repository's existing build/test instructions and validate the application locally before deployment. Production deployment is currently associated with the Bitey Web Cloudflare Worker.
+The production evolution of `bitey-web` is associated with the Bitey Web Cloudflare Worker. Cloudflare is the primary infrastructure platform for developing, deploying and evolving the independent Bitey IA supracerebro.
