@@ -20,8 +20,13 @@ const modalBackdrop = document.getElementById('modal-backdrop');
 const modalTitle = document.getElementById('modal-title');
 const modalText = document.getElementById('modal-text');
 const modalClose = document.getElementById('modal-close');
+const attachButton = document.getElementById('attach-button');
+const attachMenu = document.getElementById('attach-menu');
+const fileInput = document.getElementById('file-input');
+const attachmentPreview = document.getElementById('attachment-preview');
+const voiceButton = document.getElementById('voice-button');
 
-const state = { conversationId: null, languagePreference: null, title: 'Nueva conversación' };
+const state = { conversationId: null, languagePreference: null, title: 'Nueva conversación', attachments: [], listening: false };
 
 function loadLocalConversations() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
@@ -112,18 +117,71 @@ function setActivity(visible, text = 'Bitey está pensando…') {
   if (activityText) activityText.textContent = text;
 }
 
+function renderAttachments() {
+  if (!attachmentPreview) return;
+  attachmentPreview.innerHTML = '';
+  state.attachments.forEach((file, index) => {
+    const chip = document.createElement('div');
+    chip.className = 'attachment-chip';
+    const icon = file.type.startsWith('image/') ? '🖼️' : '📎';
+    chip.innerHTML = `<span>${icon}</span><span class="attachment-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span><button type="button" aria-label="Quitar ${escapeHtml(file.name)}" data-remove-attachment="${index}">×</button>`;
+    attachmentPreview.appendChild(chip);
+  });
+  attachmentPreview.querySelectorAll('[data-remove-attachment]').forEach(button => {
+    button.addEventListener('click', () => {
+      state.attachments.splice(Number(button.dataset.removeAttachment), 1);
+      renderAttachments();
+    });
+  });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+}
+
+function acceptFor(kind) {
+  if (kind === 'image') return 'image/*';
+  if (kind === 'data') return '.csv,.xlsx,.xls,.json,.jsonl,.tsv';
+  return '.pdf,.doc,.docx,.txt,.md,.rtf,.csv,.xlsx,.xls,.json,.jsonl,.tsv,.png,.jpg,.jpeg,.webp';
+}
+
+function chooseAttachment(kind) {
+  if (kind === 'library') {
+    showModal('Biblioteca', 'La Biblioteca de Bitey está preparada para conectarse al almacenamiento persistente. Aquí podrás seleccionar archivos guardados sin salir de la conversación.');
+    closeAttachMenu();
+    return;
+  }
+  fileInput.accept = acceptFor(kind);
+  fileInput.dataset.kind = kind;
+  fileInput.click();
+  closeAttachMenu();
+}
+
+function closeAttachMenu() {
+  if (!attachMenu) return;
+  attachMenu.classList.remove('open');
+  attachButton?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleAttachMenu() {
+  const open = attachMenu.classList.toggle('open');
+  attachButton?.setAttribute('aria-expanded', String(open));
+}
+
 async function sendMessage(text) {
   const message = text.trim();
-  if (!message || sendButton.disabled) return;
-  addMessage('user', message);
+  if ((!message && !state.attachments.length) || sendButton.disabled) return;
+  const attachmentNames = state.attachments.map(file => file.name);
+  const visibleMessage = message || `Archivos adjuntos: ${attachmentNames.join(', ')}`;
+  addMessage('user', visibleMessage);
   promptInput.value = '';
   promptInput.style.height = 'auto';
   sendButton.disabled = true;
-  setActivity(true, 'Bitey está procesando tu solicitud…');
+  setActivity(true, state.attachments.length ? 'Bitey está preparando tu solicitud…' : 'Bitey está procesando tu solicitud…');
   let pending = null;
   try {
     if (!state.title || state.title === 'Nueva conversación') {
-      state.title = message.length > 50 ? `${message.slice(0, 50)}…` : message;
+      state.title = message ? (message.length > 50 ? `${message.slice(0, 50)}…` : message) : attachmentNames[0] || 'Archivos';
     }
     const conversationId = await ensureConversation();
     saveLocalConversation();
@@ -132,7 +190,7 @@ async function sendMessage(text) {
     const response = await fetch(`${API_BASE}${API_PREFIX}/conversations/${conversationId}/messages`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-      body: JSON.stringify({ message, metadata: { channel: 'web', language: state.languagePreference, interface: 'bitey-web' } })
+      body: JSON.stringify({ message: message || visibleMessage, metadata: { channel: 'web', language: state.languagePreference, interface: 'bitey-web', attachments: attachmentNames } })
     });
     if (!response.ok) {
       const detail = await response.text();
@@ -142,6 +200,8 @@ async function sendMessage(text) {
     pending.textContent = data.answer || 'No recibí una respuesta de Bitey.';
     pending.classList.remove('typing');
     saveLocalConversation();
+    state.attachments = [];
+    renderAttachments();
   } catch (error) {
     if (pending) pending.textContent = 'No pude conectar con Bitey IA en este momento. Inténtalo nuevamente.';
     console.error('Bitey IA error:', error);
@@ -155,6 +215,8 @@ async function sendMessage(text) {
 function startNewChat() {
   state.conversationId = null;
   state.title = 'Nueva conversación';
+  state.attachments = [];
+  renderAttachments();
   messages.innerHTML = '<div class="welcome" id="welcome"><div class="hero-mark">B</div><div class="eyebrow">Bitey IA</div><h1>Hola, soy Bitey.</h1><p class="hero-copy">¿En qué estás pensando?</p></div>';
   renderHistory();
   promptInput.focus();
@@ -179,16 +241,52 @@ promptInput.addEventListener('keydown', event => {
 });
 newChat.addEventListener('click', startNewChat);
 
+attachButton?.addEventListener('click', toggleAttachMenu);
+document.querySelectorAll('[data-attach]').forEach(button => button.addEventListener('click', () => chooseAttachment(button.dataset.attach)));
+fileInput?.addEventListener('change', event => {
+  const files = Array.from(event.target.files || []);
+  state.attachments.push(...files);
+  renderAttachments();
+  event.target.value = '';
+});
+document.addEventListener('click', event => {
+  if (attachMenu?.classList.contains('open') && !event.target.closest('.composer')) closeAttachMenu();
+});
+
+function setupVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    voiceButton?.addEventListener('click', () => showModal('Voz', 'La entrada por voz no está disponible en este navegador. Usa un navegador compatible con Speech Recognition.'));
+    return;
+  }
+  const recognition = new SpeechRecognition();
+  recognition.lang = navigator.language || 'es-ES';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.onstart = () => { state.listening = true; voiceButton.classList.add('recording'); voiceButton.setAttribute('aria-label', 'Detener micrófono'); };
+  recognition.onresult = event => {
+    let transcript = '';
+    for (let i = event.resultIndex; i < event.results.length; i += 1) transcript += event.results[i][0].transcript;
+    promptInput.value = transcript;
+    promptInput.dispatchEvent(new Event('input'));
+  };
+  recognition.onerror = event => console.warn('Bitey voice error:', event.error);
+  recognition.onend = () => { state.listening = false; voiceButton.classList.remove('recording'); voiceButton.setAttribute('aria-label', 'Usar micrófono'); promptInput.focus(); };
+  voiceButton?.addEventListener('click', () => {
+    if (state.listening) recognition.stop();
+    else { recognition.lang = navigator.language || 'es-ES'; recognition.start(); }
+  });
+}
+setupVoice();
+
 if (clearLocal) clearLocal.addEventListener('click', () => {
   showModal('Opciones de conversación', 'Puedes limpiar el historial local de este navegador. El historial almacenado en el Supracerebro no se elimina desde aquí.');
 });
-
 if (searchChats) searchChats.addEventListener('click', () => {
   searchPanel.classList.toggle('open');
   if (searchPanel.classList.contains('open')) historySearch.focus();
 });
 if (historySearch) historySearch.addEventListener('input', () => renderHistory(historySearch.value));
-
 if (mobileMenu) mobileMenu.addEventListener('click', () => sidebar.classList.toggle('open'));
 if (modalClose) modalClose.addEventListener('click', closeModal);
 if (modalBackdrop) modalBackdrop.addEventListener('click', event => { if (event.target === modalBackdrop) closeModal(); });
@@ -205,4 +303,5 @@ document.getElementById('help')?.addEventListener('click', () => showModal('Ayud
 document.getElementById('profile')?.addEventListener('click', () => showModal('Bitey IA', 'Supracerebro independiente de BiteFixes Backend.'));
 
 renderHistory();
+renderAttachments();
 promptInput.focus();
