@@ -14,9 +14,9 @@ class ResearchPlan:
 
 
 class ResearchEngine:
-    """Safe web research adapter for the independent Supracerebro backend."""
+    """Evidence-first web research adapter for the independent Supracerebro backend."""
 
-    URL_RE = re.compile(r"https?://[^\s<>'\"]+", re.IGNORECASE)
+    URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.IGNORECASE)
 
     def plan(self, message: str, context: dict[str, Any]) -> ResearchPlan:
         explicit = bool(context.get("research", {}).get("requested"))
@@ -34,13 +34,15 @@ class ResearchEngine:
         return ResearchPlan(required=required, query=message, reasons=reasons)
 
     async def fetch_urls(self, message: str) -> list[dict[str, Any]]:
-        """Fetch explicitly supplied HTTP(S) URLs with bounded, text-only retrieval."""
-        urls = self.URL_RE.findall(message)[:3]
+        """Fetch explicitly supplied URLs with bounded text-only retrieval."""
+        raw_urls = self.URL_RE.findall(message)[:3]
+        urls = [u.rstrip(".,);]}") for u in raw_urls]
+        urls = [u if u.lower().startswith(("http://", "https://")) else f"https://{u}" for u in urls]
         if not urls:
             return []
 
         results: list[dict[str, Any]] = []
-        headers = {"User-Agent": "BiteyIA-Supracerebro/1.0"}
+        headers = {"User-Agent": "BiteyIA-Supracerebro/1.1"}
         timeout = float(__import__("os").getenv("WEB_RESEARCH_TIMEOUT", "15"))
         max_bytes = int(__import__("os").getenv("WEB_RESEARCH_MAX_BYTES", "300000"))
 
@@ -57,9 +59,18 @@ class ResearchEngine:
                     text = raw.decode(response.encoding or "utf-8", errors="replace")
                     text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.I | re.S)
                     text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.I | re.S)
+                    text = re.sub(r"<noscript[^>]*>.*?</noscript>", " ", text, flags=re.I | re.S)
                     text = re.sub(r"<[^>]+>", " ", text)
                     text = re.sub(r"\s+", " ", text).strip()
-                    results.append({"url": str(response.url), "ok": True, "content": text[:12000]})
+                    if len(text) < 80:
+                        results.append({"url": str(response.url), "ok": False, "error": "insufficient_page_text"})
+                        continue
+                    results.append({
+                        "url": str(response.url),
+                        "ok": True,
+                        "content": text[:12000],
+                        "content_type": content_type,
+                    })
                 except Exception as exc:
                     results.append({"url": url, "ok": False, "error": type(exc).__name__})
         return results
