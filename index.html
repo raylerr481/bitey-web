@@ -7,56 +7,101 @@
   <meta name="theme-color" content="#10243f" />
   <title>Bitey IA</title>
   <link rel="stylesheet" href="./styles.css" />
-  <style>
-    .sidebar-tools{display:flex;flex-direction:column;gap:2px;margin:10px 0 4px}.sidebar-tool{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:9px;background:transparent;color:#dcecf5;font:inherit;font-size:13px;text-align:left;cursor:pointer}.sidebar-tool:hover{background:rgba(255,255,255,.09)}.sidebar-tool .tool-icon{width:20px;text-align:center;opacity:.9}.search-panel{display:none;padding:6px 0 8px}.search-panel.open{display:block}.search-panel input{width:100%;padding:9px 10px;border:1px solid rgba(255,255,255,.2);border-radius:9px;background:rgba(255,255,255,.08);color:#fff;outline:0}.search-panel input::placeholder{color:#9fb9c9}.sidebar-section{font-size:10px;color:#91b4ca;text-transform:uppercase;letter-spacing:.1em;margin:17px 9px 6px;font-weight:700}.sidebar-profile{display:flex;align-items:center;gap:9px;width:100%;padding:9px 8px;border:0;border-top:1px solid rgba(255,255,255,.1);background:transparent;color:#dcecf5;text-align:left;cursor:pointer}.profile-avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#fff;font-size:12px;font-weight:700}.modal-backdrop{position:fixed;inset:0;background:rgba(5,18,30,.45);z-index:100;display:none;align-items:center;justify-content:center;padding:18px}.modal-backdrop.open{display:flex}.modal{width:min(560px,100%);max-height:82vh;overflow:auto;background:var(--card);border-radius:18px;padding:22px;box-shadow:0 20px 70px rgba(0,0,0,.25);color:var(--ink)}.modal h2{margin:0 0 8px;color:var(--navy)}.modal p{color:var(--muted);font-size:14px;line-height:1.5}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.modal button{border:1px solid var(--border);background:var(--card);color:var(--ink);border-radius:9px;padding:9px 13px;cursor:pointer}.feature-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}.feature-row{display:flex;align-items:center;gap:12px;width:100%;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--ink);text-align:left;cursor:pointer}.feature-row:hover{background:var(--soft);border-color:#9dcde2}.feature-row span:first-child{width:24px;text-align:center;color:var(--blue)}.feature-row small{display:block;color:var(--muted);margin-top:3px}.settings-form{display:grid;gap:12px}.settings-form label{display:grid;gap:6px;font-size:13px;color:#475569}.settings-form select{padding:9px;border:1px solid var(--border);border-radius:9px;background:var(--card);color:var(--ink)}.upload-action input{display:none}.muted{color:var(--muted)}.tool-toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:200;background:var(--navy);color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.2)}
-  </style>
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Navegación de Bitey IA">
-      <div class="brand"><span class="brand-mark">B</span><div><strong>Bitey IA</strong><small>Inteligencia para pensar y crear</small></div></div>
-      <button id="new-chat" class="new-chat"><span>＋</span> Nueva conversación</button>
-      <div class="sidebar-tools">
-        <button class="sidebar-tool" id="search-chats"><span class="tool-icon">⌕</span> Buscar</button>
+      <div class="brand">
+        <span class="brand-mark">B</span>
+        <div><strong>Bitey IA</strong><small>Inteligencia para pensar y crear</small></div>
+      </div>
+
+      <button id="new-chat" class="new-chat"><span>＋</span><span>Nueva conversación</span></button>
+
+      <div class="sidebar-primary">
+        <button class="sidebar-tool" id="search-chats"><span class="tool-icon">⌕</span><span>Buscar</span></button>
         <div id="search-panel" class="search-panel"><input id="history-search" type="search" placeholder="Buscar conversaciones..." aria-label="Buscar conversaciones"></div>
-        <button class="sidebar-tool" data-panel="library"><span class="tool-icon">▣</span> Biblioteca</button>
-        <button class="sidebar-tool" data-panel="projects"><span class="tool-icon">◇</span> Proyectos</button>
-        <button class="sidebar-tool" data-panel="explore"><span class="tool-icon">✦</span> Explorar IA</button>
       </div>
-      <div class="sidebar-section">Conversaciones</div>
-      <nav id="history" class="history" aria-label="Historial"></nav>
-      <div class="sidebar-spacer"></div>
+
+      <div class="sidebar-section">Espacios</div>
       <div class="sidebar-tools">
-        <button class="sidebar-tool" id="settings"><span class="tool-icon">⚙</span> Configuración</button>
-        <button class="sidebar-tool" id="help"><span class="tool-icon">?</span> Ayuda</button>
+        <button class="sidebar-tool" data-panel="projects"><span class="tool-icon">◇</span><span>Proyectos</span></button>
+        <button class="sidebar-tool" data-panel="library"><span class="tool-icon">▣</span><span>Biblioteca</span></button>
+        <button class="sidebar-tool" data-panel="explore"><span class="tool-icon">✦</span><span>Explorar IA</span></button>
       </div>
-      <button id="profile" class="sidebar-profile"><span class="profile-avatar">B</span><span><strong>Bitey IA</strong></span></button>
+
+      <div class="sidebar-section conversations-label">Conversaciones</div>
+      <nav id="history" class="history" aria-label="Historial"></nav>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-tools sidebar-bottom">
+        <button class="sidebar-tool" id="settings"><span class="tool-icon">⚙</span><span>Configuración</span></button>
+        <button class="sidebar-tool" id="help"><span class="tool-icon">?</span><span>Ayuda</span></button>
+      </div>
+      <button id="profile" class="sidebar-profile" aria-label="Abrir menú de perfil">
+        <span class="profile-avatar">B</span>
+        <span class="profile-copy"><strong>Bitey IA</strong><small>Cuenta</small></span>
+        <span class="profile-more">•••</span>
+      </button>
     </aside>
+
     <main class="chat-area">
-      <header class="topbar"><button id="mobile-menu" class="icon-button" aria-label="Abrir menú">☰</button><div class="mobile-brand"><span class="brand-mark">B</span> Bitey IA</div><div class="topbar-right"><span class="status"><i></i> Online</span><button id="clear-local" class="icon-button" aria-label="Opciones">•••</button></div></header>
-      <section id="messages" class="messages" aria-live="polite"><div class="welcome" id="welcome"><div class="hero-mark">B</div><div class="eyebrow">Bitey IA</div><h1>Hola, soy Bitey.</h1><p class="hero-copy">¿En qué estás pensando?</p></div></section>
-      <div id="activity" class="activity" hidden><span class="thinking-dots"><i></i><i></i><i></i></span><span id="activity-text">Bitey está pensando…</span></div>
+      <header class="topbar">
+        <button id="mobile-menu" class="icon-button" aria-label="Abrir menú">☰</button>
+        <div class="mobile-brand"><span class="brand-mark">B</span><strong>Bitey IA</strong></div>
+        <div class="topbar-model">Bitey IA <span>⌄</span></div>
+        <div class="topbar-right">
+          <span class="status"><i></i>Online</span>
+          <button id="clear-local" class="icon-button" aria-label="Más opciones">•••</button>
+        </div>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="hero-mark">B</div>
+          <h1>Hola, soy Bitey.</h1>
+          <p class="hero-copy">¿En qué estás pensando?</p>
+        </div>
+      </section>
+
+      <div id="activity" class="activity" hidden>
+        <span class="thinking-dots"><i></i><i></i><i></i></span>
+        <span id="activity-text">Bitey está pensando…</span>
+      </div>
+
       <div id="attachment-preview" class="attachment-preview" aria-live="polite"></div>
-      <form id="chat-form" class="composer" autocomplete="off">
-        <div class="composer-main">
-          <button id="attach-button" class="composer-tool" type="button" aria-label="Añadir archivos" aria-haspopup="menu" aria-expanded="false">＋</button>
-          <textarea id="prompt" rows="1" placeholder="Pregunta lo que quieras a Bitey IA..." aria-label="Mensaje"></textarea>
-          <button id="voice-button" class="composer-tool" type="button" aria-label="Usar micrófono" title="Hablar con Bitey">🎙️</button>
-          <button id="send" type="submit" aria-label="Enviar mensaje">➤</button>
-        </div>
-        <div id="attach-menu" class="attach-menu" role="menu" aria-label="Añadir a Bitey">
-          <button type="button" data-attach="file">📄 <span><strong>Archivo</strong><small>PDF, Word, texto y otros</small></span></button>
-          <button type="button" data-attach="image">🖼️ <span><strong>Imagen</strong><small>Fotos y capturas</small></span></button>
-          <button type="button" data-attach="data">📊 <span><strong>Datos</strong><small>CSV, Excel y archivos de datos</small></span></button>
-          <button type="button" data-attach="library">📚 <span><strong>Biblioteca</strong><small>Usar un archivo guardado</small></span></button>
-        </div>
-      </form>
-      <div class="composer-hint">Enter para enviar · Shift + Enter para una nueva línea</div>
-      <div class="disclaimer">Bitey IA puede cometer errores. Verifica la información importante.</div>
+
+      <div class="composer-wrap">
+        <form id="chat-form" class="composer" autocomplete="off">
+          <div class="composer-main">
+            <button id="attach-button" class="composer-tool" type="button" aria-label="Añadir archivos y herramientas" aria-haspopup="menu" aria-expanded="false">＋</button>
+            <textarea id="prompt" rows="1" placeholder="Pregunta lo que quieras a Bitey IA..." aria-label="Mensaje"></textarea>
+            <button id="voice-button" class="composer-tool" type="button" aria-label="Usar micrófono" title="Hablar con Bitey">🎙️</button>
+            <button id="send" class="send-button" type="submit" aria-label="Enviar mensaje">➤</button>
+          </div>
+          <div id="attach-menu" class="attach-menu" role="menu" aria-label="Añadir a Bitey">
+            <div class="menu-title">Añadir a Bitey</div>
+            <button type="button" data-attach="file"><span class="menu-icon">📄</span><span><strong>Archivo</strong><small>PDF, Word, texto y otros</small></span></button>
+            <button type="button" data-attach="image"><span class="menu-icon">🖼️</span><span><strong>Imagen</strong><small>Fotos y capturas</small></span></button>
+            <button type="button" data-attach="data"><span class="menu-icon">📊</span><span><strong>Datos</strong><small>CSV, Excel y archivos de datos</small></span></button>
+            <button type="button" data-attach="library"><span class="menu-icon">📚</span><span><strong>Biblioteca</strong><small>Usar un archivo guardado</small></span></button>
+          </div>
+        </form>
+        <div class="composer-hint">Enter para enviar · Shift + Enter para una nueva línea</div>
+        <div class="disclaimer">Bitey IA puede cometer errores. Verifica la información importante.</div>
+      </div>
     </main>
   </div>
+
   <input id="file-input" type="file" multiple hidden>
-  <div id="modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal"><h2 id="modal-title">Bitey IA</h2><p id="modal-text">Esta sección está preparada para las capacidades de Bitey IA.</p><div id="modal-body"></div><div class="modal-actions"><button id="modal-close">Cerrar</button></div></div></div>
+  <div id="modal-backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <h2 id="modal-title">Bitey IA</h2>
+      <p id="modal-text">Esta sección está preparada para las capacidades de Bitey IA.</p>
+      <div id="modal-body"></div>
+      <div class="modal-actions"><button id="modal-close">Cerrar</button></div>
+    </div>
+  </div>
   <script src="./app.js"></script>
   <script src="./features.js"></script>
 </body>
