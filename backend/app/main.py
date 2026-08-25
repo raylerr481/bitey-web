@@ -74,6 +74,11 @@ async def test_email_notification() -> dict:
     result = await send_trainer_test_email()
     return {"status": "sent", "provider": "resend", "id": result.get("id")}
 
+@app.get("/api/v1/notifications/test-email-now")
+async def test_email_notification_now() -> dict:
+    result = await send_trainer_test_email()
+    return {"status": "sent", "provider": "resend", "id": result.get("id")}
+
 @app.post("/api/v1/conversations")
 async def create_conversation(payload: ConversationCreate) -> dict:
     conversation_id=str(uuid4()); await memory.create_conversation(conversation_id,payload.metadata)
