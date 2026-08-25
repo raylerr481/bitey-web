@@ -14,6 +14,7 @@ from .core.provider_gateway import ProviderGateway
 from .core.research_engine import ResearchEngine
 from .core.tool_orchestrator import ToolOrchestrator, ToolSpec, safe_calculate
 from .core.workspace import WorkspaceStore
+from .notifications import send_trainer_test_email
 from .schemas import ConversationCreate, MessageCreate, MessageResponse
 
 async def _background_loop(stop_event: asyncio.Event) -> None:
@@ -66,7 +67,12 @@ async def health() -> dict:
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"tools":tools.available(),"cost_mode":"free_only","providers":providers.available()}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"email_notifications":bool(__import__('os').getenv('RESEND_API_KEY'))}
+
+@app.post("/api/v1/notifications/test-email")
+async def test_email_notification() -> dict:
+    result = await send_trainer_test_email()
+    return {"status": "sent", "provider": "resend", "id": result.get("id")}
 
 @app.post("/api/v1/conversations")
 async def create_conversation(payload: ConversationCreate) -> dict:
