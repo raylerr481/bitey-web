@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
+<title>Bitey IA</title><desc>Logo de Bitey IA con robot azul y cian sobre fondo oscuro</desc>
+<defs><linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#29e7f2"/><stop offset="1" stop-color="#1674ff"/></linearGradient><linearGradient id="text" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffffff"/><stop offset=".72" stop-color="#ffffff"/><stop offset=".73" stop-color="#1ed9f0"/><stop offset="1" stop-color="#1877ff"/></linearGradient></defs>
+<rect width="800" height="800" rx="72" fill="#05070b"/>
+<circle cx="400" cy="255" r="168" fill="none" stroke="url(#ring)" stroke-width="14"/>
+<path d="M236 250c0-77 60-126 164-126s164 49 164 126v96c0 70-57 119-164 119s-164-49-164-119z" fill="#e8f0f5" stroke="#162333" stroke-width="12"/>
+<rect x="270" y="205" width="260" height="154" rx="62" fill="#07111f" stroke="#8fa8bd" stroke-width="8"/>
+<ellipse cx="335" cy="276" rx="15" ry="28" fill="#24e7ff"/><ellipse cx="465" cy="276" rx="15" ry="28" fill="#24e7ff"/>
+<path d="M353 314c22 26 72 26 94 0" fill="none" stroke="#28dff5" stroke-width="10" stroke-linecap="round"/>
+<path d="M400 124v-35" stroke="#94a9bd" stroke-width="9"/><circle cx="400" cy="70" r="24" fill="#1478ff" stroke="#36e8f7" stroke-width="6"/>
+<path d="M276 405l-62 48 73-12" fill="#e8f0f5" stroke="#162333" stroke-width="10"/>
+<text x="400" y="575" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="96" font-weight="700" fill="url(#text)">bitey IA</text>
+<text x="400" y="622" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="600" letter-spacing="7" fill="#28dff5">INTELIGENCIA ARTIFICIAL</text>
+</svg>
