@@ -4,60 +4,81 @@
 
 ## Product role
 
-Bitey IA is the general-purpose AI of the ecosystem: its own conversational dynamics, identity, memory, projects, files and evolving capabilities. Bitey IA Web is the primary web channel to that intelligence. `bitey-ia-app` is another channel to the same Bitey IA, not a separate brain.
+Bitey IA is the general intelligence layer of the ecosystem. Bitey IA Web is one channel to that intelligence. `bitey-ia-app` is another channel to the same Bitey IA, not a separate brain.
 
 ```text
                          BITEY IA
                     SUPRACEREBRO / IA
                            │
-                 ┌─────────┴─────────┐
-                 │                   │
-            Bitey IA Web        Bitey IA App
-              web channel        mobile channel
-                 │
-        ┌────────┼───────────┐
-        │        │           │
-      JobIA    Bitey SBT   BiteFixes
-        │        │           │
-   Bitey Trainer SBT App  Bitey IA Empresarial
-     (motor)               App + Web
+          ┌────────────────┼────────────────┐
+          │                │                │
+       JobIA           Bitey SBT        BiteFixes
+          │                │                │
+   Bitey Trainer      SBT Web/App     Enterprise IA
+      (motor)          (specialized)   (contextual)
 ```
 
-The modules enrich the Bitey IA ecosystem; they do not replace or restrict the general Supracerebro.
+All products are interconnected through explicit APIs/contracts, while their frontends, user experiences, operational data and product identities remain independent.
 
-## Modules
+## Bitey System Bots Trading
 
-### JobIA
-JobIA is a product in development for employment and legitimate income opportunities. It searches and ranks opportunities, supports remote/hybrid/onsite work, applications, CVs, cover letters and compensation analysis.
+`bitey-system-bots-trading` is the specialized trading intelligence and platform backend. `bitey-system-bots-trading-app` is its mobile channel. A separate SBT web frontend is planned for independent Cloudflare deployment.
 
-### Bitey Trainer
-`bitey-trainer` is the **internal intelligence/training engine of JobIA**. It is not a mobile application. It develops and validates opportunity matching, AI-training/evaluation intelligence and related capabilities consumed by JobIA through controlled contracts.
+Bitey SBT is an **original Bitey product**. It can implement broad, non-exclusive market capabilities such as research, strategy construction, simulation, comparison, validation, publishing and monitoring, but its UX, terminology, architecture, scoring, orchestration, copy and visual identity must be designed independently.
 
-### Bitey System Bots Trading
-`bitey-system-bots-trading` is an independent specialized trading module of Bitey IA. Its application is **Bitey SBT App**. It starts with research, backtesting, demo and paper trading before any explicitly authorized live trading.
+Bitey SBT must not become a visual, textual or code clone of TradingKit or any other competitor. Competitor products may be studied only as market references; implementation decisions must be derived from Bitey's own product requirements.
 
-### BiteFixes / Bitey IA Empresarial
-BiteFixes is an enterprise product with BiteFixes Web and BiteFixes App. Its **Bitey IA Empresarial** maintains Bitey IA's architecture and capabilities while operating with BiteFixes business context: CRM, customers, tickets, services, knowledge, workflows and authorized company data.
+## BiteFixes / Bitey IA Empresarial
 
-BiteFixes context is contextualized to BiteFixes and must not become unrestricted general memory. Authorized, privacy-safe knowledge or capabilities may enrich the broader ecosystem without exposing private customer/company data.
+BiteFixes is an enterprise product with its own Web and App channels. **Bitey IA Empresarial** operates with BiteFixes business context: CRM, customers, tickets, services, knowledge, workflows and authorized company data.
 
-## WordPress channel
+Private BiteFixes data remains inside authorized enterprise boundaries and must not be exposed to unrelated products.
 
-`bitey-ai` is the **Bitey IA Enterprise WordPress Plugin**. It is an integration/channel layer, not the Supracerebro and not a duplicate backend.
+## JobIA and Bitey Trainer
+
+JobIA is a separate product in development. `bitey-trainer` is its internal intelligence/training engine, not a mobile application.
+
+## WordPress integration
+
+`bitey-ai` is the configurable Bitey IA Enterprise WordPress integration/channel layer. It is not the general Supracerebro and not a duplicate backend.
+
+## Interconnection rule
+
+```text
+Independent frontend
+       │
+       ▼
+Specialized backend
+       │
+       ├── authorized platform data
+       └── explicit Bitey IA contract
+                    │
+                    ▼
+                BITEY IA
+```
+
+Interconnection does not mean shared unrestricted memory. Sensitive/private information stays within its authorized product and tenant boundary.
 
 ## Data and security
 
 - User and company data remain isolated by authorization and tenant boundaries.
 - Provider credentials remain server-side.
-- Modules communicate through explicit, authorized APIs/contracts.
-- Bitey IA remains the general AI; specialized modules provide additional capabilities.
-- BiteFixes private operational context remains within authorized BiteFixes flows.
+- Specialized products communicate with Bitey IA through explicit contracts.
+- Bitey IA remains the general intelligence layer.
+- Specialized products remain authoritative for their own domain operations.
+- BiteFixes private operational context remains restricted to authorized enterprise flows.
+- SBT trading controls remain authoritative inside the SBT backend/Risk Engine.
+
+## Product development principle
+
+The ecosystem should reuse proven engineering knowledge without copying protected expression from competitors. Every new product feature should have an independent Bitey information architecture, implementation and visual treatment.
 
 ## Production priorities
 
 1. Keep Bitey IA Web reliable and AI-first.
-2. Keep web and Android channels aligned to the same Bitey IA identity and contracts.
+2. Keep web and Android channels aligned to the same Bitey IA identity/contracts.
 3. Integrate JobIA with validated Bitey Trainer capabilities.
-4. Integrate Bitey SBT through safe trading APIs.
-5. Preserve Bitey IA Empresarial as the contextual enterprise layer for BiteFixes.
-6. Maintain authentication, privacy, tenant isolation and observability.
+4. Integrate Bitey SBT through safe, versioned trading APIs.
+5. Build the SBT web frontend as an independent product, not as an extension of `bitey-web`.
+6. Preserve Bitey IA Empresarial as the contextual enterprise layer for BiteFixes.
+7. Maintain authentication, privacy, tenant isolation and observability.
