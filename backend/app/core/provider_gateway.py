@@ -82,6 +82,7 @@ class ProviderGateway:
         self._providers: dict[str, AIProvider] = {}
         self._openrouter_catalog_loaded = False
         self._openrouter_catalog_loaded_at = 0.0
+        self._conversation_provider: dict[str, str] = {}
         self._register_from_environment()
 
     def register(self, provider: AIProvider) -> None:
@@ -175,21 +176,36 @@ class ProviderGateway:
         if not providers:
             logger.warning("provider_council_no_free_provider hard_stop=%s", self._hard_stop())
             return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if self._hard_stop() and self._free_only() else "Bitey IA no tiene un proveedor disponible en este momento."
+
+        conversation_id = str(context.get("conversation_id") or "").strip()
+        sticky_name = self._conversation_provider.get(conversation_id) if conversation_id else None
+        sticky = next((p for p in providers if p.name == sticky_name), None) if sticky_name else None
+        ordered = ([sticky] if sticky else []) + [p for p in sorted(providers, key=lambda p: p.priority) if not sticky or p.name != sticky.name]
         max_providers = max(1, int(os.getenv("AI_COUNCIL_MAX_PROVIDERS", "2")))
-        for attempt, provider in enumerate(sorted(providers, key=lambda p: p.priority)[:max_providers], start=1):
+
+        for attempt, provider in enumerate(ordered[:max_providers], start=1):
             started = time.perf_counter()
             try:
                 if not await provider.health():
                     logger.warning("provider_unhealthy provider=%s attempt=%d", provider.name, attempt)
+                    if conversation_id and self._conversation_provider.get(conversation_id) == provider.name:
+                        self._conversation_provider.pop(conversation_id, None)
                     continue
                 answer = await provider.generate(messages=messages, context=context)
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 if answer:
-                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d", provider.name, getattr(provider, "model", ""), attempt, elapsed_ms)
+                    if conversation_id:
+                        self._conversation_provider[conversation_id] = provider.name
+                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", ""), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name))
                     return answer
                 logger.warning("provider_empty_response provider=%s attempt=%d elapsed_ms=%d", provider.name, attempt, elapsed_ms)
+                if conversation_id and self._conversation_provider.get(conversation_id) == provider.name:
+                    self._conversation_provider.pop(conversation_id, None)
             except Exception as exc:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 logger.warning("provider_failed provider=%s model=%s attempt=%d elapsed_ms=%d error=%s", provider.name, getattr(provider, "model", ""), attempt, elapsed_ms, type(exc).__name__)
-        logger.warning("provider_council_exhausted attempted=%d", min(len(providers), max_providers))
+                if conversation_id and self._conversation_provider.get(conversation_id) == provider.name:
+                    self._conversation_provider.pop(conversation_id, None)
+
+        logger.warning("provider_council_exhausted attempted=%d", min(len(ordered), max_providers))
         return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
