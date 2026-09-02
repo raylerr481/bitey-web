@@ -17,3 +17,6 @@ class MessageResponse(BaseModel):
     research_required: bool
     research_reasons: list[str]
     providers: list[str]
+    selected_provider: str | None = None
+    elapsed_ms: int | None = None
+    activity_events: list[str] = Field(default_factory=list)
