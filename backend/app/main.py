@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import asyncio
+import time
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI
@@ -101,18 +102,26 @@ async def submit_feedback(payload: dict) -> dict:
 
 @app.post("/api/v1/conversations/{conversation_id}/messages", response_model=MessageResponse)
 async def send_message(conversation_id: str,payload: MessageCreate) -> MessageResponse:
+    started = time.perf_counter()
+    activity_events = ["Analizando tu solicitud…"]
     try: UUID(conversation_id)
-    except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available())
+    except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available(),elapsed_ms=int((time.perf_counter()-started)*1000),activity_events=["Validando la conversación…"])
     context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict()
+    activity_events.append("Identificando intención y contexto…")
     selected=tools.select(payload.message,ctx); tool_results=await tools.execute(selected,message=payload.message,context=ctx)
+    if selected: activity_events.append("Consultando herramientas relevantes…")
     plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
     evidence=tool_results.get("web_research",{}).get("evidence","")
     if not evidence and (plan.required or deep_plan.reasons):
+        activity_events.append("Investigando y contrastando información…")
         deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
     history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
     if evidence: messages.insert(0,{"role":"system","content":"TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence})
     elif plan.required or deep_plan.reasons: messages.insert(0,{"role":"system","content":"La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información."})
+    activity_events.append("Seleccionando la mejor IA disponible…")
     answer=await providers.generate(messages=messages,context={**ctx,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"})
+    activity_events.append("Verificando y preparando la respuesta…")
     await memory.append(conversation_id,{"role":"assistant","content":answer})
     if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected},source="conversation",confidence=.4)
-    return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available())
+    elapsed_ms=int((time.perf_counter()-started)*1000)
+    return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
