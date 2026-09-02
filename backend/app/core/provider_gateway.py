@@ -7,7 +7,6 @@ from typing import Any, Protocol
 
 import httpx
 
-
 logger = logging.getLogger("bitey.providers")
 
 
@@ -16,11 +15,9 @@ class AIProvider(Protocol):
     priority: int
     free_only: bool
 
-    async def health(self) -> bool:
-        ...
+    async def health(self) -> bool: ...
 
-    async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        ...
+    async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str: ...
 
 
 class OpenAICompatibleProvider:
@@ -101,33 +98,11 @@ class ProviderGateway:
 
     def _register_from_environment(self) -> None:
         free_only = self._free_only()
-
         if os.getenv("GEMMA_4_12B_ENABLED", "false").lower() == "true":
             endpoint = os.getenv("GEMMA_4_12B_ENDPOINT", "http://127.0.0.1:50305/v1")
-            self.register(OpenAICompatibleProvider(
-                "gemma-4-12b-local",
-                endpoint,
-                os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"),
-                os.getenv("GEMMA_4_12B_API_KEY", ""),
-                int(os.getenv("GEMMA_4_12B_PRIORITY", "3")),
-                free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost"),
-            ))
-
-        if (
-            os.getenv("GROQ_ENABLED", "true").lower() != "false"
-            and os.getenv("GROQ_API_KEY")
-            and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true"
-            and os.getenv("GROQ_FREE_ONLY_CONFIRMED", "false").lower() == "true"
-        ):
-            self.register(OpenAICompatibleProvider(
-                "groq-free",
-                "https://api.groq.com/openai/v1",
-                os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
-                os.getenv("GROQ_API_KEY", ""),
-                int(os.getenv("GROQ_PRIORITY", "5")),
-                free_only=True,
-            ))
-
+            self.register(OpenAICompatibleProvider("gemma-4-12b-local", endpoint, os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"), os.getenv("GEMMA_4_12B_API_KEY", ""), int(os.getenv("GEMMA_4_12B_PRIORITY", "3")), free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost")))
+        if (os.getenv("GROQ_ENABLED", "true").lower() != "false" and os.getenv("GROQ_API_KEY") and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true" and os.getenv("GROQ_FREE_ONLY_CONFIRMED", "false").lower() == "true"):
+            self.register(OpenAICompatibleProvider("groq-free", "https://api.groq.com/openai/v1", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), os.getenv("GROQ_API_KEY", ""), int(os.getenv("GROQ_PRIORITY", "5")), free_only=True))
         if os.getenv("OPENROUTER_ENABLED", "false").lower() != "false" and os.getenv("OPENROUTER_API_KEY"):
             qwen = os.getenv("OPENROUTER_QWEN_MODEL", "qwen/qwen3-4b:free")
             deepseek = os.getenv("OPENROUTER_DEEPSEEK_MODEL", "deepseek/deepseek-chat-v3-0324:free")
@@ -135,7 +110,6 @@ class ProviderGateway:
                 self.register(OpenAICompatibleProvider("qwen-free", "https://openrouter.ai/api/v1", qwen, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("QWEN_PRIORITY", "10")), free_only=True))
             if os.getenv("DEEPSEEK_ENABLED", "true").lower() != "false" and self._is_free_model_id(deepseek):
                 self.register(OpenAICompatibleProvider("deepseek-free", "https://openrouter.ai/api/v1", deepseek, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("DEEPSEEK_PRIORITY", "15")), free_only=True))
-
         if not free_only and os.getenv("CLOUDFLARE_AI_ENABLED", "true").lower() != "false":
             account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
             token = os.getenv("CLOUDFLARE_API_TOKEN", "")
@@ -172,11 +146,9 @@ class ProviderGateway:
             for item in models:
                 model_id = str(item.get("id") or "")
                 pricing = item.get("pricing") or {}
-                prompt_price = str(pricing.get("prompt", ""))
-                completion_price = str(pricing.get("completion", ""))
                 if not self._is_free_model_id(model_id):
                     continue
-                if prompt_price not in {"0", "0.0", "0.00"} or completion_price not in {"0", "0.0", "0.00"}:
+                if str(pricing.get("prompt", "")) not in {"0", "0.0", "0.00"} or str(pricing.get("completion", "")) not in {"0", "0.0", "0.00"}:
                     continue
                 if not self._is_chat_model(item):
                     continue
@@ -184,16 +156,12 @@ class ProviderGateway:
                 self.register(OpenAICompatibleProvider(safe_name, "https://openrouter.ai/api/v1", model_id, api_key, base_priority, free_only=True))
                 discovered.add(safe_name)
                 base_priority += 1
-
-            # Remove discovered models that disappeared from the current free catalog.
             for name in [n for n in self._providers if n.startswith("openrouter-free-") and n not in discovered]:
                 self._providers.pop(name, None)
-
             self._openrouter_catalog_loaded = True
             self._openrouter_catalog_loaded_at = time.monotonic()
             logger.info("openrouter_catalog_discovered free_chat_models=%d", len(discovered))
         except Exception as exc:
-            # Keep the last verified registry during a transient catalog outage.
             self._openrouter_catalog_loaded = True
             self._openrouter_catalog_loaded_at = time.monotonic()
             logger.warning("openrouter_catalog_discovery_failed error=%s", type(exc).__name__)
@@ -206,16 +174,12 @@ class ProviderGateway:
         providers = [p for p in self._providers.values() if not self._free_only() or p.free_only]
         if not providers:
             logger.warning("provider_council_no_free_provider hard_stop=%s", self._hard_stop())
-            if self._hard_stop() and self._free_only():
-                return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
-            return "Bitey IA no tiene un proveedor disponible en este momento."
-
+            return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if self._hard_stop() and self._free_only() else "Bitey IA no tiene un proveedor disponible en este momento."
         max_providers = max(1, int(os.getenv("AI_COUNCIL_MAX_PROVIDERS", "2")))
         for attempt, provider in enumerate(sorted(providers, key=lambda p: p.priority)[:max_providers], start=1):
             started = time.perf_counter()
             try:
-                healthy = await provider.health()
-                if not healthy:
+                if not await provider.health():
                     logger.warning("provider_unhealthy provider=%s attempt=%d", provider.name, attempt)
                     continue
                 answer = await provider.generate(messages=messages, context=context)
@@ -227,6 +191,5 @@ class ProviderGateway:
             except Exception as exc:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 logger.warning("provider_failed provider=%s model=%s attempt=%d elapsed_ms=%d error=%s", provider.name, getattr(provider, "model", ""), attempt, elapsed_ms, type(exc).__name__)
-
         logger.warning("provider_council_exhausted attempted=%d", min(len(providers), max_providers))
         return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
