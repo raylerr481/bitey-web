@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import time
 from uuid import UUID, uuid4
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,12 +48,9 @@ async def workspace_files_tool(message: str, context: dict | None = None) -> dic
 async def calculator_tool(message: str, context: dict | None = None) -> dict:
     import re
     matches = re.findall(r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?:\s*[+\-*/%^]\s*[-+]?\d+(?:\.\d+)?)+", message)
-    if not matches:
-        return {"ok": True, "available": True, "calculated": False}
-    try:
-        return {"ok": True, "available": True, "calculated": True, "expression": matches[0], "result": safe_calculate(matches[0])}
-    except Exception:
-        return {"ok": False, "calculated": False, "error": "unsupported_expression"}
+    if not matches: return {"ok": True, "available": True, "calculated": False}
+    try: return {"ok": True, "available": True, "calculated": True, "expression": matches[0], "result": safe_calculate(matches[0])}
+    except Exception: return {"ok": False, "calculated": False, "error": "unsupported_expression"}
 
 async def code_reasoning_tool(message: str, context: dict | None = None) -> dict:
     return {"ok": True, "available": True, "mode": "analysis_only", "note": "No arbitrary code execution is enabled by default."}
@@ -68,17 +66,15 @@ async def health() -> dict:
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"email_notifications":bool(__import__('os').getenv('RESEND_API_KEY'))}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
 
 @app.post("/api/v1/notifications/test-email")
 async def test_email_notification() -> dict:
-    result = await send_trainer_test_email()
-    return {"status": "sent", "provider": "resend", "id": result.get("id")}
+    result = await send_trainer_test_email(); return {"status": "sent", "provider": "resend", "id": result.get("id")}
 
 @app.get("/api/v1/notifications/test-email-now")
 async def test_email_notification_now() -> dict:
-    result = await send_trainer_test_email()
-    return {"status": "sent", "provider": "resend", "id": result.get("id")}
+    result = await send_trainer_test_email(); return {"status": "sent", "provider": "resend", "id": result.get("id")}
 
 @app.post("/api/v1/conversations")
 async def create_conversation(payload: ConversationCreate) -> dict:
@@ -89,39 +85,31 @@ async def create_conversation(payload: ConversationCreate) -> dict:
 
 @app.get("/api/v1/projects")
 async def list_projects() -> dict: return {"projects":await workspace.list_projects()}
-
 @app.post("/api/v1/projects")
 async def create_project(payload: dict) -> dict: return await workspace.create_project(name=str(payload.get("name") or "Nuevo proyecto"),description=str(payload.get("description") or ""),instructions=str(payload.get("instructions") or ""),metadata=payload.get("metadata") or {})
-
 @app.post("/api/v1/projects/{project_id}/files")
 async def register_project_file(project_id: str,payload: dict) -> dict: return await workspace.add_file_metadata(project_id=project_id,name=str(payload.get("name") or "archivo"),mime_type=payload.get("mime_type"),size_bytes=payload.get("size_bytes"),extracted_text=payload.get("extracted_text"),metadata=payload.get("metadata") or {})
-
 @app.post("/api/v1/feedback")
 async def submit_feedback(payload: dict) -> dict:
     await workspace.feedback(conversation_id=str(payload.get("conversation_id")),message_id=payload.get("message_id"),rating=payload.get("rating"),feedback=payload.get("feedback")); return {"status":"recorded"}
 
 @app.post("/api/v1/conversations/{conversation_id}/messages", response_model=MessageResponse)
 async def send_message(conversation_id: str,payload: MessageCreate) -> MessageResponse:
-    started = time.perf_counter()
-    activity_events = ["Analizando tu solicitud…"]
+    started=time.perf_counter(); activity_events=["Analizando tu solicitud…"]
     try: UUID(conversation_id)
     except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available(),elapsed_ms=int((time.perf_counter()-started)*1000),activity_events=["Validando la conversación…"])
-    context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict()
-    activity_events.append("Identificando intención y contexto…")
+    context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
     selected=tools.select(payload.message,ctx); tool_results=await tools.execute(selected,message=payload.message,context=ctx)
     if selected: activity_events.append("Consultando herramientas relevantes…")
-    plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
-    evidence=tool_results.get("web_research",{}).get("evidence","")
+    plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx); evidence=tool_results.get("web_research",{}).get("evidence","")
     if not evidence and (plan.required or deep_plan.reasons):
-        activity_events.append("Investigando y contrastando información…")
-        deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
+        activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
     history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
     if evidence: messages.insert(0,{"role":"system","content":"TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence})
     elif plan.required or deep_plan.reasons: messages.insert(0,{"role":"system","content":"La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información."})
     activity_events.append("Seleccionando la mejor IA disponible…")
     answer=await providers.generate(messages=messages,context={**ctx,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"})
-    activity_events.append("Verificando y preparando la respuesta…")
-    await memory.append(conversation_id,{"role":"assistant","content":answer})
+    activity_events.append("Verificando y preparando la respuesta…"); await memory.append(conversation_id,{"role":"assistant","content":answer})
     if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected},source="conversation",confidence=.4)
     elapsed_ms=int((time.perf_counter()-started)*1000)
     return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
