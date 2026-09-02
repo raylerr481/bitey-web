@@ -1,14 +1,45 @@
 # Bitey IA Web
 
-`bitey-web` is **Bitey IA Web**, the web channel and Cloudflare-hosted **Supracerebro of Bitey IA**.
+`bitey-web` is **Bitey IA Web**, the web channel and Cloudflare-hosted intelligence layer of Bitey IA.
 
 ## Product role
 
 Bitey IA is the general intelligence layer of the ecosystem. Bitey IA Web is one channel to that intelligence. `bitey-ia-app` is another channel to the same Bitey IA, not a separate brain.
 
+## AI provider policy
+
+Bitey IA uses a **free-first provider gateway**. Providers are selected explicitly by configuration; there is no silent switch to a paid provider.
+
+### Gemma 4 12B
+
+Bitey IA Web supports **Google Gemma 4 12B** as an optional local provider named `gemma-4-12b-local`.
+
+- Model: `google/gemma-4-12B-it`
+- License: Apache 2.0
+- Local endpoint: OpenAI-compatible `/v1/chat/completions`
+- Default endpoint: `http://127.0.0.1:50305/v1`
+- No Gemini API is required for this local integration.
+- Recommended runtimes include llama.cpp, LM Studio and LiteRT-LM-compatible OpenAI endpoints.
+
+Enable it in the Bitey IA backend with:
+
+```text
+BITEY_COST_MODE=free_only
+GEMMA_4_12B_ENABLED=true
+GEMMA_4_12B_ENDPOINT=http://127.0.0.1:50305/v1
+GEMMA_4_12B_MODEL=google/gemma-4-12B-it
+GEMMA_4_12B_PRIORITY=3
+```
+
+The endpoint must be reachable from the backend process. A deployed Cloudflare backend cannot directly reach `127.0.0.1` on a user's PC; for production hosting, use an explicitly authorized reachable inference endpoint or keep Gemma local.
+
+Google documents Gemma 4 12B as a model designed for local laptop inference and approximately 16 GB of VRAM/unified memory. The model is also available as open weights through the Gemma ecosystem.
+
+## Ecosystem architecture
+
 ```text
                          BITEY IA
-                    SUPRACEREBRO / IA
+                    GENERAL INTELLIGENCE
                            │
           ┌────────────────┼────────────────┐
           │                │                │
@@ -40,7 +71,7 @@ JobIA is a separate product in development. `bitey-trainer` is its internal inte
 
 ## WordPress integration
 
-`bitey-ai` is the configurable Bitey IA Enterprise WordPress integration/channel layer. It is not the general Supracerebro and not a duplicate backend.
+`bitey-ai` is the configurable Bitey IA Enterprise WordPress integration/channel layer. It is not the general intelligence layer and not a duplicate backend.
 
 ## Interconnection rule
 
@@ -82,3 +113,4 @@ The ecosystem should reuse proven engineering knowledge without copying protecte
 5. Build the SBT web frontend as an independent product, not as an extension of `bitey-web`.
 6. Preserve Bitey IA Empresarial as the contextual enterprise layer for BiteFixes.
 7. Maintain authentication, privacy, tenant isolation and observability.
+8. Maintain a free-first AI provider path, including optional local Gemma 4 12B inference.
