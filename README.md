@@ -25,7 +25,7 @@ Bitey should not require a hardcoded list of every free model on OpenRouter. Whe
 
 The discovered models are registered in the same provider/model pool used by the AI Council. This means a newly published free model can become available to Bitey without a code change, subject to the catalog and policy checks.
 
-OpenRouter currently provides a dedicated `openrouter/free` router that selects among currently available free models and filters for request capabilities. OpenRouter also publishes a changing catalog of zero-priced free variants. citeturn0search0turn0search2
+OpenRouter provides a dedicated `openrouter/free` router that selects among currently available free models and filters for request capabilities. Its free model catalog changes over time.
 
 Bitey nevertheless keeps model-specific free variants as the preferred deterministic path: this lets Bitey evaluate capabilities and select the best model for a task instead of blindly relying on a random free-model route.
 
@@ -33,9 +33,7 @@ Bitey nevertheless keeps model-specific free variants as the preferred determini
 
 Bitey can guarantee **no intentional billing while FREE_ONLY is enforced**. It cannot guarantee that an external provider will offer unlimited requests, unlimited tokens, permanent availability, or permanent free pricing.
 
-For example, OpenRouter's current Free plan documents a request limit, and its free catalog changes over time. Some models can leave the free tier. citeturn0search9turn0search16
-
-Therefore Bitey's promise is stronger and more precise:
+OpenRouter's Free plan has its own request limits, and individual models can leave the free tier. Therefore Bitey's promise is stronger and more precise:
 
 > **Bitey never crosses the configured billing boundary. If free capacity is exhausted or disappears, Bitey waits/stops instead of charging.**
 
