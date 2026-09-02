@@ -27,10 +27,10 @@ class OpenAICompatibleProvider:
         self.free_only = free_only
 
     async def health(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key or self.endpoint.startswith("http://127.0.0.1") or self.endpoint.startswith("http://localhost"))
 
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        if not self.api_key:
+        if not await self.health():
             raise RuntimeError("provider_not_configured")
         payload = {
             "model": self.model,
@@ -38,7 +38,9 @@ class OpenAICompatibleProvider:
             "temperature": 0.2,
             "max_tokens": int(os.getenv("AI_MAX_OUTPUT_TOKENS", "1200")),
         }
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT", "45"))) as client:
             response = await client.post(f"{self.endpoint}/chat/completions", headers=headers, json=payload)
             response.raise_for_status()
@@ -90,6 +92,22 @@ class ProviderGateway:
     def _register_from_environment(self) -> None:
         free_only = self._free_only()
 
+        # Gemma 4 12B is an open Apache-2.0 model. Bitey supports it as a
+        # local OpenAI-compatible provider (for example llama.cpp, LM Studio,
+        # Ollama-compatible gateways or LiteRT-LM). No hosted paid service is
+        # assumed and no Google Gemini API is required for this path.
+        if os.getenv("GEMMA_4_12B_ENABLED", "false").lower() == "true":
+            gemma_endpoint = os.getenv("GEMMA_4_12B_ENDPOINT", "http://127.0.0.1:50305/v1")
+            gemma_model = os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it")
+            self.register(OpenAICompatibleProvider(
+                "gemma-4-12b-local",
+                gemma_endpoint,
+                gemma_model,
+                os.getenv("GEMMA_4_12B_API_KEY", ""),
+                int(os.getenv("GEMMA_4_12B_PRIORITY", "3")),
+                free_only=True,
+            ))
+
         # Groq is permitted only when the account is intentionally configured for its free allowance.
         if os.getenv("GROQ_ENABLED", "true").lower() != "false" and os.getenv("GROQ_API_KEY") and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true":
             self.register(OpenAICompatibleProvider(
@@ -111,7 +129,7 @@ class ProviderGateway:
             account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
             token = os.getenv("CLOUDFLARE_API_TOKEN", "")
             if account_id and token:
-                self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL", "@cf/qwen/qwen3-0.6b"), account_id, token, int(os.getenv("CLOUDFLARE_PRIORITY", "20"))))
+                self.register(OpenAICompatibleProvider("cloudflare-free", "https://api.cloudflare.com/client/v4", os.getenv("CLOUDFLARE_AI_MODEL", "@cf/qwen/qwen3-0.6b"), token, int(os.getenv("CLOUDFLARE_PRIORITY", "20"))))
 
     def available(self) -> list[str]:
         return [p.name for p in sorted(self._providers.values(), key=lambda p: p.priority)]
