@@ -84,6 +84,7 @@ class ProviderGateway:
     def __init__(self) -> None:
         self._providers: dict[str, AIProvider] = {}
         self._openrouter_catalog_loaded = False
+        self._openrouter_catalog_loaded_at = 0.0
         self._register_from_environment()
 
     def register(self, provider: AIProvider) -> None:
@@ -145,8 +146,16 @@ class ProviderGateway:
     def _is_free_model_id(model_id: str) -> bool:
         return model_id == "openrouter/free" or model_id.endswith(":free")
 
+    @staticmethod
+    def _is_chat_model(item: dict[str, Any]) -> bool:
+        architecture = item.get("architecture") or {}
+        inputs = {str(x).lower() for x in (architecture.get("input_modalities") or ["text"])}
+        outputs = {str(x).lower() for x in (architecture.get("output_modalities") or ["text"])}
+        return "text" in inputs and "text" in outputs
+
     async def _discover_openrouter_free_models(self) -> None:
-        if self._openrouter_catalog_loaded:
+        refresh_seconds = max(30, int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS", "900")))
+        if self._openrouter_catalog_loaded and (time.monotonic() - self._openrouter_catalog_loaded_at) < refresh_seconds:
             return
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not api_key or os.getenv("OPENROUTER_ENABLED", "false").lower() == "false":
@@ -159,6 +168,7 @@ class ProviderGateway:
                 data = response.json()
             models = data.get("data") or []
             base_priority = int(os.getenv("OPENROUTER_DISCOVERED_PRIORITY", "25"))
+            discovered: set[str] = set()
             for item in models:
                 model_id = str(item.get("id") or "")
                 pricing = item.get("pricing") or {}
@@ -168,13 +178,24 @@ class ProviderGateway:
                     continue
                 if prompt_price not in {"0", "0.0", "0.00"} or completion_price not in {"0", "0.0", "0.00"}:
                     continue
+                if not self._is_chat_model(item):
+                    continue
                 safe_name = "openrouter-free-" + model_id.replace("/", "-").replace(":", "-")
                 self.register(OpenAICompatibleProvider(safe_name, "https://openrouter.ai/api/v1", model_id, api_key, base_priority, free_only=True))
+                discovered.add(safe_name)
                 base_priority += 1
+
+            # Remove discovered models that disappeared from the current free catalog.
+            for name in [n for n in self._providers if n.startswith("openrouter-free-") and n not in discovered]:
+                self._providers.pop(name, None)
+
             self._openrouter_catalog_loaded = True
-            logger.info("openrouter_catalog_discovered free_models=%d", len([p for p in self._providers if p.startswith("openrouter-free-")]))
+            self._openrouter_catalog_loaded_at = time.monotonic()
+            logger.info("openrouter_catalog_discovered free_chat_models=%d", len(discovered))
         except Exception as exc:
+            # Keep the last verified registry during a transient catalog outage.
             self._openrouter_catalog_loaded = True
+            self._openrouter_catalog_loaded_at = time.monotonic()
             logger.warning("openrouter_catalog_discovery_failed error=%s", type(exc).__name__)
 
     def available(self) -> list[str]:
