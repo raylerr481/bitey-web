@@ -19,11 +19,20 @@ class ToolSpec:
 
 
 class ToolOrchestrator:
-    """General-purpose capability router for Bitey IA, independent of enterprise context."""
+    """General-purpose capability router for Bitey IA, independent of enterprise context.
+
+    Web research is a cross-domain capability, not a weather-only feature. The
+    router can trigger it explicitly from context or heuristically when a
+    question asks for current, factual, comparative, source-backed, or otherwise
+    externally verifiable information.
+    """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
     WEATHER_RE = re.compile(r"\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
     SEARCH_RE = re.compile(r"\b(busca|buscar|búsqueda|investiga|investigar|fuentes|compara|contrasta|search|research|latest|actual|hoy|noticias|news)\b", re.I)
+    FRESH_RE = re.compile(r"\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\b", re.I)
+    WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|mercado|acciones|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?|who is|what is|how much|where|when|who|what|which)\b", re.I)
+    QUESTION_RE = re.compile(r"^\s*(qu[eé]|qui[eé]n|cu[aá]l|cu[aá]les|c[oó]mo|d[oó]nde|cu[aá]ndo|por qu[eé]|what|who|which|where|when|why|how)\b", re.I)
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -36,10 +45,25 @@ class ToolOrchestrator:
     def available(self) -> list[dict[str, Any]]:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
+    @classmethod
+    def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
+        """Return true when answering from memory alone is unsafe or insufficient."""
+        ctx = context or {}
+        if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
+            return True
+        if cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message):
+            return True
+        if cls.WEB_FACT_RE.search(message):
+            return True
+        # Questions containing a concrete named target often benefit from
+        # verification; this deliberately avoids sending ordinary conversational
+        # prompts to the web by requiring a factual interrogative form.
+        return bool(cls.QUESTION_RE.search(message) and len(message.split()) >= 4 and re.search(r"[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ.-]+", message))
+
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
         q = message.lower()
         selected: list[str] = []
-        if self.SEARCH_RE.search(message) or self.URL_RE.search(message):
+        if self.needs_web_research(message, context) or self.URL_RE.search(message):
             selected.append("search")
         if self.WEATHER_RE.search(message):
             selected.append("weather")
