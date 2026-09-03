@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, asdict
+import re
+from typing import Any
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    quality: float
+    evidence_alignment: float
+    safety_compliance: float
+    contradiction_risk: float
+    confidence: float
+    decision: str
+    reasons: list[str]
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+class EvaluationEngine:
+    """Deterministic post-generation evaluator owned by Bitey.
+
+    It does not claim to be another neural model. It checks structural quality,
+    evidence usage and policy signals so an external generator cannot silently
+    bypass Bitey's cognitive and safety layer.
+    """
+
+    _RISK_WORDS = re.compile(r"\b(buy|sell|purchase|order|execute|live|real money|compra|vende|vender|orden|ejecuta|ejecutar|dinero real)\b", re.I)
+    _UNCERTAINTY = re.compile(r"\b(no sé|no tengo|no puedo verificar|uncertain|unclear|não sei|não posso verificar)\b", re.I)
+
+    def evaluate(
+        self,
+        *,
+        user_message: str,
+        answer: str,
+        context: dict[str, Any] | None = None,
+        evidence: str = "",
+    ) -> EvaluationResult:
+        context = context or {}
+        text = (answer or "").strip()
+        reasons: list[str] = []
+        quality = 1.0
+        evidence_alignment = 1.0
+        safety = 1.0
+        contradiction_risk = 0.0
+
+        if not text:
+            return EvaluationResult(0.0, 0.0, 0.0, 1.0, 0.0, "reject", ["empty_response"])
+        if len(text) < 24:
+            quality -= 0.25; reasons.append("response_too_short")
+        if len(text) > 12000:
+            quality -= 0.10; reasons.append("response_excessively_long")
+
+        evidence_required = bool(context.get("evidence_required"))
+        if evidence_required and not evidence:
+            evidence_alignment = 0.35
+            reasons.append("evidence_required_but_unavailable")
+            if not self._UNCERTAINTY.search(text):
+                contradiction_risk += 0.25
+                reasons.append("missing_evidence_disclosure")
+        elif evidence:
+            evidence_alignment = 0.85 if len(text) >= 60 else 0.65
+        else:
+            evidence_alignment = 1.0
+
+        domain = str((context.get("cognition") or {}).get("intention", {}).get("domain") or context.get("domain") or "general").lower()
+        if domain == "trading" or any(k in user_message.lower() for k in ("trading", "forex", "mt5", "trader", "bolsa")):
+            if self._RISK_WORDS.search(text):
+                safety -= 0.55
+                reasons.append("trading_action_language_detected")
+            if "live" in text.lower() and "disabled" not in text.lower() and "deshabil" not in text.lower() and "desactiv" not in text.lower():
+                safety -= 0.20
+                reasons.append("live_trading_not_explicitly_guarded")
+
+        if any(word in text.lower() for word in ("siempre", "garantizado", "guaranteed", "sem risco", "sin riesgo")):
+            contradiction_risk += 0.20
+            reasons.append("overconfident_claim")
+
+        quality = max(0.0, min(1.0, quality))
+        safety = max(0.0, min(1.0, safety))
+        contradiction_risk = max(0.0, min(1.0, contradiction_risk))
+        confidence = max(0.0, min(1.0, quality * 0.4 + evidence_alignment * 0.25 + safety * 0.25 + (1.0 - contradiction_risk) * 0.10))
+
+        if safety < 0.60:
+            decision = "reject"
+        elif evidence_required and evidence_alignment < 0.50:
+            decision = "revise"
+        elif confidence < 0.60:
+            decision = "revise"
+        else:
+            decision = "accept"
+        if not reasons:
+            reasons.append("response_passed_structural_policy_checks")
+        return EvaluationResult(quality, evidence_alignment, safety, contradiction_risk, confidence, decision, reasons)
