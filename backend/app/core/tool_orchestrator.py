@@ -1,7 +1,9 @@
 from __future__ import annotations
 from ast import Expression, Constant, BinOp, UnaryOp, Add, Sub, Mult, Div, Pow, Mod, USub, UAdd, parse
 from dataclasses import dataclass
+import asyncio
 import re
+import threading
 from typing import Any, Awaitable, Callable
 from .autonomous_language_orchestrator import AutonomousLanguageOrchestrator
 @dataclass(frozen=True)
@@ -18,15 +20,28 @@ class ToolOrchestrator:
         ctx=context or {}; available=tuple(self._tools.keys()); ctx["available_capabilities"]=available
         plan=await self.language_planner.plan_async(message,ctx); ctx["language_plan"]=plan.as_dict()
         selected=[n for n in plan.capabilities if n in self._tools]
-        if not selected:
-            return self._legacy_select(message)
+        if not selected: return self._legacy_select(message)
         return list(dict.fromkeys(selected))
     def select(self,message:str,context:dict[str,Any]|None=None)->list[str]:
-        ctx=context or {}; plan=ctx.get("language_plan")
-        if not isinstance(plan,dict): plan=self.language_planner.plan(message,ctx).as_dict(); ctx["language_plan"]=plan
+        ctx=context or {}; available=tuple(self._tools.keys()); ctx["available_capabilities"]=available
+        plan=ctx.get("language_plan")
+        if not isinstance(plan,dict):
+            plan=self._native_sync_plan(message,ctx); ctx["language_plan"]=plan
         selected=[n for n in plan.get("capabilities",[]) if n in self._tools]
         if not selected: return self._legacy_select(message)
         return list(dict.fromkeys(selected))
+    def _native_sync_plan(self,message:str,ctx:dict[str,Any])->dict[str,Any]:
+        """Bridge legacy sync callers to the async native planner without blocking the event loop."""
+        async def run()->dict[str,Any]: return (await self.language_planner.plan_async(message,ctx)).as_dict()
+        try: asyncio.get_running_loop()
+        except RuntimeError: return asyncio.run(run())
+        result={}
+        def worker()->None:
+            nonlocal result
+            try: result=asyncio.run(run())
+            except Exception: result={}
+        thread=threading.Thread(target=worker,name="bitey-native-planner",daemon=True); thread.start(); thread.join(timeout=25)
+        return result or self.language_planner.plan(message,ctx).as_dict()
     def _legacy_select(self,message:str)->list[str]:
         selected=[]; q=message.lower()
         for name,hints in self.LEGACY_HINTS.items():
