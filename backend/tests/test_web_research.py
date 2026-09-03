@@ -30,7 +30,9 @@ def test_runtime_decomposes_and_deduplicates():
     runtime = MultiStepResearchRuntime()
     subs = runtime.decompose("Investiga una plataforma de trading", explicit_research=True)
     assert 3 <= len(subs) <= 5
-    assert len(runtime.build_queries(subs)) >= 1
+    queries = runtime.build_queries(subs)
+    assert len(queries) == len({q.lower() for q in queries})
+    assert len(queries) >= 3
 
     package = ResearchEvidencePackage("Investiga una plataforma de trading")
     runtime.merge_evidence(package, [
@@ -48,3 +50,12 @@ def test_runtime_allows_second_pass_when_evidence_is_weak():
     runtime.merge_evidence(package, [{"url": "https://a.example", "ok": True, "content": "one source"}], 1)
     assert package.sufficient is False
     assert runtime.next_pass_needed(package) is True
+
+
+def test_search_tool_exposes_multi_step_runtime():
+    from app.core.tool_orchestrator import ToolOrchestrator
+
+    tool = ToolOrchestrator()
+    search = next(item for item in tool.available() if item["name"] == "search")
+    assert "multi_step" in search["capabilities"]
+    assert "evidence" in search["capabilities"]
