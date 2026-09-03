@@ -7,6 +7,15 @@ from typing import Any, Protocol
 
 import httpx
 
+from .free_provider_policy import (
+    can_use_external_free_provider,
+    cloud_allowed,
+    env_true,
+    free_only_mode,
+    hard_stop,
+    openrouter_model_is_free,
+    openrouter_pricing_is_zero,
+)
 from .native_model import NativeReasoningModel
 from .ollama_provider import OllamaProvider
 
@@ -17,135 +26,276 @@ class AIProvider(Protocol):
     name: str
     priority: int
     free_only: bool
+
     async def health(self) -> bool: ...
+
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str: ...
 
 
 class OpenAICompatibleProvider:
     def __init__(self, name: str, endpoint: str, model: str, api_key: str, priority: int, free_only: bool = True) -> None:
-        self.name = name; self.endpoint = endpoint.rstrip("/"); self.model = model; self.api_key = api_key.strip(); self.priority = priority; self.free_only = free_only
+        self.name = name
+        self.endpoint = endpoint.rstrip("/")
+        self.model = model
+        self.api_key = api_key.strip()
+        self.priority = priority
+        self.free_only = free_only
 
     async def health(self) -> bool:
         return bool(self.api_key or self.endpoint.startswith("http://127.0.0.1") or self.endpoint.startswith("http://localhost"))
 
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        if not await self.health(): raise RuntimeError("provider_not_configured")
-        payload = {"model": self.model, "messages": messages, "temperature": 0.2, "max_tokens": int(os.getenv("AI_MAX_OUTPUT_TOKENS", "1200"))}
+        if not await self.health():
+            raise RuntimeError("provider_not_configured")
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": int(os.getenv("AI_MAX_OUTPUT_TOKENS", "1200")),
+        }
         headers = {"Content-Type": "application/json"}
-        if self.api_key: headers["Authorization"] = f"Bearer {self.api_key}"
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT", "45"))) as client:
-            response = await client.post(f"{self.endpoint}/chat/completions", headers=headers, json=payload); response.raise_for_status(); data = response.json()
+            response = await client.post(f"{self.endpoint}/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
         choices = data.get("choices") or []
-        if not choices or not choices[0].get("message", {}).get("content"): raise RuntimeError("empty_response")
+        if not choices or not choices[0].get("message", {}).get("content"):
+            raise RuntimeError("empty_response")
         return str(choices[0]["message"]["content"]).strip()
 
 
 class CloudflareAIProvider:
     def __init__(self, model: str, account_id: str, api_token: str, priority: int) -> None:
-        self.name = "cloudflare-paid-or-plan-dependent"; self.model = model; self.account_id = account_id.strip(); self.api_token = api_token.strip(); self.priority = priority; self.free_only = False
-    async def health(self) -> bool: return bool(self.account_id and self.api_token)
+        self.name = "cloudflare-paid-or-plan-dependent"
+        self.model = model
+        self.account_id = account_id.strip()
+        self.api_token = api_token.strip()
+        self.priority = priority
+        self.free_only = False
+
+    async def health(self) -> bool:
+        return bool(self.account_id and self.api_token)
+
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        if not await self.health(): raise RuntimeError("provider_not_configured")
+        if not await self.health():
+            raise RuntimeError("provider_not_configured")
         prompt = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
         url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
         headers = {"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT", "45"))) as client:
-            response = await client.post(url, headers=headers, json={"messages": messages, "prompt": prompt}); response.raise_for_status(); data = response.json()
-        result = data.get("result") or {}; return str(result.get("response") or result.get("text") or "").strip()
+            response = await client.post(url, headers=headers, json={"messages": messages, "prompt": prompt})
+            response.raise_for_status()
+            data = response.json()
+        result = data.get("result") or {}
+        return str(result.get("response") or result.get("text") or "").strip()
 
 
 class ProviderGateway:
-    """Bitey's model router: local intelligence first, Bitey's native cognition second.
+    """Bitey's model router with a hard economic boundary.
 
-    Cloud providers are opt-in and can never become an automatic fallback. The
-    default path is entirely local/free and fails closed rather than billing.
+    The execution order is intentionally phased:
+      1. local Ollama models;
+      2. Bitey's native cognitive model;
+      3. explicitly-authorized external free providers.
+
+    A cloud provider can never outrank local/native cognition, and unknown
+    pricing is rejected in free-only mode.
     """
+
     def __init__(self) -> None:
-        self._providers: dict[str, AIProvider] = {}; self._openrouter_catalog_loaded = False; self._openrouter_catalog_loaded_at = 0.0; self._conversation_provider: dict[str, str] = {}; self._register_from_environment()
+        self._providers: dict[str, AIProvider] = {}
+        self._openrouter_catalog_loaded = False
+        self._openrouter_catalog_loaded_at = 0.0
+        self._conversation_provider: dict[str, str] = {}
+        self._register_from_environment()
 
     def register(self, provider: AIProvider) -> None:
-        if self._free_only() and not provider.free_only: logger.info("provider_rejected_free_only provider=%s", provider.name); return
+        if free_only_mode() and not provider.free_only:
+            logger.info("provider_rejected_free_only provider=%s", provider.name)
+            return
         self._providers[provider.name] = provider
 
-    def _free_only(self) -> bool: return os.getenv("BITEY_COST_MODE", "free_only").lower() == "free_only"
-    def _allow_cloud(self) -> bool: return os.getenv("BITEY_ALLOW_CLOUD", "false").lower() == "true"
-    def _hard_stop(self) -> bool: return os.getenv("BITEY_FREE_ONLY_HARD_STOP", "true").lower() == "true"
+    async def _register_external_free_providers(self) -> None:
+        """Register only providers that pass their current free-policy checks."""
+        if not cloud_allowed() or not free_only_mode():
+            return
+
+        if env_true("GROQ_ENABLED", False) and os.getenv("GROQ_API_KEY"):
+            model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+            if can_use_external_free_provider("groq", model=model):
+                self.register(
+                    OpenAICompatibleProvider(
+                        "groq-free",
+                        "https://api.groq.com/openai/v1",
+                        model,
+                        os.getenv("GROQ_API_KEY", ""),
+                        int(os.getenv("GROQ_PRIORITY", "50")),
+                        free_only=True,
+                    )
+                )
+            else:
+                logger.info("groq_rejected_free_policy")
+
+        if env_true("OPENROUTER_ENABLED", False) and os.getenv("OPENROUTER_API_KEY"):
+            qwen = os.getenv("OPENROUTER_QWEN_MODEL", "qwen/qwen3-4b:free")
+            deepseek = os.getenv("OPENROUTER_DEEPSEEK_MODEL", "deepseek/deepseek-chat-v3-0324:free")
+            if can_use_external_free_provider("openrouter", model=qwen):
+                self.register(OpenAICompatibleProvider("qwen-free", "https://openrouter.ai/api/v1", qwen, os.getenv("OPENROUTER_API_KEY", ""), 60, free_only=True))
+            if env_true("DEEPSEEK_ENABLED", True) and can_use_external_free_provider("openrouter", model=deepseek):
+                self.register(OpenAICompatibleProvider("deepseek-free", "https://openrouter.ai/api/v1", deepseek, os.getenv("OPENROUTER_API_KEY", ""), 70, free_only=True))
 
     def _register_from_environment(self) -> None:
-        free_only = self._free_only()
-        if os.getenv("OLLAMA_ENABLED", "true").lower() != "false": self.register(OllamaProvider())
-        if os.getenv("BITEY_NATIVE_MODEL_ENABLED", "true").lower() == "true":
+        if env_true("OLLAMA_ENABLED", True):
+            self.register(OllamaProvider())
+
+        if env_true("BITEY_NATIVE_MODEL_ENABLED", True):
             native = NativeReasoningModel()
             native.priority = 2
             self.register(native)
-        if os.getenv("GEMMA_4_12B_ENABLED", "false").lower() == "true":
+
+        if env_true("GEMMA_4_12B_ENABLED", False):
             endpoint = os.getenv("GEMMA_4_12B_ENDPOINT", "http://127.0.0.1:50305/v1")
-            self.register(OpenAICompatibleProvider("gemma-4-12b-local", endpoint, os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"), os.getenv("GEMMA_4_12B_API_KEY", ""), int(os.getenv("GEMMA_4_12B_PRIORITY", "3")), free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost")))
-        if self._allow_cloud() and os.getenv("GROQ_ENABLED", "true").lower() != "false" and os.getenv("GROQ_API_KEY") and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true" and os.getenv("GROQ_FREE_ONLY_CONFIRMED", "false").lower() == "true":
-            self.register(OpenAICompatibleProvider("groq-free", "https://api.groq.com/openai/v1", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), os.getenv("GROQ_API_KEY", ""), int(os.getenv("GROQ_PRIORITY", "50")), free_only=True))
-        if self._allow_cloud() and os.getenv("OPENROUTER_ENABLED", "true").lower() != "false" and os.getenv("OPENROUTER_API_KEY"):
-            qwen = os.getenv("OPENROUTER_QWEN_MODEL", "qwen/qwen3-4b:free"); deepseek = os.getenv("OPENROUTER_DEEPSEEK_MODEL", "deepseek/deepseek-chat-v3-0324:free")
-            if self._is_free_model_id(qwen): self.register(OpenAICompatibleProvider("qwen-free", "https://openrouter.ai/api/v1", qwen, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("QWEN_PRIORITY", "60")), free_only=True))
-            if os.getenv("DEEPSEEK_ENABLED", "true").lower() != "false" and self._is_free_model_id(deepseek): self.register(OpenAICompatibleProvider("deepseek-free", "https://openrouter.ai/api/v1", deepseek, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("DEEPSEEK_PRIORITY", "70")), free_only=True))
-        if self._allow_cloud() and not free_only and os.getenv("CLOUDFLARE_AI_ENABLED", "true").lower() != "false":
-            account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", ""); token = os.getenv("CLOUDFLARE_API_TOKEN", "")
-            if account_id and token: self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL", "@cf/qwen/qwen3-0.6b"), account_id, token, int(os.getenv("CLOUDFLARE_PRIORITY", "80"))))
+            self.register(
+                OpenAICompatibleProvider(
+                    "gemma-4-12b-local",
+                    endpoint,
+                    os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"),
+                    os.getenv("GEMMA_4_12B_API_KEY", ""),
+                    int(os.getenv("GEMMA_4_12B_PRIORITY", "3")),
+                    free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost"),
+                )
+            )
+
+        # External providers are deliberately registered asynchronously after
+        # OpenRouter's live catalog has been checked.
+        if cloud_allowed() and free_only_mode():
+            return
+
+        if cloud_allowed() and not free_only_mode() and env_true("CLOUDFLARE_AI_ENABLED", True):
+            account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+            token = os.getenv("CLOUDFLARE_API_TOKEN", "")
+            if account_id and token:
+                self.register(
+                    CloudflareAIProvider(
+                        os.getenv("CLOUDFLARE_AI_MODEL", "@cf/qwen/qwen3-0.6b"),
+                        account_id,
+                        token,
+                        int(os.getenv("CLOUDFLARE_PRIORITY", "80")),
+                    )
+                )
 
     @staticmethod
-    def _is_free_model_id(model_id: str) -> bool: return model_id == "openrouter/free" or model_id.endswith(":free")
+    def _is_free_model_id(model_id: str) -> bool:
+        return openrouter_model_is_free(model_id)
+
     @staticmethod
     def _is_chat_model(item: dict[str, Any]) -> bool:
-        architecture = item.get("architecture") or {}; inputs = {str(x).lower() for x in (architecture.get("input_modalities") or ["text"])}; outputs = {str(x).lower() for x in (architecture.get("output_modalities") or ["text"])}; return "text" in inputs and "text" in outputs
+        architecture = item.get("architecture") or {}
+        inputs = {str(x).lower() for x in (architecture.get("input_modalities") or ["text"])}
+        outputs = {str(x).lower() for x in (architecture.get("output_modalities") or ["text"])}
+        return "text" in inputs and "text" in outputs
 
     async def _discover_openrouter_free_models(self) -> None:
-        if not self._allow_cloud(): return
+        if not cloud_allowed() or not free_only_mode():
+            return
         refresh_seconds = max(30, int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS", "900")))
-        if self._openrouter_catalog_loaded and (time.monotonic() - self._openrouter_catalog_loaded_at) < refresh_seconds: return
+        if self._openrouter_catalog_loaded and (time.monotonic() - self._openrouter_catalog_loaded_at) < refresh_seconds:
+            return
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not api_key or os.getenv("OPENROUTER_ENABLED", "true").lower() == "false": return
+        if not api_key or not env_true("OPENROUTER_ENABLED", False):
+            return
         try:
             async with httpx.AsyncClient(timeout=float(os.getenv("OPENROUTER_CATALOG_TIMEOUT", "12"))) as client:
-                response = await client.get("https://openrouter.ai/api/v1/models", headers={"Authorization": f"Bearer {api_key}"}); response.raise_for_status(); data = response.json()
-            base_priority = int(os.getenv("OPENROUTER_DISCOVERED_PRIORITY", "90")); discovered: set[str] = set()
+                response = await client.get("https://openrouter.ai/api/v1/models", headers={"Authorization": f"Bearer {api_key}"})
+                response.raise_for_status()
+                data = response.json()
+            base_priority = int(os.getenv("OPENROUTER_DISCOVERED_PRIORITY", "90"))
+            discovered: set[str] = set()
             for item in data.get("data") or []:
-                model_id = str(item.get("id") or ""); pricing = item.get("pricing") or {}
-                if not self._is_free_model_id(model_id): continue
-                if str(pricing.get("prompt", "")) not in {"0", "0.0", "0.00"} or str(pricing.get("completion", "")) not in {"0", "0.0", "0.00"}: continue
-                if not self._is_chat_model(item): continue
-                safe_name = "openrouter-free-" + model_id.replace("/", "-").replace(":", "-"); self.register(OpenAICompatibleProvider(safe_name, "https://openrouter.ai/api/v1", model_id, api_key, base_priority, free_only=True)); discovered.add(safe_name); base_priority += 1
-            for name in [n for n in self._providers if n.startswith("openrouter-free-") and n not in discovered]: self._providers.pop(name, None)
-            self._openrouter_catalog_loaded = True; self._openrouter_catalog_loaded_at = time.monotonic(); logger.info("openrouter_catalog_discovered free_chat_models=%d", len(discovered))
+                model_id = str(item.get("id") or "")
+                if not self._is_free_model_id(model_id) or not openrouter_pricing_is_zero(item) or not self._is_chat_model(item):
+                    continue
+                safe_name = "openrouter-free-" + model_id.replace("/", "-").replace(":", "-")
+                self.register(OpenAICompatibleProvider(safe_name, "https://openrouter.ai/api/v1", model_id, api_key, base_priority, free_only=True))
+                discovered.add(safe_name)
+                base_priority += 1
+            for name in [n for n in self._providers if n.startswith("openrouter-free-") and n not in discovered]:
+                self._providers.pop(name, None)
+            self._openrouter_catalog_loaded = True
+            self._openrouter_catalog_loaded_at = time.monotonic()
+            logger.info("openrouter_catalog_discovered free_chat_models=%d", len(discovered))
         except Exception as exc:
-            self._openrouter_catalog_loaded = True; self._openrouter_catalog_loaded_at = time.monotonic(); logger.warning("openrouter_catalog_discovery_failed error=%s", type(exc).__name__)
+            self._openrouter_catalog_loaded = True
+            self._openrouter_catalog_loaded_at = time.monotonic()
+            logger.warning("openrouter_catalog_discovery_failed error=%s", type(exc).__name__)
 
-    def available(self) -> list[str]: return [p.name for p in sorted(self._providers.values(), key=lambda p: p.priority)]
+    async def _prepare_external_free_providers(self) -> None:
+        if not cloud_allowed() or not free_only_mode():
+            return
+        await self._discover_openrouter_free_models()
+        await self._register_external_free_providers()
+
+    def available(self) -> list[str]:
+        return [p.name for p in sorted(self._providers.values(), key=lambda p: p.priority)]
 
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        await self._discover_openrouter_free_models()
-        providers = [p for p in self._providers.values() if not self._free_only() or p.free_only]
+        await self._prepare_external_free_providers()
+        providers = [p for p in self._providers.values() if not free_only_mode() or p.free_only]
         if not providers:
-            logger.warning("provider_council_no_free_provider hard_stop=%s", self._hard_stop())
-            return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if self._hard_stop() and self._free_only() else "Bitey IA no tiene un proveedor disponible en este momento."
-        conversation_id = str(context.get("conversation_id") or "").strip(); sticky_name = self._conversation_provider.get(conversation_id) if conversation_id else None; sticky = next((p for p in providers if p.name == sticky_name), None) if sticky_name else None
-        ordered = ([sticky] if sticky else []) + [p for p in sorted(providers, key=lambda p: p.priority) if not sticky or p.name != sticky.name]; max_providers = max(1, int(os.getenv("AI_COUNCIL_MAX_PROVIDERS", "2"))); attempted: set[str] = set()
+            logger.warning("provider_council_no_free_provider hard_stop=%s", hard_stop())
+            return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
+
+        conversation_id = str(context.get("conversation_id") or "").strip()
+        sticky_name = self._conversation_provider.get(conversation_id) if conversation_id else None
+        sticky = next((p for p in providers if p.name == sticky_name), None) if sticky_name else None
+
+        # Phase ordering is stronger than numeric priority: local/native are
+        # always considered before any cloud provider.
+        local = [p for p in providers if p.name == "ollama-local"]
+        native = [p for p in providers if p.name == "bitey-native-cognitive-v1"]
+        cloud = [p for p in providers if p not in local and p not in native and p.free_only]
+        ordered = local + native + sorted(cloud, key=lambda p: p.priority)
+
+        if sticky and sticky in ordered:
+            ordered = [sticky] + [p for p in ordered if p.name != sticky.name]
+
+        max_providers = max(1, int(os.getenv("AI_COUNCIL_MAX_PROVIDERS", "3")))
+        attempted: set[str] = set()
         for attempt, provider in enumerate(ordered[:max_providers], start=1):
-            attempted.add(provider.name); started = time.perf_counter()
+            attempted.add(provider.name)
+            started = time.perf_counter()
             try:
-                if not await provider.health(): logger.warning("provider_unhealthy provider=%s attempt=%d", provider.name, attempt); continue
-                answer = await provider.generate(messages=messages, context=context); elapsed_ms = int((time.perf_counter() - started) * 1000)
+                if not await provider.health():
+                    logger.warning("provider_unhealthy provider=%s attempt=%d", provider.name, attempt)
+                    continue
+                answer = await provider.generate(messages=messages, context=context)
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
                 if answer:
-                    if conversation_id: self._conversation_provider[conversation_id] = provider.name
-                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", getattr(provider, "last_model", provider.name)), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name)); return answer
+                    if conversation_id:
+                        self._conversation_provider[conversation_id] = provider.name
+                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", getattr(provider, "last_model", provider.name)), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name))
+                    return answer
                 logger.warning("provider_empty_response provider=%s attempt=%d elapsed_ms=%d", provider.name, attempt, elapsed_ms)
             except Exception as exc:
                 logger.warning("provider_failed provider=%s model=%s attempt=%d error=%s", provider.name, getattr(provider, "model", provider.name), attempt, type(exc).__name__)
-                if conversation_id and self._conversation_provider.get(conversation_id) == provider.name: self._conversation_provider.pop(conversation_id, None)
+                if conversation_id and self._conversation_provider.get(conversation_id) == provider.name:
+                    self._conversation_provider.pop(conversation_id, None)
+
+        # Native is a mandatory last local safety net even when the council
+        # budget was consumed by an unhealthy/failed local provider.
         native = self._providers.get("bitey-native-cognitive-v1")
-        if native and native.name not in attempted and (not self._free_only() or native.free_only):
+        if native and native.name not in attempted and (not free_only_mode() or native.free_only):
             try:
                 answer = await native.generate(messages=messages, context=context)
                 if answer:
-                    if conversation_id: self._conversation_provider[conversation_id] = native.name
-                    logger.info("provider_selected provider=%s model=%s attempt=native_fallback", native.name, native.name); return answer
-            except Exception as exc: logger.warning("native_model_failed error=%s", type(exc).__name__)
-        logger.warning("provider_council_exhausted attempted=%d", len(attempted)); return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
+                    if conversation_id:
+                        self._conversation_provider[conversation_id] = native.name
+                    logger.info("provider_selected provider=%s model=%s attempt=native_safety_fallback", native.name, native.name)
+                    return answer
+            except Exception as exc:
+                logger.warning("native_model_failed error=%s", type(exc).__name__)
+
+        logger.warning("provider_council_exhausted attempted=%d", len(attempted))
+        return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
