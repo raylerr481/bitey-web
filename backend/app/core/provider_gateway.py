@@ -104,7 +104,7 @@ class ProviderGateway:
             self.register(OpenAICompatibleProvider("gemma-4-12b-local", endpoint, os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"), os.getenv("GEMMA_4_12B_API_KEY", ""), int(os.getenv("GEMMA_4_12B_PRIORITY", "3")), free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost")))
         if (os.getenv("GROQ_ENABLED", "true").lower() != "false" and os.getenv("GROQ_API_KEY") and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true" and os.getenv("GROQ_FREE_ONLY_CONFIRMED", "false").lower() == "true"):
             self.register(OpenAICompatibleProvider("groq-free", "https://api.groq.com/openai/v1", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), os.getenv("GROQ_API_KEY", ""), int(os.getenv("GROQ_PRIORITY", "5")), free_only=True))
-        if os.getenv("OPENROUTER_ENABLED", "false").lower() != "false" and os.getenv("OPENROUTER_API_KEY"):
+        if os.getenv("OPENROUTER_ENABLED", "true").lower() != "false" and os.getenv("OPENROUTER_API_KEY"):
             qwen = os.getenv("OPENROUTER_QWEN_MODEL", "qwen/qwen3-4b:free")
             deepseek = os.getenv("OPENROUTER_DEEPSEEK_MODEL", "deepseek/deepseek-chat-v3-0324:free")
             if self._is_free_model_id(qwen):
@@ -133,7 +133,7 @@ class ProviderGateway:
         if self._openrouter_catalog_loaded and (time.monotonic() - self._openrouter_catalog_loaded_at) < refresh_seconds:
             return
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not api_key or os.getenv("OPENROUTER_ENABLED", "false").lower() == "false":
+        if not api_key or os.getenv("OPENROUTER_ENABLED", "true").lower() == "false":
             return
         try:
             headers = {"Authorization": f"Bearer {api_key}"}
