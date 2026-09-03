@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import re
 from typing import Any, Awaitable, Callable
 
+from .autonomous_language_orchestrator import AutonomousLanguageOrchestrator
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -13,10 +14,8 @@ class ToolSpec:
     capabilities: tuple[str, ...]
     handler: Callable[..., Awaitable[dict[str, Any]]]
 
-
 class ToolOrchestrator:
-    """Runtime capability authority fed by the language orchestrator."""
-
+    """Runtime capability authority driven by language intent, not model claims."""
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
     LEGACY_HINTS = {
         "weather": ("tiempo", "clima", "temperatura", "pronóstico", "pronostico", "lluvia", "humedad", "viento", "weather", "forecast"),
@@ -25,27 +24,24 @@ class ToolOrchestrator:
         "calculator": ("calcula", "cálculo", "calculo", "porcentaje", "math"),
         "code_reasoning": ("código", "codigo", "python", "javascript", "programa", "debug", "github", "api", "error"),
     }
-
-    def __init__(self) -> None: self._tools: dict[str, ToolSpec] = {}
+    def __init__(self) -> None:
+        self._tools: dict[str, ToolSpec] = {}
+        self.language_planner = AutonomousLanguageOrchestrator()
     def register(self, spec: ToolSpec) -> None: self._tools[spec.name] = spec
     def available(self) -> list[dict[str, Any]]: return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
-
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
-        """Use a language plan first; lexical hints are fallback only."""
         ctx = context or {}
-        selected: list[str] = []
-        plan = ctx.get("language_plan") or {}
-        for name in plan.get("capabilities", []) if isinstance(plan, dict) else []:
-            if name in self._tools: selected.append(name)
+        plan = ctx.get("language_plan")
+        if not isinstance(plan, dict):
+            plan = self.language_planner.plan(message, ctx).as_dict()
+            ctx["language_plan"] = plan
+        selected = [name for name in plan.get("capabilities", []) if name in self._tools]
         if not selected:
             q = message.lower()
             for name, hints in self.LEGACY_HINTS.items():
                 if name in self._tools and any(h in q for h in hints): selected.append(name)
             if self.URL_RE.search(message) and "web_research" in self._tools and "web_research" not in selected: selected.append("web_research")
-        if plan.get("external_information_required") and "web_research" in self._tools and "weather" not in selected and "web_research" not in selected:
-            selected.append("web_research")
         return list(dict.fromkeys(selected))
-
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
         results: dict[str, Any] = {}
         for name in names:
@@ -54,9 +50,7 @@ class ToolOrchestrator:
             try: results[name] = await tool.handler(**kwargs)
             except Exception as exc: results[name] = {"ok": False, "error": type(exc).__name__}
         return results
-
     def capability_available(self, name: str) -> bool: return name in self._tools
-
 
 def safe_calculate(expression: str) -> float:
     tree = parse(expression.strip().replace("^", "**"), mode="eval")
