@@ -1,168 +1,114 @@
-# Bitey IA — Independent Cognitive Core Backend
+# Bitey IA Web — Cognitive Core Backend
 
-This backend is the server-side foundation of **Bitey IA**, the central general-purpose cognitive layer of the Bitey ecosystem.
+This backend is the server-side foundation of **Bitey IA Web**, the general/integral Bitey IA. It is intentionally independent from BiteFixes CRM/SaaS and from any individual AI model.
 
-It is intentionally independent from `bitefixes-backend` and from any individual LLM provider.
+## Role
 
-## Role in the ecosystem
-
-```text
-                         BITEY IA
-                  INDEPENDENT COGNITIVE CORE
-                           │
-          ┌────────────────┼────────────────┐
-          │                │                │
-       JobIA              SBT          BiteFixes
-    specialized       specialized      existing
-      module             module      contextual IA
-```
-
-JobIA and SBT are complementary capabilities. BiteFixes remains its existing contextual enterprise AI. This backend is the central cognitive layer that can provide shared general reasoning/orchestration through explicit contracts without creating unrestricted cross-product data access.
-
-## Cognitive architecture
-
-The backend is model-agnostic. The cognitive layer owns the structure of cognition while external models provide optional inference/language capabilities.
+Bitey IA Web is a general-purpose cognitive system. It can coordinate specialized modules, external models, local models, research and tools, while keeping its own cognitive loop and policies.
 
 ```text
-Input
- ↓
-Context
- ↓
-Intent / Entities / Constraints
- ↓
-Evidence & Research
- ↓
-Planning / Reasoning
- ↓
-Risk & Policy
- ↓
-Decision
- ↓
-Generation
- ↓
-Evaluation / Confidence / Contradiction
- ↓
-Memory / Learning observation
+                 BITEY IA WEB
+             GENERAL / INTEGRAL AI
+                      │
+       ┌──────────────┼──────────────┐
+       ▼              ▼              ▼
+    Cognitive        Tools         Modules
+      Core          Registry       Registry
+       │              │              │
+       └──────────────┼──────────────┘
+                      ▼
+               Supabase/Postgres
 ```
 
-The codebase includes the cognitive architecture, cognitive model, context engine, cognitive memory, persistent memory, evaluation engine, learning engine, research/deep research, tool orchestration, module registry and provider gateway.
+## Independent cognition
 
-## Provider independence
+The backend owns:
 
-Bitey uses a provider/model fabric rather than binding cognition to one model.
+- context and intent processing;
+- Bitey Brain executive routing;
+- task decomposition and planning;
+- memory selection;
+- research/evidence orchestration;
+- tool selection and permission policy;
+- provider/model selection;
+- evaluation, contradiction and confidence controls;
+- bounded learning observations.
 
-Supported or planned provider classes include:
+Models are replaceable inference workers. Bitey must retain a deterministic operating core when no model is available.
 
-- OpenRouter free models with dynamic catalog discovery.
-- Local/open-weight models through OpenAI-compatible endpoints.
-- Ollama/local inference where configured.
-- Other providers only when explicitly authorized by the configured policy.
+## Free-only provider policy
 
-Default economic policy:
+Default policy:
 
 ```text
 BITEY_COST_MODE=free_only
 BITEY_FREE_ONLY_HARD_STOP=true
 ```
 
-The system must fail closed if a model/provider cannot be verified as allowed under the active policy. There is no silent paid fallback.
+Rules:
 
-Free capacity is not guaranteed to be unlimited. Local inference is the preferred path when quota independence is required and the user's hardware can support it.
+1. Only verified free model routes may be selected in free mode.
+2. Paid fallback is forbidden.
+3. Local/open-weight inference is preferred when available.
+4. If no free model is available, deterministic tools or local capabilities continue where possible.
+5. Third-party free quotas are not assumed to be unlimited.
+
+No Gemini API is required.
 
 ## Memory and knowledge
 
-The cognitive core is designed around replaceable storage interfaces.
+**Supabase/Postgres is the canonical persistent layer.** PostgreSQL/pgvector can provide semantic retrieval without introducing another database platform.
+
+Neo4j and MongoDB are intentionally excluded from the current Bitey IA Web architecture.
 
 ```text
-Working memory       Persistent memory       Knowledge graph
-     │                       │                       │
- Redis/edge             Supabase/Postgres         Neo4j
-     │                       │                       │
-     └───────────────────────┼───────────────────────┘
-                             │
-                     MongoDB Atlas
-                  episodic/document memory
+Working context
+      ↓
+Cognitive Memory
+      ↓
+Supabase/Postgres
+      └── pgvector when enabled
 ```
 
-Target responsibilities:
+## Tool system
 
-- **Supabase/Postgres:** transactional structured data.
-- **MongoDB Atlas Free:** episodic/cognitive/document-oriented memory.
-- **Neo4j Aura Free:** entities, relationships and knowledge graph traversal.
-- **Redis/edge state:** temporary working context and cache.
-- **Cloudflare/R2:** edge delivery and object/document storage where required.
-
-These are storage components, not independent intelligence systems. They must remain replaceable and optional.
-
-## Specialized capability contracts
-
-### SBT
-
-SBT consumes Bitey cognition for trading intelligence but remains authoritative for trading-specific execution controls:
+Tools are first-class capabilities with explicit contracts. A future Tool Factory may create new deterministic/API tools from task requirements, but every tool must pass schema, permission, risk, cost and resource validation before registration.
 
 ```text
-Bitey Cognitive Core
-        ↓
-Trading Intelligence
-        ↓
-Strategy → Validation → Risk Gate → Permission
-        ↓
-Demo / Paper → MT5 / Alpaca
+Need → Specification → Validation → Implementation → Tests → Registry → Authorized execution → Evaluation
 ```
 
-General AI output cannot bypass the SBT Risk Gate. Live trading remains disabled in the current milestone.
+Arbitrary model-generated shell/code execution is disabled by default.
 
-### JobIA
+## Specialized modules
 
-JobIA consumes the same Bitey cognitive core for employment intelligence:
+- **JobIA:** employment intelligence capability.
+- **Bitey SBT:** trading intelligence capability with its own risk authority; trading execution remains isolated.
+- **Other modules:** can be added through versioned capability contracts.
 
-```text
-Bitey Cognitive Core
-        ↓
-Job Intelligence
-        ├── CV / profile
-        ├── vacancies
-        ├── matching
-        ├── skills
-        ├── interviews
-        └── labor-market analysis
-```
+### BiteFixes boundary
 
-JobIA is a specialized product, not a second general-purpose brain.
-
-### BiteFixes
-
-BiteFixes is intentionally not migrated into this backend. Its existing contextual enterprise AI remains authoritative for its business/support context, CRM, customers, tickets and authorized company data.
-
-Future integration must use explicit contracts and tenant/authorization boundaries.
+BiteFixes owns its CRM, SaaS and AI-agent implementation. Its **Bitey IA Empresarial** is contextual to each enterprise deployment. It is not absorbed into this general Bitey IA Web backend.
 
 ## API surface
 
-The backend exposes the Bitey IA contract for web and future clients. Core endpoints include:
+Core endpoints include:
 
 - `GET /health`
 - `GET /api/v1/capabilities`
 - `GET /api/v1/cognitive/status`
 - conversation/message APIs
 
-The capabilities/status endpoints expose the current cognitive architecture, memory, learning, provider, module and cost-policy state without requiring a particular model to be the system's identity.
+Status endpoints should expose architecture and policy state without exposing secrets.
 
-## Module registry
+## Security
 
-Specialized capabilities are registered rather than embedded into the general brain. A module declares its domain, capabilities and execution boundaries.
-
-For example, SBT is registered as a trading module with an explicit `sbt_risk_gate` execution boundary and live trading disabled.
-
-This keeps the central cognitive layer general while allowing domain systems to remain authoritative for domain-specific actions.
-
-## Security boundaries
-
-- Provider credentials remain server-side secrets.
-- No API keys belong in frontend code or documentation.
-- LLM/model responses are untrusted until evaluated.
+- Provider credentials are server-side.
+- Model output is untrusted until evaluated.
+- Tools require explicit capability permissions.
 - Private enterprise context is tenant-scoped.
-- Cross-module access occurs through explicit contracts.
-- Trading permissions are enforced inside SBT, not by conversational prompts.
+- Cross-module access uses explicit contracts.
+- High-impact actions require stronger authorization.
 - Free-only policy is fail-closed.
 
 ## Local development
@@ -187,15 +133,15 @@ uvicorn app.main:app --reload
 
 ## Current phase
 
-The backend has the foundation of the independent cognitive core. The current work is integration and hardening:
+The foundation already contains the cognitive core, Brain, memory, learning, evaluation, research, tool orchestration, module registry and provider gateway. The next engineering phase is to harden:
 
-1. persistent cognitive memory;
-2. MongoDB episodic/document memory where useful;
-3. Neo4j knowledge graph integration;
-4. provider/model discovery and capability scoring;
-5. contradiction/confidence/evidence evaluation;
-6. stable versioned contracts for JobIA and SBT;
-7. observability and authentication;
-8. graceful degradation when a provider or storage service is unavailable.
+1. free-model discovery and fail-closed routing;
+2. Supabase cognitive memory and pgvector retrieval;
+3. task-decomposition DAGs;
+4. contradiction/confidence/evidence evaluation;
+5. permissioned Tool Factory;
+6. sandboxed execution for explicitly authorized tools;
+7. autonomous recovery from model/tool failures;
+8. capability benchmarks and versioned module contracts.
 
-No Gemini API is required.
+**Invariant:** Bitey IA Web can use other AIs, but it is not dependent on one. It can create/use tools under policy, and the free profile never silently becomes paid.
