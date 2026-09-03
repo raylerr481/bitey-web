@@ -7,6 +7,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from .native_model import NativeReasoningModel
+
 logger = logging.getLogger("bitey.providers")
 
 
@@ -76,7 +78,7 @@ class CloudflareAIProvider:
 
 
 class ProviderGateway:
-    """Bitey's provider council with a hard no-billing boundary in free_only mode."""
+    """Bitey's provider council with an independent native cognition fallback."""
 
     def __init__(self) -> None:
         self._providers: dict[str, AIProvider] = {}
@@ -99,6 +101,14 @@ class ProviderGateway:
 
     def _register_from_environment(self) -> None:
         free_only = self._free_only()
+
+        # This model never needs an API key, network access or paid service.
+        # It is deliberately last in priority so capable external free models
+        # remain preferred, but it prevents Bitey from becoming unavailable
+        # when every external provider is down or unconfigured.
+        if os.getenv("BITEY_NATIVE_MODEL_ENABLED", "true").lower() == "true":
+            self.register(NativeReasoningModel())
+
         if os.getenv("GEMMA_4_12B_ENABLED", "false").lower() == "true":
             endpoint = os.getenv("GEMMA_4_12B_ENDPOINT", "http://127.0.0.1:50305/v1")
             self.register(OpenAICompatibleProvider("gemma-4-12b-local", endpoint, os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"), os.getenv("GEMMA_4_12B_API_KEY", ""), int(os.getenv("GEMMA_4_12B_PRIORITY", "3")), free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost")))
@@ -196,7 +206,7 @@ class ProviderGateway:
                 if answer:
                     if conversation_id:
                         self._conversation_provider[conversation_id] = provider.name
-                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", ""), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name))
+                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", provider.name), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name))
                     return answer
                 logger.warning("provider_empty_response provider=%s attempt=%d elapsed_ms=%d", provider.name, attempt, elapsed_ms)
                 if conversation_id and self._conversation_provider.get(conversation_id) == provider.name:
@@ -208,4 +218,17 @@ class ProviderGateway:
                     self._conversation_provider.pop(conversation_id, None)
 
         logger.warning("provider_council_exhausted attempted=%d", min(len(ordered), max_providers))
+        # A native model is always the last safety net when enabled. It is
+        # deterministic and cannot incur network or API charges.
+        native = self._providers.get("bitey-native-cognitive-v1")
+        if native and native is not ordered[:max_providers][-1:][0] if ordered[:max_providers] else False:
+            try:
+                answer = await native.generate(messages=messages, context=context)
+                if answer:
+                    logger.info("provider_selected provider=%s model=%s attempt=native_fallback", native.name, native.name)
+                    if conversation_id:
+                        self._conversation_provider[conversation_id] = native.name
+                    return answer
+            except Exception as exc:
+                logger.warning("native_model_failed error=%s", type(exc).__name__)
         return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
