@@ -14,15 +14,24 @@ class ToolOrchestrator:
     def __init__(self)->None: self._tools={}; self.language_planner=AutonomousLanguageOrchestrator()
     def register(self,spec:ToolSpec)->None: self._tools[spec.name]=spec
     def available(self)->list[dict[str,Any]]: return [{"name":s.name,"description":s.description,"capabilities":list(s.capabilities)} for s in self._tools.values()]
+    async def select_async(self,message:str,context:dict[str,Any]|None=None)->list[str]:
+        ctx=context or {}; available=tuple(self._tools.keys()); ctx["available_capabilities"]=available
+        plan=await self.language_planner.plan_async(message,ctx); ctx["language_plan"]=plan.as_dict()
+        selected=[n for n in plan.capabilities if n in self._tools]
+        if not selected:
+            return self._legacy_select(message)
+        return list(dict.fromkeys(selected))
     def select(self,message:str,context:dict[str,Any]|None=None)->list[str]:
         ctx=context or {}; plan=ctx.get("language_plan")
         if not isinstance(plan,dict): plan=self.language_planner.plan(message,ctx).as_dict(); ctx["language_plan"]=plan
         selected=[n for n in plan.get("capabilities",[]) if n in self._tools]
-        if not selected:
-            q=message.lower()
-            for name,hints in self.LEGACY_HINTS.items():
-                if name in self._tools and any(h in q for h in hints): selected.append(name)
-            if self.URL_RE.search(message) and "web_research" in self._tools and "web_research" not in selected: selected.append("web_research")
+        if not selected: return self._legacy_select(message)
+        return list(dict.fromkeys(selected))
+    def _legacy_select(self,message:str)->list[str]:
+        selected=[]; q=message.lower()
+        for name,hints in self.LEGACY_HINTS.items():
+            if name in self._tools and any(h in q for h in hints): selected.append(name)
+        if self.URL_RE.search(message) and "web_research" in self._tools and "web_research" not in selected: selected.append("web_research")
         return list(dict.fromkeys(selected))
     async def execute(self,names:list[str],**kwargs:Any)->dict[str,Any]:
         results={}
