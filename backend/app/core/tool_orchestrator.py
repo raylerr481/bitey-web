@@ -15,32 +15,56 @@ class ToolSpec:
 
 
 class ToolOrchestrator:
-    """General-purpose tool router for Bitey IA Supracerebro.
+    """Autonomous capability router for Bitey IA.
 
-    Tools are capability-oriented and independent of BiteFixes or any enterprise domain.
+    Models are generators, not authority. If a registered capability can fulfill
+    the request, Bitey attempts that capability before allowing a model to claim
+    that the task cannot be performed.
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-
-    def __init__(self) -> None:
-        self._tools: dict[str, ToolSpec] = {}
+    RESEARCH_TERMS = (
+        "investiga", "investigar", "busca", "buscar", "fuentes", "fuente",
+        "compara", "comparar", "contrasta", "verifica", "verificar", "research",
+        "evidence", "actual", "actualizado", "actualizada", "hoy", "último",
+        "última", "ultimo", "latest", "current", "precio", "cotización", "cotizacion",
+        "noticias", "qué pasó", "que paso", "información actual", "informacion actual",
+    )
+    EXTERNAL_DATA_TERMS = (
+        "en internet", "en la web", "en línea", "online", "web", "internet",
+        "sitio", "página", "pagina", "documentación", "documentacion",
+    )
 
     def register(self, spec: ToolSpec) -> None:
         self._tools[spec.name] = spec
+
+    def __init__(self) -> None:
+        self._tools: dict[str, ToolSpec] = {}
 
     def available(self) -> list[dict[str, Any]]:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
+        """Select tools from intent, freshness, explicit URLs and task semantics.
+
+        Selection is deliberately broader than a few magic words: current or
+        externally-grounded questions should trigger research even when the
+        user does not explicitly say 'search'.
+        """
         q = message.lower()
         selected: list[str] = []
-        if self.URL_RE.search(message) or any(x in q for x in ("investiga", "busca", "fuentes", "compara", "contrasta", "actual", "hoy", "latest", "research")):
+        explicit_url = bool(self.URL_RE.search(message))
+        research_context = bool((context or {}).get("research"))
+        freshness = any(x in q for x in self.RESEARCH_TERMS)
+        external = any(x in q for x in self.EXTERNAL_DATA_TERMS)
+
+        if explicit_url or research_context or freshness or external:
             selected.append("web_research")
         if any(x in q for x in ("archivo", "documento", "pdf", "imagen", "fichero")):
             selected.append("workspace_files")
-        if re.search(r"\d+\s*[+\-*/%^]\s*\d+", q) or any(x in q for x in ("calcula", "cálculo", "porcentaje", "cuánto", "cuanto", "math")):
+        if re.search(r"\d+\s*[+\-*/%^]\s*\d+", q) or any(x in q for x in ("calcula", "cálculo", "calculo", "porcentaje", "cuánto", "cuanto", "math")):
             selected.append("calculator")
-        if any(x in q for x in ("código", "codigo", "programa", "python", "javascript", "debug", "error")):
+        if any(x in q for x in ("código", "codigo", "programa", "python", "javascript", "debug", "error", "github", "api")):
             selected.append("code_reasoning")
         return list(dict.fromkeys(selected))
 
@@ -49,12 +73,16 @@ class ToolOrchestrator:
         for name in names:
             tool = self._tools.get(name)
             if not tool:
+                results[name] = {"ok": False, "error": "capability_not_registered"}
                 continue
             try:
                 results[name] = await tool.handler(**kwargs)
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
         return results
+
+    def capability_available(self, name: str) -> bool:
+        return name in self._tools
 
 
 def safe_calculate(expression: str) -> float:
