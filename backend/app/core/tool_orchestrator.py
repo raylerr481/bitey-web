@@ -15,92 +15,56 @@ class ToolSpec:
 
 
 class ToolOrchestrator:
-    """Autonomous capability router for Bitey IA.
-
-    Models are generators, not authority. If a registered capability can fulfill
-    the request, Bitey attempts that capability before allowing a model to claim
-    that the task cannot be performed.
-    """
+    """Runtime capability authority fed by the language orchestrator."""
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    WEATHER_TERMS = (
-        "tiempo", "clima", "temperatura", "pronóstico", "pronostico", "lluvia",
-        "humedad", "viento", "weather", "forecast", "temperature",
-    )
-    RESEARCH_TERMS = (
-        "investiga", "investigar", "busca", "buscar", "fuentes", "fuente",
-        "compara", "comparar", "contrasta", "verifica", "verificar", "research",
-        "evidence", "actual", "actualizado", "actualizada", "hoy", "último",
-        "última", "ultimo", "latest", "current", "precio", "cotización", "cotizacion",
-        "noticias", "qué pasó", "que paso", "información actual", "informacion actual",
-    )
-    EXTERNAL_DATA_TERMS = (
-        "en internet", "en la web", "en línea", "online", "web", "internet",
-        "sitio", "página", "pagina", "documentación", "documentacion",
-    )
+    LEGACY_HINTS = {
+        "weather": ("tiempo", "clima", "temperatura", "pronóstico", "pronostico", "lluvia", "humedad", "viento", "weather", "forecast"),
+        "web_research": ("investiga", "investigar", "busca", "buscar", "fuentes", "compara", "contrasta", "verifica", "research", "evidence", "actual", "hoy", "latest", "current", "precio", "noticias", "internet", "web"),
+        "workspace_files": ("archivo", "documento", "pdf", "imagen", "fichero", "file", "document"),
+        "calculator": ("calcula", "cálculo", "calculo", "porcentaje", "math"),
+        "code_reasoning": ("código", "codigo", "python", "javascript", "programa", "debug", "github", "api", "error"),
+    }
 
-    def register(self, spec: ToolSpec) -> None:
-        self._tools[spec.name] = spec
-
-    def __init__(self) -> None:
-        self._tools: dict[str, ToolSpec] = {}
-
-    def available(self) -> list[dict[str, Any]]:
-        return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
+    def __init__(self) -> None: self._tools: dict[str, ToolSpec] = {}
+    def register(self, spec: ToolSpec) -> None: self._tools[spec.name] = spec
+    def available(self) -> list[dict[str, Any]]: return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
-        """Select capabilities from task semantics rather than model claims."""
-        q = message.lower()
+        """Use a language plan first; lexical hints are fallback only."""
+        ctx = context or {}
         selected: list[str] = []
-        explicit_url = bool(self.URL_RE.search(message))
-        research_context = bool((context or {}).get("research"))
-        freshness = any(x in q for x in self.RESEARCH_TERMS)
-        external = any(x in q for x in self.EXTERNAL_DATA_TERMS)
-        weather = any(x in q for x in self.WEATHER_TERMS)
-
-        # Weather is a specialized live-data capability; do not make the model
-        # improvise or fall back to generic prose when this tool is registered.
-        if weather:
-            selected.append("weather")
-        if explicit_url or research_context or freshness or external:
+        plan = ctx.get("language_plan") or {}
+        for name in plan.get("capabilities", []) if isinstance(plan, dict) else []:
+            if name in self._tools: selected.append(name)
+        if not selected:
+            q = message.lower()
+            for name, hints in self.LEGACY_HINTS.items():
+                if name in self._tools and any(h in q for h in hints): selected.append(name)
+            if self.URL_RE.search(message) and "web_research" in self._tools and "web_research" not in selected: selected.append("web_research")
+        if plan.get("external_information_required") and "web_research" in self._tools and "weather" not in selected and "web_research" not in selected:
             selected.append("web_research")
-        if any(x in q for x in ("archivo", "documento", "pdf", "imagen", "fichero")):
-            selected.append("workspace_files")
-        if re.search(r"\d+\s*[+\-*/%^]\s*\d+", q) or any(x in q for x in ("calcula", "cálculo", "calculo", "porcentaje", "cuánto", "cuanto", "math")):
-            selected.append("calculator")
-        if any(x in q for x in ("código", "codigo", "programa", "python", "javascript", "debug", "error", "github", "api")):
-            selected.append("code_reasoning")
         return list(dict.fromkeys(selected))
 
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
         results: dict[str, Any] = {}
         for name in names:
             tool = self._tools.get(name)
-            if not tool:
-                results[name] = {"ok": False, "error": "capability_not_registered"}
-                continue
-            try:
-                results[name] = await tool.handler(**kwargs)
-            except Exception as exc:
-                results[name] = {"ok": False, "error": type(exc).__name__}
+            if not tool: results[name] = {"ok": False, "error": "capability_not_registered"}; continue
+            try: results[name] = await tool.handler(**kwargs)
+            except Exception as exc: results[name] = {"ok": False, "error": type(exc).__name__}
         return results
 
-    def capability_available(self, name: str) -> bool:
-        return name in self._tools
+    def capability_available(self, name: str) -> bool: return name in self._tools
 
 
 def safe_calculate(expression: str) -> float:
-    """Evaluate simple arithmetic only; no names, calls, attributes or code execution."""
     tree = parse(expression.strip().replace("^", "**"), mode="eval")
     allowed = (Add, Sub, Mult, Div, Pow, Mod, USub, UAdd)
-
     def walk(node: Any) -> float:
-        if isinstance(node, Expression):
-            return walk(node.body)
-        if isinstance(node, Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-            return float(node.value)
-        if isinstance(node, UnaryOp) and isinstance(node.op, (USub, UAdd)):
-            return -walk(node.operand) if isinstance(node.op, USub) else walk(node.operand)
+        if isinstance(node, Expression): return walk(node.body)
+        if isinstance(node, Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool): return float(node.value)
+        if isinstance(node, UnaryOp) and isinstance(node.op, (USub, UAdd)): return -walk(node.operand) if isinstance(node.op, USub) else walk(node.operand)
         if isinstance(node, BinOp) and isinstance(node.op, allowed):
             left, right = walk(node.left), walk(node.right)
             if isinstance(node.op, Add): return left + right
@@ -110,5 +74,4 @@ def safe_calculate(expression: str) -> float:
             if isinstance(node.op, Pow): return left ** right
             return left % right
         raise ValueError("unsupported_expression")
-
     return walk(tree)
