@@ -1,198 +1,330 @@
-# Bitey IA Web
+# Bitey IA Web — Independent Cognitive Core
 
-`bitey-web` is **Bitey IA Web**, the web channel and Cloudflare-hosted intelligence layer of Bitey IA.
+`bitey-web` is the central web channel and server-side cognitive layer of **Bitey IA**. Bitey IA is the general-purpose intelligence of the ecosystem: it owns the cognitive architecture, orchestration, context, memory, evaluation, learning, capability routing and safety boundaries.
 
-## Product role
+Bitey IA is **not a single-LLM wrapper**. External models are replaceable providers/tools used by the cognitive core.
 
-Bitey IA is the general intelligence layer of the ecosystem. Bitey IA Web is one channel to that intelligence. `bitey-ia-app` is another channel to the same Bitey IA, not a separate brain.
+## Mission
 
-## AI provider and model policy
+Build an independent, model-agnostic and free-first AI architecture that can continue operating when a particular model, provider or service is unavailable.
 
-Bitey IA operates with a **FREE_ONLY + FAIL_CLOSED** policy by default.
-
-The important distinction is:
-
-- AI models such as Gemma, Qwen, DeepSeek, Groq-hosted models and other providers are **tools consulted by Bitey**.
-- Bitey owns the orchestration, memory, context, evaluation, feedback, routing knowledge and learning loop.
-- Models do not become Bitey and do not own Bitey's learning system.
-- There is **no silent paid fallback**.
-- If a provider cannot be verified as free, Bitey does not use it while `BITEY_COST_MODE=free_only` is active.
-- If no verified free provider is available, Bitey stops with a billing-risk message instead of spending money.
-
-### Dynamic OpenRouter Free Model Registry
-
-Bitey should not require a hardcoded list of every free model on OpenRouter. When OpenRouter is enabled, Bitey can query the OpenRouter model catalog and discover models whose model ID is a free variant and whose prompt/completion pricing is zero.
-
-The discovered models are registered in the same provider/model pool used by the AI Council. This means a newly published free model can become available to Bitey without a code change, subject to the catalog and policy checks.
-
-OpenRouter provides a dedicated `openrouter/free` router that selects among currently available free models and filters for request capabilities. Its free model catalog changes over time.
-
-Bitey nevertheless keeps model-specific free variants as the preferred deterministic path: this lets Bitey evaluate capabilities and select the best model for a task instead of blindly relying on a random free-model route.
-
-### Free does not mean unlimited
-
-Bitey can guarantee **no intentional billing while FREE_ONLY is enforced**. It cannot guarantee that an external provider will offer unlimited requests, unlimited tokens, permanent availability, or permanent free pricing.
-
-OpenRouter's Free plan has its own request limits, and individual models can leave the free tier. Therefore Bitey's promise is stronger and more precise:
-
-> **Bitey never crosses the configured billing boundary. If free capacity is exhausted or disappears, Bitey waits/stops instead of charging.**
-
-For genuinely quota-independent inference, local open-weight models are the preferred option because the inference cost is controlled by the user's own hardware rather than a hosted provider quota.
-
-### AI Council selection
-
-The registry feeds the Bitey AI Council. For each task, Bitey can evaluate the available free models by capability and choose the most appropriate one. For important tasks it can consult multiple free models, compare answers, detect contradictions and let Bitey evaluate the result.
-
-Conceptually:
+The architecture follows:
 
 ```text
-OpenRouter catalog / local providers / other verified free providers
-                              │
-                              ▼
-                    Bitey Model Discovery
-                              │
-                              ▼
-                    AI Provider/Model Registry
-                              │
-                              ▼
-                     Capability evaluation
-                              │
-                              ▼
-                         AI Council
-                              │
-                 ┌────────────┴────────────┐
-                 ▼                         ▼
-          best free model          multi-model review
-                 │                         │
-                 └────────────┬────────────┘
-                              ▼
-                   Bitey evaluation layer
-                              │
-                              ▼
-                  memory / feedback / learning
+Perception → Intent → Context → Evidence → Reasoning
+        → Planning → Risk/Policy → Decision
+        → Generation → Evaluation → Memory/Learning
 ```
 
-## Gemma 4 12B
+The cognitive architecture is deliberately independent from any individual LLM. Models provide language/inference capabilities when available; Bitey owns the decision structure and orchestration.
 
-Bitey IA Web supports **Google Gemma 4 12B** as an optional local provider named `gemma-4-12b-local`.
-
-- Model: `google/gemma-4-12B-it`
-- License: Apache 2.0
-- Local endpoint: OpenAI-compatible `/v1/chat/completions`
-- Default endpoint: `http://127.0.0.1:50305/v1`
-- No Gemini API is required for this local integration.
-- Recommended runtimes include llama.cpp, LM Studio and LiteRT-LM-compatible OpenAI endpoints.
-- Gemma participates in the **same Bitey provider registry and AI Council** as other providers; it is not a separate intelligence subsystem.
-
-Enable it in the Bitey IA backend with:
-
-```text
-BITEY_COST_MODE=free_only
-BITEY_FREE_ONLY_HARD_STOP=true
-GEMMA_4_12B_ENABLED=true
-GEMMA_4_12B_ENDPOINT=http://127.0.0.1:50305/v1
-GEMMA_4_12B_MODEL=google/gemma-4-12B-it
-GEMMA_4_12B_PRIORITY=3
-```
-
-The endpoint must be reachable from the backend process. A deployed Cloudflare backend cannot directly reach `127.0.0.1` on a user's PC; for production hosting, use an explicitly authorized reachable inference endpoint or keep Gemma local.
-
-## OpenRouter configuration
-
-```text
-BITEY_COST_MODE=free_only
-BITEY_FREE_ONLY_HARD_STOP=true
-OPENROUTER_ENABLED=true
-OPENROUTER_API_KEY=<server-side-secret>
-```
-
-Optional deterministic entries can still be configured:
-
-```text
-OPENROUTER_QWEN_MODEL=qwen/qwen3-4b:free
-OPENROUTER_DEEPSEEK_MODEL=deepseek/deepseek-chat-v3-0324:free
-```
-
-Bitey validates the free-variant ID and zero pricing before dynamically registering additional OpenRouter models. API credentials remain server-side and are never placed in frontend code.
-
-## Ecosystem architecture
+## Ecosystem position
 
 ```text
                          BITEY IA
-                    GENERAL INTELLIGENCE
+                 CENTRAL COGNITIVE CORE
                            │
           ┌────────────────┼────────────────┐
           │                │                │
-       JobIA           Bitey SBT        BiteFixes
+       JobIA              SBT          BiteFixes
+    specialization    specialization   contextual IA
           │                │                │
-   Bitey Trainer      SBT Web/App     Enterprise IA
-      (motor)          (specialized)   (contextual)
+          ▼                ▼                ▼
+     Job Intelligence  Trading Intel.   Enterprise /
+     CV / Matching     Market / Risk    Support / CRM
 ```
 
-All products are interconnected through explicit APIs/contracts, while their frontends, user experiences, operational data and product identities remain independent.
+**JobIA and Bitey System Bots Trading (SBT) are complementary specialized modules, not independent brains.** BiteFixes is also kept as its existing contextual enterprise AI and is not being replaced by this core.
 
-## Bitey System Bots Trading
+The central rule is:
 
-`bitey-system-bots-trading` is the specialized trading intelligence and platform backend. `bitey-system-bots-trading-app` is its mobile channel. A separate SBT web frontend is planned for independent Cloudflare deployment.
+> **Bitey IA is the brain. Specialized products are capabilities. Models are tools.**
 
-Bitey SBT is an **original Bitey product**. It can implement broad, non-exclusive market capabilities such as research, strategy construction, simulation, comparison, validation, publishing and monitoring, but its UX, terminology, architecture, scoring, orchestration, copy and visual identity must be designed independently.
+## Current cognitive core
 
-Bitey SBT must not become a visual, textual or code clone of TradingKit or any other competitor. Competitor products may be studied only as market references; implementation decisions must be derived from Bitey's own product requirements.
+The backend already contains the foundation for an independent cognitive architecture, including:
 
-## BiteFixes / Bitey IA Empresarial
+- `CognitiveArchitecture` / cognitive frames
+- Cognitive Model
+- Context Engine
+- Cognitive Memory
+- Long-term Memory
+- Learning Engine
+- Evaluation Engine
+- Research and Deep Research
+- Tool Orchestrator
+- Module Registry
+- Provider Gateway
+- Native/local model support
+- Workspace and project context
+- Risk and policy boundaries
+- Versioned capability discovery
 
-BiteFixes is an enterprise product with its own Web and App channels. **Bitey IA Empresarial** operates with BiteFixes business context: CRM, customers, tickets, services, knowledge, workflows and authorized company data.
+The cognitive frame can represent language, domain, intent, entities, constraints, evidence requirements, confidence, plans and risk flags without depending on an external LLM.
 
-Private BiteFixes data remains inside authorized enterprise boundaries and must not be exposed to unrelated products.
-
-## JobIA and Bitey Trainer
-
-JobIA is a separate product in development. `bitey-trainer` is its internal intelligence/training engine, not a mobile application.
-
-## WordPress integration
-
-`bitey-ai` is the configurable Bitey IA Enterprise WordPress integration/channel layer. It is not the general intelligence layer and not a duplicate backend.
-
-## Interconnection rule
+## Provider and model fabric
 
 ```text
-Independent frontend
-       │
-       ▼
-Specialized backend
-       │
-       ├── authorized platform data
-       └── explicit Bitey IA contract
-                    │
-                    ▼
-                BITEY IA
+                 BITEY COGNITIVE CORE
+                           │
+                  Provider / Model Registry
+                           │
+                  Capability Matching
+                           │
+                    Model Selection
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+        OpenRouter       Local AI     Other verified
+        Free models      / Ollama       providers
+              │            │            │
+              └────────────┼────────────┘
+                           ▼
+                    Bitey Evaluation
 ```
 
-Interconnection does not mean shared unrestricted memory. Sensitive/private information stays within its authorized product and tenant boundary.
+Default policy:
 
-## Data and security
+- `FREE_ONLY`
+- `FAIL_CLOSED`
+- no silent paid fallback
+- provider credentials remain server-side
+- provider health, capability and availability must be evaluated before use
+- local inference is preferred when it provides a practical quota-independent option
 
-- User and company data remain isolated by authorization and tenant boundaries.
-- Provider credentials remain server-side.
-- Specialized products communicate with Bitey IA through explicit contracts.
-- Bitey IA remains the general intelligence layer.
-- Specialized products remain authoritative for their own domain operations.
-- BiteFixes private operational context remains restricted to authorized enterprise flows.
-- SBT trading controls remain authoritative inside the SBT backend/Risk Engine.
-- Free-only enforcement is fail-closed: billing risk is never resolved by silently selecting a paid model.
+### Dynamic free-model discovery
 
-## Product development principle
+Bitey can discover currently available OpenRouter free models instead of relying exclusively on a permanently hardcoded list. Free status must be verified from the provider catalog/pricing metadata before a model is admitted to the free pool.
 
-The ecosystem should reuse proven engineering knowledge without copying protected expression from competitors. Every new product feature should have an independent Bitey information architecture, implementation and visual treatment.
+The AI Council can compare suitable free providers/models for important tasks, detect contradictions and send the result through Bitey's own evaluation layer. The council is an orchestration mechanism; it does not replace the central cognitive core.
 
-## Production priorities
+**Free does not mean unlimited.** Bitey guarantees that the configured free-only boundary is not intentionally crossed; it cannot guarantee unlimited external quotas or permanent free availability.
 
-1. Keep Bitey IA Web reliable and AI-first.
-2. Keep web and Android channels aligned to the same Bitey IA identity/contracts.
-3. Maintain the dynamic free-model registry and hard no-billing boundary.
-4. Integrate JobIA with validated Bitey Trainer capabilities.
-5. Integrate Bitey SBT through safe, versioned trading APIs.
-6. Build the SBT web frontend as an independent product, not as an extension of `bitey-web`.
-7. Preserve Bitey IA Empresarial as the contextual enterprise layer for BiteFixes.
-8. Maintain authentication, privacy, tenant isolation and observability.
-9. Keep local Gemma 4 12B available as a zero-hosting-cost inference option.
+## Local AI
+
+Bitey supports local/open-weight inference through an OpenAI-compatible endpoint when configured. This enables a model provider to run on user-controlled hardware without requiring a hosted AI API.
+
+An optional local Gemma 4 12B provider can participate in the same provider registry as Qwen, DeepSeek, OpenRouter free models and other compatible providers. **No Gemini API is required.**
+
+A local endpoint such as `127.0.0.1` is reachable only by the machine/network where the inference service runs; a public Cloudflare deployment cannot directly access a user's localhost.
+
+## Memory and knowledge fabric
+
+Bitey is being evolved toward a layered memory/knowledge architecture. Storage providers are implementation components, not the brain itself.
+
+```text
+                 BITEY COGNITIVE MEMORY
+                         │
+       ┌─────────────────┼─────────────────┐
+       ▼                 ▼                 ▼
+   Working           Persistent         Knowledge
+   context            memory              graph
+       │                 │                 │
+     Redis /          Supabase /        Neo4j Aura
+     edge state       PostgreSQL
+       │                 │
+       └──────────┬──────┘
+                  ▼
+             MongoDB Atlas
+        episodic/cognitive data
+```
+
+Target responsibilities:
+
+- **Supabase/Postgres:** transactional application state and structured records.
+- **MongoDB Atlas Free:** episodic/cognitive/document-oriented memory where appropriate.
+- **Neo4j Aura Free:** knowledge graph, entities, relationships and semantic connections.
+- **Redis / edge state:** short-lived working context and caching where available.
+- **Cloudflare:** web/edge delivery and lightweight state.
+- **R2/object storage:** documents and binary objects when required.
+
+These integrations remain replaceable and optional. A temporary failure of one storage layer must not turn that service into a second brain or silently corrupt the cognitive state.
+
+## Knowledge graph direction
+
+Neo4j is being used as a complementary knowledge layer for relationships such as:
+
+```text
+User → Experience → Decision
+Decision → Model / Tool / Document
+Decision → MarketEvent / Risk
+Concept → Concept
+```
+
+For SBT this can support relationships between market events, signals, strategies, decisions, risks and evidence. For JobIA it can support skills, roles, vacancies, experiences and career relationships. These are domain capabilities consumed through Bitey contracts.
+
+## Specialized modules
+
+### SBT — Trading Intelligence
+
+Bitey System Bots Trading is a specialized trading module. It does not own the general Bitey brain.
+
+```text
+Bitey IA
+   ↓
+Trading Intelligence
+   ↓
+Market Intelligence / News / Time Engine
+   ↓
+Domino State Machine / Contradiction Detection
+   ↓
+Signal / Strategy
+   ↓
+Validation
+   ↓
+Risk Gate
+   ↓
+Permission
+   ↓
+Demo / Paper execution
+   ↓
+MT5 / Alpaca integrations
+```
+
+The SBT backend remains authoritative for trading permissions and risk controls. **Live trading remains disabled in the current milestone.** News or model output must never bypass the SBT Risk Gate.
+
+### JobIA — Employment Intelligence
+
+JobIA is a specialized employment/career capability using Bitey IA as its central cognitive layer.
+
+```text
+Bitey IA
+   ↓
+Job Intelligence
+   ├── CV / profile analysis
+   ├── Vacancy analysis
+   ├── Skills and competency mapping
+   ├── Candidate ↔ vacancy matching
+   ├── Interview preparation
+   └── Labor-market intelligence
+```
+
+JobIA may evolve its own product UX and domain services, but it does not create a competing general-purpose brain.
+
+### BiteFixes — existing contextual AI
+
+BiteFixes remains an existing contextual enterprise AI with its own business/support context, CRM, customers, tickets, services and authorized company data.
+
+**BiteFixes is not being replaced or refactored as part of this cognitive-core evolution.** Integration with Bitey IA should occur through explicit contracts and authorized context boundaries.
+
+## Contract-based interconnection
+
+```text
+Web / Android / API channel
+            │
+            ▼
+       Bitey IA API
+            │
+            ▼
+  Independent Cognitive Core
+            │
+      ┌─────┼─────┐
+      ▼     ▼     ▼
+    JobIA   SBT  BiteFixes
+      │     │      │
+      └─────┼──────┘
+            ▼
+   Authorized domain result
+```
+
+A specialized module can request Bitey cognition, context processing or reasoning through an explicit contract. It cannot arbitrarily access another module's private data.
+
+## Safety and authority boundaries
+
+- Bitey owns general cognitive orchestration.
+- Specialized products own their domain-specific operations.
+- SBT Risk Engine/Risk Gate is authoritative for trading execution safety.
+- Enterprise/private BiteFixes context stays within authorized tenant boundaries.
+- Provider secrets remain server-side.
+- LLM output is untrusted until evaluated against the relevant policy/contract.
+- Evidence is preferred for high-impact decisions.
+- Memory is context, not unquestionable truth.
+- No provider can silently cross the configured billing boundary.
+
+## Runtime flow
+
+```text
+Input
+  ↓
+Context Engine
+  ↓
+Cognitive Memory
+  ↓
+Tools / Research / Deep Research
+  ↓
+Cognitive Architecture
+  ↓
+Module Routing
+  ↓
+Provider / Model Selection
+  ↓
+Generation / Reasoning
+  ↓
+Evaluation / Contradiction / Confidence
+  ↓
+Policy & Safety
+  ↓
+Response or authorized module action
+  ↓
+Memory + Learning observation
+```
+
+This architecture allows Bitey to degrade gracefully: deterministic tools, stored knowledge, local models or another verified free provider can continue to provide useful capabilities when one model is unavailable.
+
+## Security and data boundaries
+
+- No credentials or API keys in frontend code or README files.
+- Provider credentials are server-side secrets.
+- Private enterprise data is tenant-scoped.
+- Specialized modules expose only authorized capabilities.
+- Cross-module communication uses explicit contracts.
+- Trading execution remains isolated from general conversational reasoning.
+- External model responses are treated as untrusted input to the evaluation/policy layer.
+
+## Current infrastructure direction
+
+```text
+Cloudflare
+   │
+   ├── Bitey IA Web
+   └── specialized web channels
+            │
+            ▼
+     Bitey Cognitive API
+            │
+     ┌──────┼────────┐
+     ▼      ▼        ▼
+ Supabase MongoDB  Neo4j
+     │      │        │
+     └──────┼────────┘
+            ▼
+      Provider Fabric
+            │
+   ┌────────┼─────────┐
+   ▼        ▼         ▼
+OpenRouter Local AI  Future
+ Free      /Ollama   providers
+```
+
+The objective is **interchangeable infrastructure**: Bitey should not become dependent on one database, one graph service, one hosting provider or one AI model.
+
+## Development priorities
+
+1. Keep Bitey IA Web stable as the central AI channel.
+2. Complete persistent cognitive memory and knowledge integrations.
+3. Formalize provider/model capability scoring and health-aware fallback.
+4. Strengthen confidence, contradiction and evidence evaluation.
+5. Define stable versioned contracts for JobIA and SBT.
+6. Connect SBT intelligence to the central cognitive core without weakening its Risk Gate.
+7. Connect JobIA capabilities to the same central cognitive core.
+8. Preserve BiteFixes as the already-working contextual enterprise AI.
+9. Keep web and future Android channels aligned to the same Bitey IA identity and contracts.
+10. Maintain `FREE_ONLY + FAIL_CLOSED` and never silently introduce paid inference.
+11. Keep local open-weight inference as a viable quota-independent option.
+12. Add observability, authentication, tenant isolation and recovery mechanisms as the ecosystem grows.
+
+## Project status
+
+Bitey IA Web already contains the foundation of the independent cognitive core. The current phase is **integration and evolution**, not replacement: connect memory, knowledge graph, provider discovery, specialized capabilities and evaluation into a coherent Bitey architecture while preserving existing working systems.
+
+No Gemini API is required by this architecture.
