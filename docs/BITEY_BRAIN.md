@@ -1,81 +1,94 @@
-# Bitey Brain — Executive Cognitive Architecture v1
+# Bitey Brain — Executive Cognitive Architecture
 
 ## Purpose
 
-Bitey Brain is the executive cognitive layer of Bitey IA. It is **not another LLM** and does not compete with the provider/model layer. Its job is to decide how Bitey should think before a model generates an answer.
+Bitey Brain is the executive cognitive layer of **Bitey IA Web**, the general/integral AI. It is not another LLM. Its job is to decide how Bitey should perceive, plan, use memory, select tools/models, verify results and act.
 
 ```text
-User input
-   ↓
-Perception / Context
-   ↓
+Input
+ ↓
+Perception / Intent / Context
+ ↓
 BITEY BRAIN
-   ├─ task classification
-   ├─ complexity estimation
-   ├─ ambiguity detection
-   ├─ evidence policy
-   ├─ memory priority
-   ├─ tool priority
-   ├─ reasoning mode
-   ├─ risk policy
-   └─ verification policy
-   ↓
-Tools / Research / Memory / Knowledge
-   ↓
-Provider / Local Model
-   ↓
-Evaluation + Contradiction checks
-   ↓
-Response / authorized capability
-   ↓
+ ├─ goals + constraints
+ ├─ task classification
+ ├─ decomposition
+ ├─ memory priority
+ ├─ evidence policy
+ ├─ tool selection
+ ├─ model selection
+ ├─ risk / permissions
+ └─ verification plan
+ ↓
+Memory + Knowledge + Tools + Research
+ ↓
+Local or verified-free model when useful
+ ↓
+Evaluation + Contradiction + Confidence
+ ↓
+Answer / authorized action
+ ↓
 Learning observation
 ```
 
-## Why this matters
+## Independent operation
 
-A strong conversational model alone does not define a complete cognitive system. Bitey therefore owns the executive loop while models remain replaceable inference engines.
+Bitey must retain a useful deterministic operating core even when every external model is unavailable. This includes routing, validation, calculations, state management, policy checks, tool contracts and memory operations.
 
-The brain uses lightweight deterministic signals to choose between direct response, structured reasoning, evidence-first research, decomposition/verification, and guarded decision modes. This improves consistency without requiring MongoDB, Neo4j, or a particular AI provider to be online.
+AI models are replaceable workers. Bitey can use local/open-weight models and verified free external models, but no single provider is required for the architecture to exist.
 
-## Cognitive contract
+## Free profile
 
-Every message receives a `BrainState` containing:
+The default economic policy is **FREE_ONLY + FAIL_CLOSED**:
 
-- task class/domain;
-- complexity and ambiguity;
-- evidence requirement;
-- risk level;
-- reasoning mode;
-- memory priority;
-- preferred tools;
-- verification requirement;
-- execution policy;
-- goals and constraints.
+- only models/providers verified as free may be selected;
+- paid fallback is forbidden;
+- local inference is preferred when practical;
+- if no free model is available, deterministic capabilities continue or Bitey reports the limitation;
+- third-party free quotas are not assumed to be unlimited.
 
-The contract is placed into runtime context and a compact executive directive is supplied to the selected model.
+## Tool autonomy
 
-## Degraded operation
+Bitey may design and register new tools from a task requirement, but generated tools must pass a capability contract before execution.
 
-MongoDB and Neo4j are optional supporting memory/knowledge systems. Their temporary absence does not disable the Brain. Bitey can continue with the context engine, Supabase-backed state where configured, local computation, tools, research and available models.
+Required fields:
 
-When Neo4j returns later, graph context can be reintroduced without changing the executive architecture. MongoDB can likewise be restored as an episodic/document memory provider without becoming a second brain.
+- name and purpose;
+- input/output schema;
+- permissions;
+- cost class;
+- side effects;
+- timeout and resource limits;
+- validation requirements;
+- rollback strategy where applicable.
+
+Arbitrary generated code is never trusted merely because an LLM produced it. High-impact tools require explicit authorization and stronger safety gates.
+
+## Memory and knowledge
+
+Supabase/Postgres is the canonical persistent layer for the current architecture. Memory is context, not unquestionable truth. Important claims should retain provenance and confidence where possible.
+
+Neo4j and MongoDB are **not dependencies of Bitey IA Web**.
+
+## Specialized modules
+
+Bitey IA Web can coordinate specialized capabilities through versioned contracts. BiteFixes remains outside the general brain's ownership boundary: BiteFixes owns CRM/SaaS and its Bitey IA Empresarial contextual deployments. SBT remains a separate trading system with its own risk authority.
 
 ## Quality target
 
-The project should aim for **high reasoning quality comparable in behavior to strong frontier assistants**, but should not claim a literal IQ score. IQ is not a valid engineering metric for a software architecture. Bitey's measurable targets are instead task accuracy, evidence grounding, contradiction handling, instruction adherence, tool selection, safety, latency, recovery and learning from feedback.
+Do not use an invented IQ score as an engineering metric. Measure task success, evidence grounding, contradiction handling, instruction adherence, tool selection, safety, latency, recovery and learning outcomes.
 
-## Next evolution
+## Evolution roadmap
 
-1. Add explicit contradiction detection between evidence, memory and model claims.
-2. Add task decomposition with dependency graphs for complex requests.
-3. Add confidence calibration using evaluation outcomes.
-4. Add salience-weighted memory retrieval.
-5. Add provider/model capability scoring and adaptive routing.
-6. Add vector retrieval when the storage layer is available.
-7. Add graph + vector fusion when Neo4j is available.
-8. Connect JobIA and SBT through stable capability contracts.
-9. Keep BiteFixes isolated behind authorized contracts.
+1. Deterministic executive loop.
+2. Free-model discovery and health-aware fail-closed routing.
+3. Supabase-backed cognitive memory and semantic retrieval.
+4. Task-decomposition DAG and bounded long-horizon planning.
+5. Contradiction detection and confidence calibration.
+6. Permissioned Tool Factory.
+7. Sandboxed execution for explicitly authorized tools.
+8. Capability benchmarks and autonomous recovery tests.
+9. Versioned module contracts.
+10. Continuous improvement from evaluated outcomes without treating model output as ground truth.
 
-The invariant remains:
-
-> **Bitey IA is the brain. Models are tools. Databases and graphs are memory/knowledge organs. Specialized products are capabilities.**
+> **Invariant:** Bitey IA Web owns the cognitive loop. Models are tools. Tools are permissioned capabilities. Memory is governed context. Specialized products remain bounded.
