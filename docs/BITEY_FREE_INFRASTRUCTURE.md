@@ -2,107 +2,119 @@
 
 ## Principle
 
-Bitey Brain owns cognition. Infrastructure services provide memory, knowledge, retrieval, observability and model execution. No external service is allowed to become the brain.
+Bitey Brain owns cognition. Infrastructure supplies persistence, retrieval, research, model execution and tools. No external service becomes the brain.
 
-## Current/ready organs
+The architecture is **free-first and fail-closed**: the free profile never silently invokes paid inference.
 
-| Organ | Technology | Role | Optional |
-|---|---|---|---|
-| Executive cognition | Bitey Brain | planning/routing/risk/verification | No |
-| Relational state | Supabase/Postgres | durable structured state | Yes |
-| Episodic memory | MongoDB | conversations/experiences/documents | Yes |
-| Knowledge graph | Neo4j | entities/relations/causal links | Yes |
-| Semantic memory | Qdrant | vector retrieval | Yes |
-| Local inference | Ollama-compatible endpoint | private/local model execution | Yes |
-| External inference | OpenAI-compatible providers | model diversity/failover | Yes |
-| Research | Web/deep research layer | current evidence | Yes |
-| Evaluation | Bitey evaluator | quality gate | No |
-| Learning | Bitey learning engine | bounded learning observations | No |
+## Current architecture
 
-## MongoDB design
+| Organ | Technology | Role |
+|---|---|---|
+| Executive cognition | Bitey Brain | planning, routing, risk, verification | 
+| Persistent state | Supabase/Postgres | canonical structured state and memory |
+| Semantic memory | PostgreSQL/pgvector when enabled | embeddings and semantic retrieval |
+| Local inference | Ollama-compatible endpoint | quota-independent local AI |
+| External inference | verified free OpenAI-compatible providers | model diversity/failover |
+| Research | Web/deep-research layer | current evidence |
+| Evaluation | Bitey evaluator | quality/contradiction gate |
+| Learning | Bitey learning engine | bounded learning observations |
+| Tools | Bitey Tool Registry | deterministic/API capabilities |
 
-Use MongoDB for episodic memory rather than facts that require relational integrity. Suggested collections:
+**Neo4j and MongoDB are excluded.** Qdrant is not required for the canonical architecture; pgvector in Supabase is the preferred semantic-memory direction.
 
-- `cognitive_episodes`
-- `conversation_summaries`
-- `user_preferences`
-- `tool_observations`
-- `learning_experiences`
+## Free execution strategy
 
-Never store provider secrets or raw credentials in cognitive memory.
+1. Deterministic Bitey tools first when an LLM is unnecessary.
+2. Local/open-weight inference when available.
+3. Verified free external models/providers.
+4. Bounded multi-model cooperation for complex tasks when every selected model is free.
+5. Web research only when freshness/evidence is needed.
+6. If no free route exists, fail closed rather than spend money.
 
-## Neo4j design
+## Self-sufficiency layers
 
-Use graph nodes for stable entities and relationships:
+```text
+Layer 0  Deterministic cognition
+Layer 1  Local AI
+Layer 2  Verified free model fabric
+Layer 3  Tool execution
+Layer 4  Research / external evidence
+Layer 5  Specialized modules
+Layer 6  Evaluation + learning
+```
 
-- `Person`, `Organization`, `Project`, `Concept`, `Capability`, `Event`, `Document`, `Tool`, `Model`, `Decision`, `Risk`.
+The layers are additive. Loss of an upper layer must not destroy the lower layers.
 
-Useful relationships:
+## Tool Factory
 
-- `KNOWS`
-- `DEPENDS_ON`
-- `PART_OF`
-- `SUPPORTS`
-- `CONTRADICTS`
-- `DERIVED_FROM`
-- `USED_BY`
-- `CAUSED_BY`
-- `RELEVANT_TO`
+Bitey is designed to create new tools from requirements, but the creation process is governed:
 
-The graph should capture relationships and provenance, not duplicate the entire chat history.
+```text
+Task requirement
+   ↓
+Tool specification
+   ↓
+Schema + permission + cost + risk validation
+   ↓
+Implementation/adapter
+   ↓
+Tests / sandbox
+   ↓
+Registry
+   ↓
+Authorized execution
+   ↓
+Evaluation
+```
 
-## Vector memory design
+Tools should prefer deterministic code or narrowly scoped API adapters. Arbitrary model-generated shell/code execution is disabled by default.
 
-Qdrant is prepared as the semantic retrieval organ. A point should contain an embedding plus payload such as:
+## Memory design
 
-`memory_id`, `tenant_id`, `domain`, `source`, `conversation_id`, `importance`, `confidence`, `created_at`, `expires_at`, `text_hash`.
+Use Supabase/Postgres for:
 
-Use hybrid retrieval where possible: lexical filters + vector similarity + reranking. Qdrant supports payload filtering and hybrid retrieval patterns. See official documentation for current deployment options.
+- conversation and working-state persistence;
+- episodic summaries;
+- semantic/knowledge records;
+- user/project context;
+- tool observations;
+- learning observations;
+- provenance and confidence metadata.
 
-## Free-first execution strategy
+Use PostgreSQL row-level security and tenant scoping wherever enterprise context is stored.
 
-1. Local model via Ollama when the user's computer is available.
-2. Confirmed free provider endpoints when configured.
-3. Provider failover rather than blind multi-model consensus.
-4. Local tools for calculations and deterministic work.
-5. Web research only when freshness/evidence is required.
-6. Optional cloud services only behind explicit configuration and the existing cost gate.
+## Recommended open/free components
 
-## Recommended future components
+- Ollama for local open-weight model serving.
+- PostgreSQL/pgvector through Supabase for semantic retrieval.
+- OpenTelemetry for vendor-neutral telemetry.
+- Lightweight OpenAI-compatible adapters instead of locking Bitey to one provider.
+- Sandboxed runtimes for explicitly authorized tool execution.
 
-### High priority
-- Qdrant semantic memory + local embeddings.
-- Contradiction engine.
-- Task decomposition DAG.
-- Confidence calibration.
-- Model capability registry.
-- Prompt/context budget manager.
-- Provenance ledger for important claims.
-- Benchmark suite for Bitey Intelligence Score.
+Hosted free tiers must be treated as replaceable because quotas and policies can change.
 
-### Medium priority
-- OpenTelemetry traces and metrics.
-- Langfuse-compatible evaluation/observability.
-- Ollama local inference adapter.
-- MCP capability registry and permission scopes.
-- Reranker service.
-- Document ingestion/chunking pipeline.
+## Priority roadmap
+
+### High
+- Harden free provider discovery and health scoring.
+- Complete Supabase cognitive memory.
+- Add task-decomposition DAGs.
+- Add contradiction and confidence engines.
+- Implement permissioned Tool Factory.
+- Add provenance ledger.
+
+### Medium
+- Local embeddings and pgvector retrieval.
+- Tool sandbox and resource limits.
+- Observability and recovery tests.
+- Capability benchmark suite.
 - Scheduled memory consolidation.
 
 ### Advanced
-- GraphRAG fusion: vector retrieval → Neo4j expansion → reranking → Brain verification.
-- Causal hypothesis graph.
-- Long-horizon planning and task DAG execution.
-- Self-critique/evaluator loops with bounded budgets.
-- Personalization profiles separated from general knowledge.
-- Multi-agent specialist workers controlled by one Bitey Brain.
+- Long-horizon planning.
+- Specialist workers controlled by one Bitey Brain.
+- Self-evaluation loops with bounded budgets.
+- Autonomous recovery from provider/tool failures.
+- Continuous capability discovery without automatic permission escalation.
 
-## Free/open-source candidates to evaluate
-
-- Ollama for local model serving; its API is OpenAI-compatible.
-- Qdrant for vector/semantic retrieval, including local/embedded options.
-- LiteLLM for a unified OpenAI-compatible gateway and provider routing when its deployment fits the project.
-- OpenTelemetry for vendor-neutral telemetry.
-- PostgreSQL/pgvector where keeping vector data in Supabase is simpler than adding Qdrant.
-
-Always verify current free-tier limits before depending on a hosted service. The architecture must remain functional when any optional provider disappears.
+**Invariant:** Bitey IA Web must be useful with zero paid AI spend. External free models improve capability; they do not define or own Bitey's cognition.
