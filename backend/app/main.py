@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .background_worker import process_once
 from .core.context_engine import ContextEngine
+from .core.cognitive_model import CognitiveModel
 from .core.deep_research import DeepResearchEngine
 from .core.learning import LearningEngine
 from .core.memory import MemoryStore
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Bitey IA — Supracerebro Backend", version="0.8.0", description="General-purpose extensible intelligence with free-first tool and agent orchestration.", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
-context_engine = ContextEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator()
+context_engine = ContextEngine(); cognition = CognitiveModel(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator()
 
 async def web_research_tool(message: str, context: dict | None = None) -> dict:
     plan = await deep_research.fetch(deep_research.plan(message, context or {}))
@@ -62,11 +63,11 @@ tools.register(ToolSpec("code_reasoning", "Analiza código sin ejecutar código 
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status":"ok","system":"bitey-ia-supracerebro","scope":"general_ai","supabase_persistence":memory.persistent,"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"background_cognitive_engine":True,"deep_research":True,"tool_orchestration":True}
+    return {"status":"ok","system":"bitey-ia-supracerebro","scope":"general_ai","supabase_persistence":memory.persistent,"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"background_cognitive_engine":True,"deep_research":True,"tool_orchestration":True,"cognitive_model":True}
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"cognitive_stages":["perception","intention","context","planning","evidence","confidence","decision"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
 
 @app.post("/api/v1/notifications/test-email")
 async def test_email_notification() -> dict:
@@ -104,12 +105,13 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx); evidence=tool_results.get("web_research",{}).get("evidence","")
     if not evidence and (plan.required or deep_plan.reasons):
         activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
+    cognitive=cognition.process(payload.message,ctx,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict(); activity_events.append("Construyendo el razonamiento contextual…")
     history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
     if evidence: messages.insert(0,{"role":"system","content":"TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence})
     elif plan.required or deep_plan.reasons: messages.insert(0,{"role":"system","content":"La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información."})
     activity_events.append("Seleccionando la mejor IA disponible…")
     answer=await providers.generate(messages=messages,context={**ctx,"conversation_id":conversation_id,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"})
     activity_events.append("Verificando y preparando la respuesta…"); await memory.append(conversation_id,{"role":"assistant","content":answer})
-    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected},source="conversation",confidence=.4)
+    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":cognitive.intention.get("domain"),"cognitive_confidence":cognitive.confidence},source="conversation",confidence=.4)
     elapsed_ms=int((time.perf_counter()-started)*1000)
     return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
