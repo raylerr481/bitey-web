@@ -1,0 +1,45 @@
+name: Bitey Web Research Tests
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - run: PYTHONPATH=backend pytest -q backend/tests
+
+  live-web:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r backend/requirements.txt pytest
+      - name: Live Bitey search smoke test
+        env:
+          PYTHONPATH: backend
+        run: |
+          python - <<'PY'
+          from app.core.multi_step_research import MultiStepResearchRuntime
+          package = MultiStepResearchRuntime(max_passes=1).run('Olymp Matix Tradematix', results_per_query=3, fetch_top=1)
+          print('passes=', package.passes)
+          print('sources=', len(package.evidence))
+          print('sufficient=', package.sufficient)
+          for item in package.evidence[:5]:
+              print(item.get('url'))
+          if not package.evidence:
+              raise SystemExit('Live search returned no evidence')
+          PY
