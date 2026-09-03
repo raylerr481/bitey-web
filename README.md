@@ -140,9 +140,66 @@ Target responsibilities:
 
 These integrations remain replaceable and optional. A temporary failure of one storage layer must not turn that service into a second brain or silently corrupt the cognitive state.
 
+## Neo4j + GraphRAG cognitive support
+
+**Neo4j is not another brain and is not a standalone intelligence layer.** It is one of the internal capabilities that can improve Bitey's cognitive performance by providing structured relationships, connected context, evidence links and graph-based retrieval.
+
+The current implementation adds an optional `Neo4jAdapter` to the Bitey Cognitive Core. It is fail-safe and remains inactive until the Neo4j environment is explicitly configured.
+
+```text
+Bitey Cognitive Core
+        │
+        ▼
+   Context Engine
+        │
+        ├───────────────┐
+        ▼               ▼
+ Cognitive Memory   Neo4j Graph Context
+        │               │
+        └───────┬───────┘
+                ▼
+          Context Fusion
+                │
+                ▼
+            Reasoning
+```
+
+The first GraphRAG stage is deliberately **graph-context retrieval**: Bitey can retrieve relevant nodes and their relationships and feed that context into its normal reasoning/evaluation flow. Vector embeddings and Neo4j vector indexes are a later evolution; they are **not claimed as implemented yet**.
+
+Current Neo4j support includes:
+
+- optional connection through server-side environment variables;
+- connection health reporting;
+- bounded relationship/context retrieval;
+- a knowledge status endpoint;
+- graph context incorporated into conversational reasoning when available;
+- graceful degradation when Neo4j is disabled or unavailable;
+- no secrets stored in source code;
+- Neo4j remains subordinate to Bitey's central cognitive architecture.
+
+Planned GraphRAG evolution:
+
+```text
+Graph Context
+     ↓
+Embeddings
+     ↓
+Vector Index
+     ↓
+Vector Search + Graph Traversal
+     ↓
+Context Fusion
+     ↓
+Evidence / Contradiction Evaluation
+     ↓
+Bitey Reasoning
+```
+
+This allows the same knowledge capability to serve general Bitey cognition and specialized domains without creating separate brains.
+
 ## Knowledge graph direction
 
-Neo4j is being used as a complementary knowledge layer for relationships such as:
+Neo4j can represent relationships such as:
 
 ```text
 User → Experience → Decision
@@ -248,7 +305,7 @@ Input
   ↓
 Context Engine
   ↓
-Cognitive Memory
+Cognitive Memory + Graph Context
   ↓
 Tools / Research / Deep Research
   ↓
@@ -281,6 +338,21 @@ This architecture allows Bitey to degrade gracefully: deterministic tools, store
 - Trading execution remains isolated from general conversational reasoning.
 - External model responses are treated as untrusted input to the evaluation/policy layer.
 
+## Runtime configuration for Neo4j
+
+The code expects Neo4j credentials only as server-side environment variables:
+
+```text
+NEO4J_ENABLED=true
+NEO4J_URI=<Aura connection URI>
+NEO4J_USERNAME=<database user>
+NEO4J_PASSWORD=<database password>
+NEO4J_DATABASE=neo4j
+NEO4J_MAX_RESULTS=8
+```
+
+Do not commit these values to GitHub. The application remains functional with `NEO4J_ENABLED=false` until an Aura instance is created and connected.
+
 ## Current infrastructure direction
 
 ```text
@@ -312,19 +384,23 @@ The objective is **interchangeable infrastructure**: Bitey should not become dep
 
 1. Keep Bitey IA Web stable as the central AI channel.
 2. Complete persistent cognitive memory and knowledge integrations.
-3. Formalize provider/model capability scoring and health-aware fallback.
-4. Strengthen confidence, contradiction and evidence evaluation.
-5. Define stable versioned contracts for JobIA and SBT.
-6. Connect SBT intelligence to the central cognitive core without weakening its Risk Gate.
-7. Connect JobIA capabilities to the same central cognitive core.
-8. Preserve BiteFixes as the already-working contextual enterprise AI.
-9. Keep web and future Android channels aligned to the same Bitey IA identity and contracts.
-10. Maintain `FREE_ONLY + FAIL_CLOSED` and never silently introduce paid inference.
-11. Keep local open-weight inference as a viable quota-independent option.
-12. Add observability, authentication, tenant isolation and recovery mechanisms as the ecosystem grows.
+3. Connect the Neo4j Aura instance and validate graph context retrieval.
+4. Add embeddings/vector indexes and full GraphRAG retrieval after the graph-context stage is validated.
+5. Formalize provider/model capability scoring and health-aware fallback.
+6. Strengthen confidence, contradiction and evidence evaluation.
+7. Define stable versioned contracts for JobIA and SBT.
+8. Connect SBT intelligence to the central cognitive core without weakening its Risk Gate.
+9. Connect JobIA capabilities to the same central cognitive core.
+10. Preserve BiteFixes as the already-working contextual enterprise AI.
+11. Keep web and future Android channels aligned to the same Bitey IA identity and contracts.
+12. Maintain `FREE_ONLY + FAIL_CLOSED` and never silently introduce paid inference.
+13. Keep local open-weight inference as a viable quota-independent option.
+14. Add observability, authentication, tenant isolation and recovery mechanisms as the ecosystem grows.
 
 ## Project status
 
 Bitey IA Web already contains the foundation of the independent cognitive core. The current phase is **integration and evolution**, not replacement: connect memory, knowledge graph, provider discovery, specialized capabilities and evaluation into a coherent Bitey architecture while preserving existing working systems.
+
+Neo4j integration is now present in the backend as an optional cognitive-support component. The remaining infrastructure step is to connect a running Neo4j Aura instance and then evolve from graph-context retrieval to full vector + graph GraphRAG.
 
 No Gemini API is required by this architecture.
