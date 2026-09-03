@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import httpx
 
 from .native_model import NativeReasoningModel
+from .ollama_provider import OllamaProvider
 
 logger = logging.getLogger("bitey.providers")
 
@@ -54,7 +55,7 @@ class CloudflareAIProvider:
 
 
 class ProviderGateway:
-    """Provider routing with external-free preference and an independent native fallback."""
+    """Bitey's model router: local Ollama first, then verified free providers, then native cognition."""
     def __init__(self) -> None:
         self._providers: dict[str, AIProvider] = {}; self._openrouter_catalog_loaded = False; self._openrouter_catalog_loaded_at = 0.0; self._conversation_provider: dict[str, str] = {}; self._register_from_environment()
 
@@ -67,6 +68,7 @@ class ProviderGateway:
 
     def _register_from_environment(self) -> None:
         free_only = self._free_only()
+        if os.getenv("OLLAMA_ENABLED", "true").lower() != "false": self.register(OllamaProvider())
         if os.getenv("BITEY_NATIVE_MODEL_ENABLED", "true").lower() == "true": self.register(NativeReasoningModel())
         if os.getenv("GEMMA_4_12B_ENABLED", "false").lower() == "true":
             endpoint = os.getenv("GEMMA_4_12B_ENDPOINT", "http://127.0.0.1:50305/v1")
