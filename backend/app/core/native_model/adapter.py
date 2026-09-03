@@ -11,7 +11,7 @@ class NativeLanguageModelAdapter:
     """Selects a local/free planner and fails closed to the deterministic planner."""
 
     def __init__(self) -> None:
-        self.enabled = os.getenv("BITEY_NATIVE_LANGUAGE_PLANNER", "true").lower() == "true"
+        self.enabled = os.getenv("BITEY_NATIVE_LANGUAGE_PLANNER", "false").lower() == "true"
         self.provider = os.getenv("BITEY_NATIVE_LANGUAGE_PROVIDER", "ollama").lower()
         self.ollama = OllamaLanguagePlanner() if self.provider == "ollama" else None
 
