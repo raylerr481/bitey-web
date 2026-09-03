@@ -20,10 +20,10 @@ def test_plain_explanation_does_not_force_web():
     assert "web_research" not in plan.capabilities
 
 
-def test_contradiction_engine_detects_shared_numeric_claims():
+def test_contradiction_engine_detects_conflicting_values():
     report = ContradictionEngine().inspect([
         {"url": "https://a.example", "ok": True, "content": "La cifra fue 25."},
-        {"url": "https://b.example", "ok": True, "content": "La cifra fue 25."},
+        {"url": "https://b.example", "ok": True, "content": "La cifra fue 30."},
     ])
     assert report.evidence_count == 2
     assert report.contradiction_detected
