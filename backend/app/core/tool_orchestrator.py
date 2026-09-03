@@ -23,6 +23,10 @@ class ToolOrchestrator:
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
+    WEATHER_TERMS = (
+        "tiempo", "clima", "temperatura", "pronóstico", "pronostico", "lluvia",
+        "humedad", "viento", "weather", "forecast", "temperature",
+    )
     RESEARCH_TERMS = (
         "investiga", "investigar", "busca", "buscar", "fuentes", "fuente",
         "compara", "comparar", "contrasta", "verifica", "verificar", "research",
@@ -45,19 +49,19 @@ class ToolOrchestrator:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
-        """Select tools from intent, freshness, explicit URLs and task semantics.
-
-        Selection is deliberately broader than a few magic words: current or
-        externally-grounded questions should trigger research even when the
-        user does not explicitly say 'search'.
-        """
+        """Select capabilities from task semantics rather than model claims."""
         q = message.lower()
         selected: list[str] = []
         explicit_url = bool(self.URL_RE.search(message))
         research_context = bool((context or {}).get("research"))
         freshness = any(x in q for x in self.RESEARCH_TERMS)
         external = any(x in q for x in self.EXTERNAL_DATA_TERMS)
+        weather = any(x in q for x in self.WEATHER_TERMS)
 
+        # Weather is a specialized live-data capability; do not make the model
+        # improvise or fall back to generic prose when this tool is registered.
+        if weather:
+            selected.append("weather")
         if explicit_url or research_context or freshness or external:
             selected.append("web_research")
         if any(x in q for x in ("archivo", "documento", "pdf", "imagen", "fichero")):
