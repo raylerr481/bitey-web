@@ -35,17 +35,44 @@ async def lifespan(app: FastAPI):
     yield
     stop_event.set(); await task
 
-app = FastAPI(title="Bitey IA — Cognitive Core", version="0.9.0", description="General-purpose extensible intelligence with domain-neutral cognition, free-first AI orchestration, memory and external module contracts.", lifespan=lifespan)
+app = FastAPI(title="Bitey IA — Cognitive Core", version="0.9.0", description="General-purpose extensible intelligence with domain-neutral cognition, free-first AI orchestration, memory and capability modules.", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 context_engine = ContextEngine(); cognition = CognitiveModel(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
-# Specialized systems remain independent. Bitey knows their contracts/capabilities,
-# never their implementation and never imports their code.
+# Bitey IA owns the cognitive routing. Specialized implementations may remain
+# independently deployed, but SBT is a first-class integrated Bitey capability.
+modules.register(ModuleSpec(
+    "sbt",
+    "Bitey IA integrated trading module for market intelligence, strategy and risk-aware workflows.",
+    os.getenv("SBT_MODULE_URL"),
+    ("trading", "market_intelligence", "strategy", "risk"),
+    enabled=os.getenv("SBT_MODULE_ENABLED", "true").lower() != "false",
+    metadata={
+        "integration_type": "bitey_integrated",
+        "role": "integrated_specialized_module",
+        "owner": "bitey_ia",
+        "domain": "trading",
+        "execution_boundary": "sbt_risk_gate",
+        "live_trading": False,
+    },
+))
+
+# BiteFixes remains an external specialized system. Bitey knows only its
+# contract and never imports or modifies its implementation.
 if os.getenv("BITEFIXES_MODULE_ENABLED", "false").lower() == "true":
-    modules.register(ModuleSpec("bitefixes", "Specialized business/support module exposed through an external API contract.", os.getenv("BITEFIXES_MODULE_URL"), ("business_support", "crm", "tickets", "customer_context")))
-if os.getenv("SBT_MODULE_ENABLED", "false").lower() == "true":
-    modules.register(ModuleSpec("sbt", "Specialized trading module exposed through an external API contract.", os.getenv("SBT_MODULE_URL"), ("trading", "market_intelligence", "strategy", "risk")))
+    modules.register(ModuleSpec(
+        "bitefixes",
+        "Specialized business/support module exposed through an external API contract.",
+        os.getenv("BITEFIXES_MODULE_URL"),
+        ("business_support", "crm", "tickets", "customer_context"),
+        metadata={
+            "integration_type": "external_specialized",
+            "role": "external_specialized_module",
+            "owner": "bitefixes",
+            "domain": "business_support",
+        },
+    ))
 
 async def web_research_tool(message: str, context: dict | None = None) -> dict:
     plan = await deep_research.fetch(deep_research.plan(message, context or {}))
@@ -76,6 +103,31 @@ async def health() -> dict:
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
     return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"cognitive_stages":["perception","intention","context","planning","evidence","confidence","decision"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
+
+@app.get("/api/v1/modules")
+async def module_catalog() -> dict:
+    return {
+        "owner": "bitey_ia",
+        "description": "Capability modules routed by Bitey Cognitive Core.",
+        "modules": modules.available(),
+    }
+
+@app.get("/api/v1/modules/resolve/{domain}")
+async def resolve_module(domain: str) -> dict:
+    resolved = modules.resolve_for_domain(domain)
+    return {
+        "domain": domain,
+        "selected": [
+            {
+                "name": m.name,
+                "integration_type": m.integration_type,
+                "role": m.role,
+                "configured": bool(m.endpoint),
+                "capabilities": list(m.capabilities),
+            }
+            for m in resolved
+        ],
+    }
 
 @app.post("/api/v1/notifications/test-email")
 async def test_email_notification() -> dict:
@@ -114,12 +166,26 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     if not evidence and (plan.required or deep_plan.reasons):
         activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
     cognitive=cognition.process(payload.message,ctx,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict(); activity_events.append("Construyendo el razonamiento contextual…")
+
+    domain=cognitive.intention.get("domain", "general")
+    resolved_modules=modules.resolve_for_domain(domain)
+    if resolved_modules:
+        ctx["module_routing"]={
+            "domain": domain,
+            "selected": [m.name for m in resolved_modules],
+            "integrated": [m.name for m in resolved_modules if m.integration_type == "bitey_integrated"],
+        }
+        if any(m.name == "sbt" for m in resolved_modules):
+            activity_events.append("Activando el módulo integrado de trading de Bitey…")
+        else:
+            activity_events.append("Seleccionando el módulo especializado adecuado…")
+
     history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
     if evidence: messages.insert(0,{"role":"system","content":"TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence})
     elif plan.required or deep_plan.reasons: messages.insert(0,{"role":"system","content":"La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información."})
     activity_events.append("Seleccionando la mejor IA disponible…")
     answer=await providers.generate(messages=messages,context={**ctx,"conversation_id":conversation_id,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"})
     activity_events.append("Verificando y preparando la respuesta…"); await memory.append(conversation_id,{"role":"assistant","content":answer})
-    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":cognitive.intention.get("domain"),"cognitive_confidence":cognitive.confidence},source="conversation",confidence=.4)
+    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"selected_modules":[m.name for m in resolved_modules]},source="conversation",confidence=.4)
     elapsed_ms=int((time.perf_counter()-started)*1000)
     return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
