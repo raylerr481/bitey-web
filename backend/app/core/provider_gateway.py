@@ -55,7 +55,11 @@ class CloudflareAIProvider:
 
 
 class ProviderGateway:
-    """Bitey's model router: local Ollama first, then verified free providers, then native cognition."""
+    """Bitey's model router: local intelligence first, Bitey's native cognition second.
+
+    Cloud providers are opt-in and can never become an automatic fallback. The
+    default path is entirely local/free and fails closed rather than billing.
+    """
     def __init__(self) -> None:
         self._providers: dict[str, AIProvider] = {}; self._openrouter_catalog_loaded = False; self._openrouter_catalog_loaded_at = 0.0; self._conversation_provider: dict[str, str] = {}; self._register_from_environment()
 
@@ -64,24 +68,28 @@ class ProviderGateway:
         self._providers[provider.name] = provider
 
     def _free_only(self) -> bool: return os.getenv("BITEY_COST_MODE", "free_only").lower() == "free_only"
+    def _allow_cloud(self) -> bool: return os.getenv("BITEY_ALLOW_CLOUD", "false").lower() == "true"
     def _hard_stop(self) -> bool: return os.getenv("BITEY_FREE_ONLY_HARD_STOP", "true").lower() == "true"
 
     def _register_from_environment(self) -> None:
         free_only = self._free_only()
         if os.getenv("OLLAMA_ENABLED", "true").lower() != "false": self.register(OllamaProvider())
-        if os.getenv("BITEY_NATIVE_MODEL_ENABLED", "true").lower() == "true": self.register(NativeReasoningModel())
+        if os.getenv("BITEY_NATIVE_MODEL_ENABLED", "true").lower() == "true":
+            native = NativeReasoningModel()
+            native.priority = 2
+            self.register(native)
         if os.getenv("GEMMA_4_12B_ENABLED", "false").lower() == "true":
             endpoint = os.getenv("GEMMA_4_12B_ENDPOINT", "http://127.0.0.1:50305/v1")
             self.register(OpenAICompatibleProvider("gemma-4-12b-local", endpoint, os.getenv("GEMMA_4_12B_MODEL", "google/gemma-4-12B-it"), os.getenv("GEMMA_4_12B_API_KEY", ""), int(os.getenv("GEMMA_4_12B_PRIORITY", "3")), free_only=endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost")))
-        if os.getenv("GROQ_ENABLED", "true").lower() != "false" and os.getenv("GROQ_API_KEY") and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true" and os.getenv("GROQ_FREE_ONLY_CONFIRMED", "false").lower() == "true":
-            self.register(OpenAICompatibleProvider("groq-free", "https://api.groq.com/openai/v1", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), os.getenv("GROQ_API_KEY", ""), int(os.getenv("GROQ_PRIORITY", "5")), free_only=True))
-        if os.getenv("OPENROUTER_ENABLED", "true").lower() != "false" and os.getenv("OPENROUTER_API_KEY"):
+        if self._allow_cloud() and os.getenv("GROQ_ENABLED", "true").lower() != "false" and os.getenv("GROQ_API_KEY") and os.getenv("GROQ_ALLOW_FREE", "true").lower() == "true" and os.getenv("GROQ_FREE_ONLY_CONFIRMED", "false").lower() == "true":
+            self.register(OpenAICompatibleProvider("groq-free", "https://api.groq.com/openai/v1", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), os.getenv("GROQ_API_KEY", ""), int(os.getenv("GROQ_PRIORITY", "50")), free_only=True))
+        if self._allow_cloud() and os.getenv("OPENROUTER_ENABLED", "true").lower() != "false" and os.getenv("OPENROUTER_API_KEY"):
             qwen = os.getenv("OPENROUTER_QWEN_MODEL", "qwen/qwen3-4b:free"); deepseek = os.getenv("OPENROUTER_DEEPSEEK_MODEL", "deepseek/deepseek-chat-v3-0324:free")
-            if self._is_free_model_id(qwen): self.register(OpenAICompatibleProvider("qwen-free", "https://openrouter.ai/api/v1", qwen, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("QWEN_PRIORITY", "10")), free_only=True))
-            if os.getenv("DEEPSEEK_ENABLED", "true").lower() != "false" and self._is_free_model_id(deepseek): self.register(OpenAICompatibleProvider("deepseek-free", "https://openrouter.ai/api/v1", deepseek, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("DEEPSEEK_PRIORITY", "15")), free_only=True))
-        if not free_only and os.getenv("CLOUDFLARE_AI_ENABLED", "true").lower() != "false":
+            if self._is_free_model_id(qwen): self.register(OpenAICompatibleProvider("qwen-free", "https://openrouter.ai/api/v1", qwen, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("QWEN_PRIORITY", "60")), free_only=True))
+            if os.getenv("DEEPSEEK_ENABLED", "true").lower() != "false" and self._is_free_model_id(deepseek): self.register(OpenAICompatibleProvider("deepseek-free", "https://openrouter.ai/api/v1", deepseek, os.getenv("OPENROUTER_API_KEY", ""), int(os.getenv("DEEPSEEK_PRIORITY", "70")), free_only=True))
+        if self._allow_cloud() and not free_only and os.getenv("CLOUDFLARE_AI_ENABLED", "true").lower() != "false":
             account_id = os.getenv("CLOUDFLARE_ACCOUNT_ID", ""); token = os.getenv("CLOUDFLARE_API_TOKEN", "")
-            if account_id and token: self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL", "@cf/qwen/qwen3-0.6b"), account_id, token, int(os.getenv("CLOUDFLARE_PRIORITY", "20"))))
+            if account_id and token: self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL", "@cf/qwen/qwen3-0.6b"), account_id, token, int(os.getenv("CLOUDFLARE_PRIORITY", "80"))))
 
     @staticmethod
     def _is_free_model_id(model_id: str) -> bool: return model_id == "openrouter/free" or model_id.endswith(":free")
@@ -90,6 +98,7 @@ class ProviderGateway:
         architecture = item.get("architecture") or {}; inputs = {str(x).lower() for x in (architecture.get("input_modalities") or ["text"])}; outputs = {str(x).lower() for x in (architecture.get("output_modalities") or ["text"])}; return "text" in inputs and "text" in outputs
 
     async def _discover_openrouter_free_models(self) -> None:
+        if not self._allow_cloud(): return
         refresh_seconds = max(30, int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS", "900")))
         if self._openrouter_catalog_loaded and (time.monotonic() - self._openrouter_catalog_loaded_at) < refresh_seconds: return
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
@@ -97,7 +106,7 @@ class ProviderGateway:
         try:
             async with httpx.AsyncClient(timeout=float(os.getenv("OPENROUTER_CATALOG_TIMEOUT", "12"))) as client:
                 response = await client.get("https://openrouter.ai/api/v1/models", headers={"Authorization": f"Bearer {api_key}"}); response.raise_for_status(); data = response.json()
-            base_priority = int(os.getenv("OPENROUTER_DISCOVERED_PRIORITY", "25")); discovered: set[str] = set()
+            base_priority = int(os.getenv("OPENROUTER_DISCOVERED_PRIORITY", "90")); discovered: set[str] = set()
             for item in data.get("data") or []:
                 model_id = str(item.get("id") or ""); pricing = item.get("pricing") or {}
                 if not self._is_free_model_id(model_id): continue
@@ -112,7 +121,8 @@ class ProviderGateway:
     def available(self) -> list[str]: return [p.name for p in sorted(self._providers.values(), key=lambda p: p.priority)]
 
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        await self._discover_openrouter_free_models(); providers = [p for p in self._providers.values() if not self._free_only() or p.free_only]
+        await self._discover_openrouter_free_models()
+        providers = [p for p in self._providers.values() if not self._free_only() or p.free_only]
         if not providers:
             logger.warning("provider_council_no_free_provider hard_stop=%s", self._hard_stop())
             return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if self._hard_stop() and self._free_only() else "Bitey IA no tiene un proveedor disponible en este momento."
@@ -125,7 +135,7 @@ class ProviderGateway:
                 answer = await provider.generate(messages=messages, context=context); elapsed_ms = int((time.perf_counter() - started) * 1000)
                 if answer:
                     if conversation_id: self._conversation_provider[conversation_id] = provider.name
-                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", provider.name), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name)); return answer
+                    logger.info("provider_selected provider=%s model=%s attempt=%d elapsed_ms=%d sticky=%s", provider.name, getattr(provider, "model", getattr(provider, "last_model", provider.name)), attempt, elapsed_ms, bool(sticky and provider.name == sticky.name)); return answer
                 logger.warning("provider_empty_response provider=%s attempt=%d elapsed_ms=%d", provider.name, attempt, elapsed_ms)
             except Exception as exc:
                 logger.warning("provider_failed provider=%s model=%s attempt=%d error=%s", provider.name, getattr(provider, "model", provider.name), attempt, type(exc).__name__)
