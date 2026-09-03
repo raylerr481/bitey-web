@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import Any
 import re
 
+from .search_gateway import safe_fetch, search
+
 
 @dataclass(frozen=True)
 class ResearchSubquestion:
@@ -23,13 +25,7 @@ class ResearchEvidencePackage:
 
 
 class MultiStepResearchRuntime:
-    """Bounded planner/orchestrator for evidence-first web research.
-
-    It deliberately does not perform network I/O itself. Search/fetch adapters
-    remain responsible for external access, while this runtime plans passes,
-    deduplicates evidence, detects simple claim conflicts, and decides whether
-    another pass is warranted.
-    """
+    """Bounded evidence-first research orchestrator using Bitey's free search gateway."""
 
     MAX_SUBQUESTIONS = 5
     MAX_PASSES = 3
@@ -39,18 +35,18 @@ class MultiStepResearchRuntime:
         self.max_passes = max(1, min(max_passes or self.MAX_PASSES, self.MAX_PASSES))
 
     def decompose(self, question: str, *, explicit_research: bool = False) -> list[ResearchSubquestion]:
-        text = (question or "").strip()
+        text = re.sub(r"\s+", " ", (question or "").strip())
         if not text:
             return []
         candidates = [
             ResearchSubquestion(text, "primary_answer", text),
-            ResearchSubquestion(f"¿Qué fuente primaria respalda la respuesta sobre: {text}?", "primary_source", text),
-            ResearchSubquestion(f"¿Qué fuentes independientes permiten contrastar: {text}?", "independent_cross_check", text),
+            ResearchSubquestion(f"Fuente oficial o primaria sobre: {text}", "primary_source", f"{text} fuente oficial"),
+            ResearchSubquestion(f"Fuentes independientes que contrasten: {text}", "independent_cross_check", f"{text} análisis independiente evidencia"),
         ]
         if explicit_research or len(text) > 140:
-            candidates.append(ResearchSubquestion(f"¿Existen contradicciones, riesgos o información no verificada sobre: {text}?", "risk_and_contradictions", text))
+            candidates.append(ResearchSubquestion(f"Riesgos, contradicciones o información no verificada sobre: {text}", "risk_and_contradictions", f"{text} riesgos contradicciones"))
         if self._looks_entity_question(text):
-            candidates.append(ResearchSubquestion(f"¿Quién está detrás de la entidad o servicio mencionado en: {text}?", "entity_identity", text))
+            candidates.append(ResearchSubquestion(f"Quién está detrás de la entidad o servicio mencionado en: {text}", "entity_identity", f"{text} empresa propietario"))
         return candidates[: self.max_subquestions]
 
     def build_queries(self, subquestions: list[ResearchSubquestion]) -> list[str]:
@@ -79,16 +75,39 @@ class MultiStepResearchRuntime:
         package.sufficient = self.is_sufficient(package)
         return package
 
+    def run(self, question: str, *, explicit_research: bool = False, results_per_query: int = 5, fetch_top: int = 3) -> ResearchEvidencePackage:
+        package = ResearchEvidencePackage(question)
+        package.subquestions = self.decompose(question, explicit_research=explicit_research)
+        queries = self.build_queries(package.subquestions)
+        for pass_number in range(1, self.max_passes + 1):
+            candidates: list[dict[str, Any]] = []
+            for query in queries:
+                response = search(query, limit=results_per_query)
+                candidates.extend(response.get("results", []))
+            self.merge_evidence(package, candidates, pass_number)
+            if package.sufficient:
+                break
+            if pass_number < self.max_passes:
+                queries = self._next_queries(package, queries)
+        if fetch_top:
+            urls = [str(x.get("url")) for x in package.evidence if x.get("url")][: max(0, fetch_top)]
+            fetched = [item for url in urls if (item := safe_fetch(url)).get("ok")]
+            self.merge_evidence(package, fetched, package.passes or 1)
+        return package
+
+    def _next_queries(self, package: ResearchEvidencePackage, previous: list[str]) -> list[str]:
+        base = package.original_question
+        candidates = [f"{base} fuente oficial", f"{base} fuentes independientes", f"{base} opiniones riesgos"]
+        seen = {q.lower() for q in previous}
+        return [q for q in candidates if q.lower() not in seen][:3] or previous
+
     def detect_contradictions(self, evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        # Conservative detector: only flags explicit negation patterns sharing
-        # a normalized subject fragment. It avoids pretending semantic certainty.
         statements: list[tuple[str, str]] = []
         for item in evidence:
             text = str(item.get("content") or item.get("snippet") or "").strip()
             url = str(item.get("url") or "")
-            if not text or not url:
-                continue
-            statements.append((url, text.lower()))
+            if text and url:
+                statements.append((url, text.lower()))
         contradictions: list[dict[str, Any]] = []
         for i, (url_a, text_a) in enumerate(statements):
             for url_b, text_b in statements[i + 1 :]:
