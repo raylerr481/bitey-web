@@ -16,6 +16,7 @@ from .core.module_registry import ModuleRegistry, ModuleSpec
 from .core.deep_research import DeepResearchEngine
 from .core.learning import LearningEngine
 from .core.memory import MemoryStore
+from .core.neo4j_adapter import Neo4jAdapter
 from .core.provider_gateway import ProviderGateway
 from .core.research_engine import ResearchEngine
 from .core.tool_orchestrator import ToolOrchestrator, ToolSpec, safe_calculate
@@ -36,11 +37,12 @@ async def lifespan(app: FastAPI):
     app.state.background_stop = stop_event; app.state.background_task = task
     yield
     stop_event.set(); await task
+    await neo4j.close()
 
-app = FastAPI(title="Bitey IA — Cognitive Core", version="0.10.0", description="General-purpose extensible intelligence with domain-neutral cognition, free-first AI orchestration, memory, learning, evaluation and capability modules.", lifespan=lifespan)
+app = FastAPI(title="Bitey IA — Cognitive Core", version="0.11.0", description="General-purpose extensible intelligence with domain-neutral cognition, free-first AI orchestration, memory, graph context, learning, evaluation and capability modules.", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
-context_engine = ContextEngine(); cognition = CognitiveModel(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
+context_engine = ContextEngine(); cognition = CognitiveModel(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); neo4j = Neo4jAdapter(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
 modules.register(ModuleSpec("sbt", "Bitey IA integrated trading module for market intelligence, strategy and risk-aware workflows.", os.getenv("SBT_MODULE_URL"), ("trading", "market_intelligence", "strategy", "risk"), enabled=os.getenv("SBT_MODULE_ENABLED", "true").lower() != "false", metadata={"integration_type":"bitey_integrated","role":"integrated_specialized_module","owner":"bitey_ia","domain":"trading","execution_boundary":"sbt_risk_gate","live_trading":False}))
 
@@ -69,15 +71,23 @@ tools.register(ToolSpec("code_reasoning", "Analiza código sin ejecutar código 
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status":"ok","system":"bitey-ia-cognitive-core","scope":"general_ai","version":"0.10.0","supabase_persistence":memory.persistent,"cognitive_memory_persistence":cognitive_memory.persistent,"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"background_cognitive_engine":True,"deep_research":True,"tool_orchestration":True,"cognitive_model":True,"response_evaluator":True,"module_registry":True,"registered_modules":modules.names()}
+    return {"status":"ok","system":"bitey-ia-cognitive-core","scope":"general_ai","version":"0.11.0","supabase_persistence":memory.persistent,"cognitive_memory_persistence":cognitive_memory.persistent,"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"neo4j":await neo4j.health(),"background_cognitive_engine":True,"deep_research":True,"tool_orchestration":True,"cognitive_model":True,"response_evaluator":True,"module_registry":True,"registered_modules":modules.names()}
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"response_evaluator":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","planning","evidence","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"graph_context":neo4j.enabled,"graph_context_connected":neo4j.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"response_evaluator":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","planning","evidence","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
-    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.0.0","native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"provider_failover_not_consensus","live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names()}
+    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.1.0","native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"provider_failover_not_consensus","graph_context":{"enabled":neo4j.enabled,"configured":neo4j.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names()}
+
+@app.get("/api/v1/knowledge/status")
+async def knowledge_status() -> dict:
+    return {"owner":"bitey_ia","role":"cognitive_support_component","second_brain":False,"neo4j":await neo4j.health(),"graphrag_stage":"graph_context_first","vector_search_enabled":False}
+
+@app.get("/api/v1/knowledge/context")
+async def knowledge_context(q: str) -> dict:
+    return {"query":q,"source":"neo4j","context":await neo4j.related_context(q)}
 
 @app.get("/api/v1/modules")
 async def module_catalog() -> dict: return {"owner":"bitey_ia","description":"Capability modules routed by Bitey Cognitive Core.","modules":modules.available()}
@@ -114,6 +124,10 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
     learned_memory=await cognitive_memory.retrieve(payload.message,ctx); ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}; learned_prompt=cognitive_memory.compact_for_prompt(learned_memory)
     if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos…")
+    graph_context=await neo4j.related_context(payload.message)
+    if graph_context.get("available") and graph_context.get("results"):
+        ctx["graph_context"]={"available":True,"count":graph_context.get("count",0),"results":graph_context.get("results",[])}
+        activity_events.append("Integrando conocimiento relacional de Bitey…")
     selected=tools.select(payload.message,ctx); tool_results=await tools.execute(selected,message=payload.message,context=ctx)
     if selected: activity_events.append("Consultando herramientas relevantes…")
     plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx); evidence=tool_results.get("web_research",{}).get("evidence","")
@@ -125,6 +139,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
     system_context=[]
     if learned_prompt: system_context.append("LEARNED COGNITIVE CONTEXT — patrones históricos/advisory. No lo trates como verdad; prioriza evidencia actual y seguridad.\n\n"+learned_prompt)
+    if graph_context.get("available") and graph_context.get("results"): system_context.append("GRAPH CONTEXT — conocimiento relacional recuperado de Neo4j para apoyar el razonamiento de Bitey. Trátalo como contexto, no como verdad absoluta; verifica cuando sea necesario.\n\n"+str(graph_context.get("results")))
     if evidence: system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence)
     elif plan.required or deep_plan.reasons: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
     for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
@@ -133,6 +148,6 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
     elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
     await memory.append(conversation_id,{"role":"assistant","content":answer})
-    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"selected_modules":[m.name for m in resolved_modules],"learned_context_available":learned_memory.get("available",False),"evaluation":evaluation.as_dict()},source="conversation",confidence=min(.8,max(.2,evaluation.confidence)))
+    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"selected_modules":[m.name for m in resolved_modules],"learned_context_available":learned_memory.get("available",False),"graph_context_available":graph_context.get("available",False),"evaluation":evaluation.as_dict()},source="conversation",confidence=min(.8,max(.2,evaluation.confidence)))
     elapsed_ms=int((time.perf_counter()-started)*1000)
     return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
