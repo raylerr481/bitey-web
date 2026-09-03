@@ -7,7 +7,7 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
-from .search_gateway import search as general_search
+from .multi_step_research import MultiStepResearchRuntime
 
 
 @dataclass(frozen=True)
@@ -21,10 +21,8 @@ class ToolSpec:
 class ToolOrchestrator:
     """General-purpose capability router for Bitey IA, independent of enterprise context.
 
-    Web research is a cross-domain capability, not a weather-only feature. The
-    router can trigger it explicitly from context or heuristically when a
-    question asks for current, factual, comparative, source-backed, or otherwise
-    externally verifiable information.
+    Web research is a cross-domain capability. Search now uses Bitey's bounded
+    multi-step evidence runtime rather than a single search pass.
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
@@ -36,7 +34,8 @@ class ToolOrchestrator:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
-        self.register(ToolSpec("search", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))
+        self._research_runtime = MultiStepResearchRuntime()
+        self.register(ToolSpec("search", "Investigación web general de Bitey con búsqueda gratuita, múltiples pasadas, deduplicación y contraste de evidencia.", ("web", "search", "research", "evidence", "multi_step"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
 
     def register(self, spec: ToolSpec) -> None:
@@ -47,7 +46,6 @@ class ToolOrchestrator:
 
     @classmethod
     def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
-        """Return true when answering from memory alone is unsafe or insufficient."""
         ctx = context or {}
         if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
             return True
@@ -55,9 +53,6 @@ class ToolOrchestrator:
             return True
         if cls.WEB_FACT_RE.search(message):
             return True
-        # Questions containing a concrete named target often benefit from
-        # verification; this deliberately avoids sending ordinary conversational
-        # prompts to the web by requiring a factual interrogative form.
         return bool(cls.QUESTION_RE.search(message) and len(message.split()) >= 4 and re.search(r"[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ.-]+", message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
@@ -88,8 +83,24 @@ class ToolOrchestrator:
         return results
 
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        result = await __import__("asyncio").to_thread(general_search, message, 8)
-        return {"ok": bool(result.get("results")), **result}
+        explicit = bool(re.search(r"\b(busca|buscar|investiga|investigar|research|search|fuentes|contrasta|compara)\b", message, re.I))
+        package = await __import__("asyncio").to_thread(
+            self._research_runtime.run,
+            message,
+            explicit_research=explicit,
+            results_per_query=5,
+            fetch_top=3,
+        )
+        return {
+            "ok": bool(package.evidence),
+            "query": package.original_question,
+            "passes": package.passes,
+            "sufficient": package.sufficient,
+            "subquestions": [x.__dict__ for x in package.subquestions],
+            "contradictions": package.contradictions,
+            "results": package.evidence,
+            "research_strategy": "multi_step_evidence_first",
+        }
 
     async def _weather(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         query = message.strip()
