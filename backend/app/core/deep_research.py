@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from html import unescape
 import re
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import httpx
 
@@ -36,7 +36,7 @@ class DeepResearchEngine:
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
+    RESULT_LINK_RE = re.compile(r"<a\b[^>]*>(.*?)</a>", re.I | re.S)
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -50,18 +50,49 @@ class DeepResearchEngine:
             reasons.append("freshness")
         return DeepResearchPlan(query=query, reasons=reasons, mode=str(context.get("research_mode") or "multistep"))
 
+    @classmethod
+    def _extract_search_urls(cls, html: str, limit: int = 5) -> list[str]:
+        """Extract DuckDuckGo result URLs despite attribute-order/redirect changes."""
+        urls: list[str] = []
+        for anchor in cls.RESULT_LINK_RE.findall(html):
+            opening_match = re.search(r"<a\b([^>]*)>", anchor, re.I | re.S)
+            # RESULT_LINK_RE captures only the body, so inspect the original
+            # document separately below when the anchor attributes are needed.
+            if opening_match:
+                attributes = opening_match.group(1)
+            else:
+                attributes = ""
+            _ = attributes
+
+        # Parse complete anchors so class/href can occur in either order.
+        for match in re.finditer(r"<a\b([^>]*)>(.*?)</a>", html, re.I | re.S):
+            attributes, _title = match.groups()
+            class_match = re.search(r"\bclass\s*=\s*[\"']([^\"']*)[\"']", attributes, re.I)
+            if not class_match or "result__a" not in class_match.group(1).split():
+                continue
+            href_match = re.search(r"\bhref\s*=\s*[\"']([^\"']+)[\"']", attributes, re.I)
+            if not href_match:
+                continue
+            href = unescape(href_match.group(1)).strip()
+            parsed = urlparse(href)
+            if parsed.path.startswith("/l/"):
+                target = parse_qs(parsed.query).get("uddg", [""])[0]
+                href = unquote(target) if target else href
+            else:
+                href = unquote(href)
+            if href.startswith("//"):
+                href = "https:" + href
+            if href.startswith("http") and href not in urls:
+                urls.append(href)
+            if len(urls) >= limit:
+                break
+        return urls
+
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
         try:
             r = await client.get(f"https://html.duckduckgo.com/html/?q={quote_plus(query)}")
             r.raise_for_status()
-            urls: list[str] = []
-            for href, _title in self.RESULT_RE.findall(r.text):
-                href = unescape(href)
-                if href.startswith("http") and href not in urls:
-                    urls.append(href)
-                if len(urls) >= limit:
-                    break
-            return urls
+            return self._extract_search_urls(r.text, limit=limit)
         except Exception:
             return []
 
