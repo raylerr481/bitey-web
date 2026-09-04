@@ -1,4 +1,4 @@
--- Bitey IA Workspace: Skywork-style project/task/artifact layer.
+-- Bitey IA Workspace: unified project/task/artifact layer.
 -- Supabase remains the canonical persistence layer; no new database platform is introduced.
 
 create table if not exists public.workspaces (
