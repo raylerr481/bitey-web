@@ -29,6 +29,8 @@ class ResearchExecutionRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(plan.required)
         self.assertEqual(selected.count("web_research"), 1)
         self.assertNotIn("search", selected)
+        self.assertEqual(context["research"]["owner"], "bitey_research_policy")
+        self.assertTrue(context["research"]["required"])
 
         results = await orchestrator.execute(selected, message="Investiga la última versión de Python y cita fuentes", context=context)
         self.assertEqual(len(calls), 1)
@@ -52,6 +54,23 @@ class ResearchExecutionRoutingTests(unittest.IsolatedAsyncioTestCase):
         selected = orchestrator.select("Explícame qué es una variable en Python", context)
         self.assertNotIn("web_research", selected)
         self.assertNotIn("search", selected)
+        self.assertFalse(context["research"]["required"])
+
+    async def test_structured_policy_decision_is_authoritative(self):
+        orchestrator = ToolOrchestrator()
+        context = {
+            "research": {
+                "required": False,
+                "confidence": 0.99,
+                "reasons": ["caller_policy"],
+                "strategy": "none",
+                "owner": "bitey_research_policy",
+            }
+        }
+        selected = orchestrator.select("latest Python release", context)
+        self.assertNotIn("web_research", selected)
+        self.assertNotIn("search", selected)
+        self.assertFalse(orchestrator.needs_web_research("latest Python release", context))
 
 
 if __name__ == "__main__":
