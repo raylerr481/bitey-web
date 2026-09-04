@@ -29,7 +29,7 @@ create table if not exists public.workspace_artifacts (
   name text not null,
   artifact_type text not null default 'document',
   status text not null default 'draft',
-  content jsonb,
+  content text,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
