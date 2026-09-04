@@ -1,6 +1,7 @@
 name = "bitey-web"
 main = "src/worker.js"
 compatibility_date = "2026-08-23"
+account_id = "67f3a67f93f8a8c315d2c266248fdc1a"
 
 [vars]
 SUPRABRAIN_ORIGIN = "https://bitey-ia-suprabrain.onrender.com"
