@@ -8,9 +8,39 @@
   async function catalog(){ try{ const r=await fetch(`${API()}/workspace/catalog`); return r.ok?await r.json():null; }catch{return null;} }
   async function workspaces(){ try{ const r=await fetch(`${API()}/workspaces`); return r.ok?(await r.json()).workspaces||[]:[]; }catch{return [];} }
   async function createWorkspace(name){ const r=await fetch(`${API()}/workspaces`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); return r.ok?r.json():null; }
+  async function inspectCognitive(prompt, capability, context={}){
+    try{
+      const r=await fetch(`${API()}/workspace/cognitive/inspect`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({prompt,capability,context})});
+      return r.ok?await r.json():null;
+    }catch{return null;}
+  }
   async function createTask(id, capability, prompt){ const r=await fetch(`${API()}/workspaces/${encodeURIComponent(id)}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:prompt.slice(0,80)||'Nueva tarea',prompt,capability})}); return r.ok?r.json():null; }
   async function runTask(id, taskId){ const r=await fetch(`${API()}/workspaces/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}/run`,{method:'POST',headers:{'Accept':'application/json'}}); return r.ok?r.json():null; }
-  function researchResult(task){ const result=task?.result||{}; const evidence=String(result.evidence_context||''); const steps=Array.isArray(result.steps)?result.steps:[]; const sources=steps.flatMap(s=>Array.isArray(s.sources)?s.sources:[]); return `<div class="workspace-result"><div class="feature-row"><span>✓</span><span><b>${esc(task.status==='completed'?'Investigación completada':'Investigación sin evidencia suficiente')}</b><small>${steps.length} pasos acotados · ${sources.length} fuentes registradas</small></span></div><pre class="workspace-evidence">${esc(evidence.slice(0,12000)||'Bitey no recuperó evidencia utilizable.')}</pre></div>`; }
+  function phaseMarkup(plan, phase='planning'){
+    const phases=['Pensando','Planificando','Investigando','Generando','Evaluando','Listo'];
+    const active=phase==='researching'?2:phase==='generating'?3:phase==='evaluating'?4:phase==='completed'?5:1;
+    return `<div class="workspace-cognitive-status"><div class="feature-row"><span>◈</span><span><b>Cerebro cognitivo de Bitey</b><small>${esc(plan?.route==='research'?'Ruta: investigación':plan?.route==='artifact'?'Ruta: creación de artefacto':'Ruta: conversación')}</small></span></div><div class="workspace-phases">${phases.map((p,i)=>`<span class="${i<active?'done ':''}${i===active?'active':''}">${i<active?'✓ ':''}${p}</span>`).join('')}</div></div>`;
+  }
+  function researchResult(task){ const result=task?.result||{}; const evidence=String(result.evidence_context||''); const steps=Array.isArray(result.steps)?result.steps:[]; const sources=steps.flatMap(s=>Array.isArray(s.sources)?s.sources:[]); return `<div class="workspace-result">${phaseMarkup(task.cognitive_plan||{},'completed')}<div class="feature-row"><span>✓</span><span><b>${esc(task.status==='completed'?'Investigación completada':'Investigación sin evidencia suficiente')}</b><small>${steps.length} pasos acotados · ${sources.length} fuentes registradas</small></span></div><pre class="workspace-evidence">${esc(evidence.slice(0,12000)||'Bitey no recuperó evidencia utilizable.')}</pre></div>`; }
+  async function executeFromWorkspace(capability,prompt,current){
+    const plan=await inspectCognitive(prompt,capability,{workspace:true});
+    if(!plan){ open('Workspace de Bitey IA','Bitey no pudo obtener el contrato cognitivo. La tarea no se ejecutó.'); return; }
+    open('Bitey está pensando…','La ejecución queda bajo control del cerebro cognitivo.',phaseMarkup(plan,'planning'));
+    let w=current; if(!w) w=await createWorkspace('Espacio general');
+    if(!w){ open('Workspace de Bitey IA','No se pudo preparar el espacio de trabajo.'); return; }
+    const task=await createTask(w.id,capability,prompt);
+    if(!task){ open('Workspace de Bitey IA','No se pudo crear la tarea.'); return; }
+    const executed=await runTask(w.id,task.id);
+    if(!executed){ open('Workspace de Bitey IA','La tarea quedó creada pero no pudo iniciarse.'); return; }
+    executed.cognitive_plan=plan;
+    if(capability==='deep_research'||capability==='browser_research'){
+      open('Investigación de Bitey IA','Bitey ejecutó una investigación acotada y verificable.',researchResult(executed));
+      return;
+    }
+    close();
+    const input=document.getElementById('prompt');
+    if(input){ input.value=prompt; input.focus(); input.dispatchEvent(new Event('input')); document.getElementById('chat-form')?.requestSubmit(); }
+  }
   async function hub(){
     const [c, ws] = await Promise.all([catalog(), workspaces()]);
     const caps = c?.capabilities || [
@@ -25,23 +55,11 @@
     body()?.querySelectorAll('[data-cap]').forEach(b=>b.onclick=async()=>{
       const capability=b.dataset.cap, prompt=window.prompt(`¿Qué quieres hacer con ${b.textContent.trim()}?`);
       if(!prompt?.trim()) return;
-      let w=current; if(!w) w=await createWorkspace('Espacio general');
-      if(!w) return;
-      const task=await createTask(w.id,capability,prompt.trim());
-      if(!task){ open('Workspace de Bitey IA','No se pudo crear la tarea.'); return; }
-      const executed=await runTask(w.id,task.id);
-      if(!executed){ open('Workspace de Bitey IA','La tarea quedó creada pero no pudo iniciarse.'); return; }
-      if(capability==='deep_research'||capability==='browser_research'){
-        open('Investigación de Bitey IA','Ejecución controlada por el runtime cognitivo.',researchResult(executed));
-        return;
-      }
-      close();
-      const input=document.getElementById('prompt');
-      if(input){ input.value=prompt.trim(); input.focus(); input.dispatchEvent(new Event('input')); document.getElementById('chat-form')?.requestSubmit(); }
+      await executeFromWorkspace(capability,prompt.trim(),current);
     });
     document.getElementById('new-workspace')?.addEventListener('click',async()=>{ const n=window.prompt('Nombre del espacio'); if(!n?.trim())return; await createWorkspace(n.trim()); hub(); });
   }
-  window.BiteyWorkspace={hub,catalog,workspaces,createTask,runTask};
+  window.BiteyWorkspace={hub,catalog,workspaces,inspectCognitive,createTask,runTask};
   window.BiteyUI=window.BiteyUI||{};
   window.BiteyUI.workspace=hub;
   document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('[data-workspace]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();hub();})); });
