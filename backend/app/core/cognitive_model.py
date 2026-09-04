@@ -92,6 +92,9 @@ class CognitiveModel:
 
     def process(self, message: str, context: dict[str, Any] | None = None, *, evidence_available: bool = False) -> CognitiveState:
         ctx = context or {}
+        cached = ctx.get("_cognitive_state")
+        if isinstance(cached, CognitiveState):
+            return cached
         perception = self.perceive(message)
         intention = self.infer_intention(message, ctx)
         plan = self.build_plan(message, ctx, intention)
