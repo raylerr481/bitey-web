@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .artifact_engine import ArtifactEngine
 from .bitey_brain import BiteyBrain
 from .evaluation_engine import EvaluationEngine
 from .multistep_runtime import MultiStepResearchRuntime
@@ -10,12 +11,7 @@ from .provider_gateway import ProviderGateway
 
 
 class WorkspaceExecutionService:
-    """Connect executive cognition, research, generation and evaluation.
-
-    Bitey Brain remains the executive authority. Models can generate content,
-    but cannot authorize side effects or artifacts. Research is bounded and
-    every artifact passes an explicit evaluation + authorization gate.
-    """
+    """Connect executive cognition, research, generation and evaluation."""
 
     ARTIFACT_CAPABILITIES = {"documents": "document", "slides": "presentation", "spreadsheets": "spreadsheet", "code": "code"}
 
@@ -24,6 +20,7 @@ class WorkspaceExecutionService:
         self.research = MultiStepResearchRuntime(max_steps=4, max_sources_per_step=5)
         self.providers = ProviderGateway()
         self.evaluator = EvaluationEngine()
+        self.artifacts = ArtifactEngine()
 
     @staticmethod
     def _artifact_authorized(state: Any, evaluation: Any, artifact_type: str | None) -> bool:
@@ -83,23 +80,16 @@ class WorkspaceExecutionService:
         artifact = None
         if artifact_authorized:
             phase("artifact", "running", artifact_type)
-            artifact = {"name": self._artifact_name(prompt, artifact_type), "artifact_type": artifact_type, "status": "ready", "content": self._artifact_content(answer, artifact_type), "metadata": {"capability": capability, "evaluation": evaluation.as_dict(), "cognitive_decision": decision, "evidence_present": bool(evidence), "authorization": "bitey_brain_bounded_gate"}}
+            artifact_obj = self.artifacts.build(
+                prompt=prompt,
+                answer=answer,
+                artifact_type=artifact_type,
+                metadata={"capability": capability, "evaluation": evaluation.as_dict(), "cognitive_decision": decision, "evidence_present": bool(evidence), "authorization": "bitey_brain_bounded_gate"},
+            )
+            artifact = artifact_obj.as_dict()
             trace[-1]["status"] = "completed"
         elif artifact_type:
             phase("artifact", "blocked", "Bitey Brain gate or evaluation did not authorize artifact creation")
 
         phase("ready", "completed")
         return {"status": "completed" if evaluation.decision == "accept" else "needs_review", "answer": answer, "cognitive_decision": decision, "research": research_result, "evaluation": evaluation.as_dict(), "artifact": artifact, "artifact_authorized": artifact_authorized, "execution_trace": trace}
-
-    @staticmethod
-    def _artifact_name(prompt: str, artifact_type: str) -> str:
-        title = " ".join(prompt.strip().split())[:70] or "Nuevo artefacto"
-        suffix = {"document": "Documento", "presentation": "Presentación", "spreadsheet": "Hoja de cálculo", "code": "Código"}.get(artifact_type, "Artefacto")
-        return f"{title} — {suffix}"
-
-    @staticmethod
-    def _artifact_content(answer: str, artifact_type: str) -> Any:
-        if artifact_type == "spreadsheet": return {"format": "table-ready", "content": answer}
-        if artifact_type == "presentation": return {"format": "slide-ready", "content": answer}
-        if artifact_type == "code": return {"format": "source-ready", "content": answer}
-        return {"format": "markdown", "content": answer}
