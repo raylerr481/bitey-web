@@ -21,13 +21,7 @@ class ToolSpec:
 
 
 class ToolOrchestrator:
-    """Capability executor whose selection follows Bitey's cognitive plan.
-
-    Text heuristics remain only inside the perception/classification fallback.
-    The orchestrator itself no longer decides from isolated keywords: it asks
-    the CognitiveModel for state and the BiteyBrain for the capability/tool
-    policy, then executes only the tools granted by that policy.
-    """
+    """Capability executor whose selection follows Bitey's cognitive plan."""
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
     WEATHER_RE = re.compile(r"\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
@@ -56,14 +50,10 @@ class ToolOrchestrator:
         ctx["cognition"] = cognitive.as_dict()
         brain = self._brain.think(message, ctx)
         requested = list(brain.tool_priority)
-
-        # Research is a capability; weather is a specialized implementation.
-        # Prefer the specialized source when the cognitive task is weather.
         if brain.freshness_required and brain.task_class == "weather":
             requested = ["weather"]
         elif brain.evidence_required and "search" not in requested:
             requested.append("search")
-
         available = set(self._tools)
         selected = [name for name in dict.fromkeys(requested) if name in available]
         return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected}
@@ -77,24 +67,38 @@ class ToolOrchestrator:
         return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message) or cls.WEB_FACT_RE.search(message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
-        decision = self.cognitive_selection(message, context)
-        return decision["selected_tools"]
+        return self.cognitive_selection(message, context)["selected_tools"]
 
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
+        """Execute selected tools and normalize their evidence into one contract."""
         results: dict[str, Any] = {}
         for name in names:
             tool = self._tools.get(name)
             if not tool:
                 continue
             try:
-                results[name] = await tool.handler(**kwargs)
+                result = await tool.handler(**kwargs)
+                results[name] = result
+                if isinstance(result, dict) and result.get("evidence"):
+                    existing = results.get("web_research")
+                    if not existing or not existing.get("evidence"):
+                        results["web_research"] = {
+                            "ok": bool(result.get("ok", True)),
+                            "reasons": [f"specialized:{name}"],
+                            "sources": result.get("source"),
+                            "evidence": str(result["evidence"]),
+                        }
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
         return results
 
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         result = await __import__("asyncio").to_thread(general_search, message, 8)
-        return {"ok": bool(result.get("results")), **result}
+        evidence = "\n\n".join(
+            f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title', '')}\nSNIPPET: {item.get('snippet', '')}"
+            for i, item in enumerate((result.get("results") or [])[:8], 1)
+        )
+        return {"ok": bool(result.get("results")), **result, "evidence": evidence}
 
     async def _weather(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         query = message.strip()
@@ -110,8 +114,20 @@ class ToolOrchestrator:
             lat, lon = location.get("latitude"), location.get("longitude")
             weather = await client.get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code", "timezone": "auto", "forecast_days": 1})
             weather.raise_for_status()
-            current = weather.json().get("current") or {}
-        return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "units": {"temperature": "°C", "wind_speed": "km/h", "humidity": "%"}}
+            payload = weather.json()
+            current = payload.get("current") or {}
+        units = {"temperature": "°C", "wind_speed": "km/h", "humidity": "%"}
+        evidence = (
+            f"WEATHER SOURCE: Open-Meteo\n"
+            f"LOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\n"
+            f"OBSERVATION TIME: {current.get('time', 'unknown')}\n"
+            f"TEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\n"
+            f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\n"
+            f"HUMIDITY: {current.get('relative_humidity_2m', 'unknown')} %\n"
+            f"WIND: {current.get('wind_speed_10m', 'unknown')} km/h\n"
+            f"WEATHER CODE: {current.get('weather_code', 'unknown')}"
+        )
+        return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "units": units, "evidence": evidence}
 
 
 def safe_calculate(expression: str) -> float:
