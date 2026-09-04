@@ -3,7 +3,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith('/api/')) {
-      const origin = env.SUPRABRAIN_ORIGIN;
+      const origin = env.BITEY_BACKEND_ORIGIN;
       if (!origin) {
         return new Response(JSON.stringify({ error: 'Bitey backend origin is not configured' }), {
           status: 500,
