@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from .core.multistep_runtime import MultiStepResearchRuntime
+from .core.workspace_execution import WorkspaceExecutionService
 
 router = APIRouter(prefix="/api/v1", tags=["Bitey Workspace"])
 
@@ -16,6 +17,7 @@ _MEMORY: dict[str, dict[str, Any]] = {}
 _TASKS: dict[str, dict[str, Any]] = {}
 _ARTIFACTS: dict[str, dict[str, Any]] = {}
 _RUNTIME = MultiStepResearchRuntime(max_steps=4, max_sources_per_step=5)
+_EXECUTOR = WorkspaceExecutionService()
 
 
 def _now() -> str:
@@ -121,15 +123,21 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
         task = rows[0] if rows else None
     if not task or task.get("workspace_id") != workspace_id:
         raise HTTPException(status_code=404, detail="task_not_found")
+    if task.get("status") == "completed":
+        return task
     task.update({"status": "running", "updated_at": _now()})
     await _save_task(task)
     try:
-        if task.get("capability") not in {"deep_research", "browser_research"}:
-            task.update({"status": "ready_for_cognitive_core", "updated_at": _now(), "result": {"route": "cognitive_core", "prompt": task.get("prompt", "")}})
-            await _save_task(task)
-            return task
-        result = await _RUNTIME.run(task.get("prompt", ""), {"workspace_id": workspace_id, "task_id": task_id})
-        task.update({"status": "completed" if any(s.status == "completed" for s in result.steps) else "no_evidence", "updated_at": _now(), "result": result.as_dict()})
+        execution = await _EXECUTOR.execute(prompt=str(task.get("prompt") or ""), capability=str(task.get("capability") or "chat"), context={"workspace_id": workspace_id, "task_id": task_id, "metadata": task.get("metadata") or {}})
+        artifact_data = execution.get("artifact")
+        if artifact_data:
+            artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "task_id": task_id, **artifact_data, "created_at": _now(), "updated_at": _now()}
+            rows = await _db("POST", "workspace_artifacts", json=artifact)
+            if rows:
+                artifact = rows[0]
+            _ARTIFACTS[artifact["id"]] = artifact
+            execution["artifact"] = artifact
+        task.update({"status": execution.get("status", "needs_review"), "updated_at": _now(), "result": execution})
         await _save_task(task)
         return task
     except Exception as exc:
