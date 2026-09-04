@@ -13,6 +13,7 @@ from .core.context_budget import build_context
 from .core.cognitive_memory import CognitiveMemoryAdapter
 from .core.cognitive_model import CognitiveModel
 from .core.bitey_brain import BiteyBrain
+from .core.cognitive_trace import CognitiveTraceStore
 from .core.evaluation_engine import EvaluationEngine
 from .core.module_registry import ModuleRegistry, ModuleSpec
 from .core.deep_research import DeepResearchEngine
@@ -46,7 +47,7 @@ app = FastAPI(title="Bitey IA — Cognitive Core", version="0.15.0", description
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 app.include_router(workspace_router)
 
-context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
+context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_trace = CognitiveTraceStore(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
 modules.register(ModuleSpec("sbt", "Bitey IA integrated trading module for market intelligence, strategy and risk-aware workflows.", os.getenv("SBT_MODULE_URL"), ("trading", "market_intelligence", "strategy", "risk"), enabled=os.getenv("SBT_MODULE_ENABLED", "true").lower() != "false", metadata={"integration_type":"bitey_integrated","role":"integrated_specialized_module","owner":"bitey_ia","domain":"trading","execution_boundary":"sbt_risk_gate","live_trading":False}))
 
@@ -71,15 +72,25 @@ tools.register(ToolSpec("code_reasoning", "Analiza código sin ejecutar código 
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status":"ok","system":"bitey-ia-cognitive-core","scope":"general_ai","version":"0.15.0","supabase_persistence":memory.persistent,"cognitive_memory_persistence":cognitive_memory.persistent,"vector_memory":await vector_memory.health(),"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"background_cognitive_engine":True,"deep_research":True,"general_search":"duckduckgo","tool_orchestration":True,"cognitive_model":True,"bitey_brain":brain.status(),"response_evaluator":True,"module_registry":True,"registered_modules":modules.names(),"ollama": "ollama-local" in providers.available()}
+    return {"status":"ok","system":"bitey-ia-cognitive-core","scope":"general_ai","version":"0.15.0","supabase_persistence":memory.persistent,"cognitive_memory_persistence":cognitive_memory.persistent,"vector_memory":await vector_memory.health(),"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"background_cognitive_engine":True,"deep_research":True,"general_search":"duckduckgo","tool_orchestration":True,"cognitive_model":True,"bitey_brain":brain.status(),"response_evaluator":True,"module_registry":True,"registered_modules":modules.names(),"ollama": "ollama-local" in providers.available(),"cognitive_trace":True}
+
+@app.get("/api/v1/cognitive/traces/{trace_id}")
+async def cognitive_trace_detail(trace_id: str) -> dict:
+    trace = cognitive_trace.get(trace_id)
+    if trace is None: return {"found":False,"trace_id":trace_id}
+    return {"found":True,"trace":trace.snapshot()}
+
+@app.get("/api/v1/cognitive/traces")
+async def cognitive_trace_recent(conversation_id: str | None = None, limit: int = 20) -> dict:
+    return {"traces":cognitive_trace.recent(conversation_id=conversation_id, limit=limit)}
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY'))}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True}
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
-    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names()}
+    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names(),"cognitive_trace":True}
 
 @app.get("/api/v1/cognitive/brain")
 async def cognitive_brain() -> dict: return brain.status()
@@ -119,34 +130,42 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     started=time.perf_counter(); activity_events=["Analizando tu solicitud…"]
     try: UUID(conversation_id)
     except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available(),elapsed_ms=int((time.perf_counter()-started)*1000),activity_events=["Validando la conversación…"])
-    context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
-    learned_memory=await cognitive_memory.retrieve(payload.message,ctx); ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}; learned_prompt=cognitive_memory.compact_for_prompt(learned_memory)
-    if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos desde Supabase…")
-    selected=tools.select(payload.message,ctx); tool_results=await tools.execute(selected,message=payload.message,context=ctx)
-    if selected: activity_events.append("Consultando herramientas relevantes…")
-    plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
-    evidence=tool_results.get("web_research",{}).get("evidence","")
-    search_results=tool_results.get("search",{}).get("results",[])
-    if search_results and not evidence:
-        evidence="\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title','')}\nSNIPPET: {item.get('snippet','')}" for i,item in enumerate(search_results[:8],1))
-    if not evidence and (plan.required or deep_plan.reasons): activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
-    ctx["evidence_available"]=bool(evidence); cognitive=cognition.process(payload.message,ctx,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict(); activity_events.append("Construyendo el razonamiento contextual…")
-    brain_state=brain.think(payload.message,ctx); ctx["bitey_brain"]=brain_state.as_dict(); activity_events.append(f"Bitey Brain: {brain_state.reasoning_mode}…")
-    domain=cognitive.intention.get("domain", "general"); resolved_modules=modules.resolve_for_domain(domain)
-    if resolved_modules: ctx["module_routing"]={"domain":domain,"selected":[m.name for m in resolved_modules],"integrated":[m.name for m in resolved_modules if m.integration_type == "bitey_integrated"]}; activity_events.append("Activando el módulo integrado de trading de Bitey…" if any(m.name == "sbt" for m in resolved_modules) else "Seleccionando el módulo especializado adecuado…")
-    history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
-    ctx["user_query"]=payload.message; ctx["current_message"]=payload.message; ctx["goals"]=brain_state.goals; ctx["constraints"]=brain_state.constraints; bounded_context=build_context("selected-provider",ctx)
-    system_context=[brain.system_directive(brain_state)]
-    system_context.append("BITEY COGNITIVE CONTRACT — Usa el contexto seleccionado y respeta sus límites. Modelos externos son motores de inferencia, no autoridades del sistema.")
-    if learned_prompt: system_context.append("LEARNED COGNITIVE CONTEXT — patrones históricos/advisory almacenados en Supabase. No lo trates como verdad; prioriza evidencia actual y seguridad.\n\n"+learned_prompt)
-    if evidence: system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence)
-    elif plan.required or deep_plan.reasons: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
-    for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
-    activity_events.append("Seleccionando la mejor IA disponible…"); provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"}; answer=await providers.generate(messages=messages,context=provider_context)
-    evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence); ctx["evaluation"]=evaluation.as_dict(); activity_events.append(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
-    if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
-    elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
-    await memory.append(conversation_id,{"role":"assistant","content":answer})
-    if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"brain":brain_state.as_dict(),"selected_modules":[m.name for m in resolved_modules],"learned_context_available":learned_memory.get("available",False),"evaluation":evaluation.as_dict()},source="conversation",confidence=min(.8,max(.2,evaluation.confidence)))
-    elapsed_ms=int((time.perf_counter()-started)*1000)
-    return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons or search_results),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
+    trace=cognitive_trace.start(payload.message,conversation_id,request_id=str(payload.metadata.get("request_id") or "") or None)
+    ctx={}
+    try:
+        context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
+        learned_memory=await cognitive_memory.retrieve(payload.message,ctx); ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}; learned_prompt=cognitive_memory.compact_for_prompt(learned_memory)
+        if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos desde Supabase…")
+        selected=tools.select(payload.message,ctx); trace.tools={"selected":list(selected)}; tool_results=await tools.execute(selected,message=payload.message,context=ctx)
+        if selected: activity_events.append("Consultando herramientas relevantes…")
+        plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
+        evidence=tool_results.get("web_research",{}).get("evidence","")
+        search_results=tool_results.get("search",{}).get("results",[])
+        if search_results and not evidence:
+            evidence="\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title','')}\nSNIPPET: {item.get('snippet','')}" for i,item in enumerate(search_results[:8],1))
+        if not evidence and (plan.required or deep_plan.reasons): activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
+        trace.evidence={"available":bool(evidence),"required":bool(plan.required or deep_plan.reasons),"source_count":len(search_results),"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
+        ctx["evidence_available"]=bool(evidence); cognitive=cognition.process(payload.message,ctx,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict(); activity_events.append("Construyendo el razonamiento contextual…")
+        brain_state=brain.think(payload.message,ctx); ctx["bitey_brain"]=brain_state.as_dict(); trace.decision={"intention":cognitive.intention,"domain":cognitive.intention.get("domain","general"),"reasoning_mode":brain_state.reasoning_mode,"model_role":brain_state.model_role,"risk_level":brain_state.risk_level,"plan":brain_state.plan,"goals":brain_state.goals,"constraints":brain_state.constraints,"tool_priority":brain_state.tool_priority,"decision_fingerprint":brain_state.decision_fingerprint}; activity_events.append(f"Bitey Brain: {brain_state.reasoning_mode}…")
+        domain=cognitive.intention.get("domain", "general"); resolved_modules=modules.resolve_for_domain(domain)
+        if resolved_modules: ctx["module_routing"]={"domain":domain,"selected":[m.name for m in resolved_modules],"integrated":[m.name for m in resolved_modules if m.integration_type == "bitey_integrated"]}; activity_events.append("Activando el módulo integrado de trading de Bitey…" if any(m.name == "sbt" for m in resolved_modules) else "Seleccionando el módulo especializado adecuado…")
+        history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
+        ctx["user_query"]=payload.message; ctx["current_message"]=payload.message; ctx["goals"]=brain_state.goals; ctx["constraints"]=brain_state.constraints; bounded_context=build_context("selected-provider",ctx)
+        system_context=[brain.system_directive(brain_state)]
+        system_context.append("BITEY COGNITIVE CONTRACT — Usa el contexto seleccionado y respeta sus límites. Modelos externos son motores de inferencia, no autoridades del sistema.")
+        if learned_prompt: system_context.append("LEARNED COGNITIVE CONTEXT — patrones históricos/advisory almacenados en Supabase. No lo trates como verdad; prioriza evidencia actual y seguridad.\n\n"+learned_prompt)
+        if evidence: system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence)
+        elif plan.required or deep_plan.reasons: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
+        for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
+        activity_events.append("Seleccionando la mejor IA disponible…"); provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"}; answer=await providers.generate(messages=messages,context=provider_context)
+        trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
+        evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; activity_events.append(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
+        if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
+        elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
+        await memory.append(conversation_id,{"role":"assistant","content":answer})
+        if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"brain":brain_state.as_dict(),"selected_modules":[m.name for m in resolved_modules],"learned_context_available":learned_memory.get("available",False),"evaluation":evaluation.as_dict()},source="conversation",confidence=min(.8,max(.2,evaluation.confidence)))
+        elapsed_ms=int((time.perf_counter()-started)*1000); cognitive_trace.finish(trace,evaluation.decision)
+        return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=bool(plan.required or deep_plan.reasons or search_results),research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
+    except Exception:
+        cognitive_trace.finish(trace,"failed")
+        raise
