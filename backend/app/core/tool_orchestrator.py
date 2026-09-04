@@ -8,6 +8,8 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 from .search_gateway import search as general_search
+from .cognitive_model import CognitiveModel
+from .bitey_brain import BiteyBrain
 
 
 @dataclass(frozen=True)
@@ -19,12 +21,12 @@ class ToolSpec:
 
 
 class ToolOrchestrator:
-    """General-purpose capability router for Bitey IA, independent of enterprise context.
+    """Capability executor whose selection follows Bitey's cognitive plan.
 
-    Web research is a cross-domain capability, not a weather-only feature. The
-    router can trigger it explicitly from context or heuristically when a
-    question asks for current, factual, comparative, source-backed, or otherwise
-    externally verifiable information.
+    Text heuristics remain only inside the perception/classification fallback.
+    The orchestrator itself no longer decides from isolated keywords: it asks
+    the CognitiveModel for state and the BiteyBrain for the capability/tool
+    policy, then executes only the tools granted by that policy.
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
@@ -36,6 +38,8 @@ class ToolOrchestrator:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
+        self._cognition = CognitiveModel()
+        self._brain = BiteyBrain()
         self.register(ToolSpec("search", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
 
@@ -45,35 +49,36 @@ class ToolOrchestrator:
     def available(self) -> list[dict[str, Any]]:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
+    def cognitive_selection(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Produce the executive tool decision before any tool is executed."""
+        ctx = dict(context or {})
+        cognitive = self._cognition.process(message, ctx, evidence_available=bool(ctx.get("evidence_available")))
+        ctx["cognition"] = cognitive.as_dict()
+        brain = self._brain.think(message, ctx)
+        requested = list(brain.tool_priority)
+
+        # Research is a capability; weather is a specialized implementation.
+        # Prefer the specialized source when the cognitive task is weather.
+        if brain.freshness_required and brain.task_class == "weather":
+            requested = ["weather"]
+        elif brain.evidence_required and "search" not in requested:
+            requested.append("search")
+
+        available = set(self._tools)
+        selected = [name for name in dict.fromkeys(requested) if name in available]
+        return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected}
+
     @classmethod
     def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
-        """Return true when answering from memory alone is unsafe or insufficient."""
+        """Compatibility helper; final selection is executive-cognition driven."""
         ctx = context or {}
         if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
             return True
-        if cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message):
-            return True
-        if cls.WEB_FACT_RE.search(message):
-            return True
-        # Questions containing a concrete named target often benefit from
-        # verification; this deliberately avoids sending ordinary conversational
-        # prompts to the web by requiring a factual interrogative form.
-        return bool(cls.QUESTION_RE.search(message) and len(message.split()) >= 4 and re.search(r"[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ.-]+", message))
+        return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message) or cls.WEB_FACT_RE.search(message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
-        q = message.lower()
-        selected: list[str] = []
-        if self.needs_web_research(message, context) or self.URL_RE.search(message):
-            selected.append("search")
-        if self.WEATHER_RE.search(message):
-            selected.append("weather")
-        if any(x in q for x in ("archivo", "documento", "pdf", "imagen", "fichero")):
-            selected.append("workspace_files")
-        if re.search(r"\d+\s*[+\-*/%^]\s*\d+", q) or any(x in q for x in ("calcula", "cálculo", "porcentaje", "cuánto", "cuanto", "math")):
-            selected.append("calculator")
-        if any(x in q for x in ("código", "codigo", "programa", "python", "javascript", "debug", "error")):
-            selected.append("code_reasoning")
-        return list(dict.fromkeys(selected))
+        decision = self.cognitive_selection(message, context)
+        return decision["selected_tools"]
 
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
         results: dict[str, Any] = {}
