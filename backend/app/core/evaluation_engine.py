@@ -23,11 +23,7 @@ class EvaluationResult:
 
 
 class EvaluationEngine:
-    """Deterministic post-generation evaluator owned by Bitey.
-
-    The structural evaluator and the executive evaluator are complementary.
-    The provider only generates; Bitey decides whether the result is accepted.
-    """
+    """Deterministic post-generation evaluator owned by Bitey."""
 
     _RISK_WORDS = re.compile(r"\b(buy|sell|purchase|order|execute|live|real money|compra|vende|vender|orden|ejecuta|ejecutar|dinero real)\b", re.I)
     _UNCERTAINTY = re.compile(r"\b(no sé|no tengo|no puedo verificar|uncertain|unclear|não sei|não posso verificar)\b", re.I)
@@ -81,7 +77,11 @@ class EvaluationEngine:
             decision = "accept"
 
         brain_state = context.get("bitey_brain") or context.get("_bitey_brain_state")
-        selected_tools = context.get("selected_tools") or context.get("tools_selected") or []
+        # Missing selected_tools means the evaluator cannot know whether tools
+        # were executed. An explicit empty list means Bitey knows that none ran.
+        selected_tools = context.get("selected_tools") if "selected_tools" in context else None
+        if selected_tools is None and "tools_selected" in context:
+            selected_tools = context.get("tools_selected")
         executive = ExecutiveEvaluator().evaluate(state=brain_state or {}, answer=text, evidence=evidence, selected_tools=selected_tools).as_dict()
         if not executive["passed"]:
             reasons.extend(f"executive:{reason}" for reason in executive["reasons"])
