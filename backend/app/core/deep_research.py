@@ -21,14 +21,19 @@ class Evidence:
 @dataclass
 class DeepResearchPlan:
     query: str
-    mode: str = "deep"
+    mode: str = "multistep"
     reasons: list[str] = field(default_factory=list)
     urls: list[str] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
 
 
 class DeepResearchEngine:
-    """General public-web research, free-first and evidence-first."""
+    """General public-web research, free-first and evidence-first.
+
+    The public fetch boundary routes through Bitey's bounded research runtime.
+    ``fetch_single`` is the low-level evidence capability and never starts a
+    second research pass, preventing recursive or unbounded orchestration.
+    """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
     RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
@@ -43,7 +48,7 @@ class DeepResearchEngine:
             reasons.append("research_intent")
         if any(x in q for x in ("último", "ultima", "última", "actual", "hoy", "latest", "current", "precio")):
             reasons.append("freshness")
-        return DeepResearchPlan(query=query, reasons=reasons, mode=str(context.get("research_mode") or "deep"))
+        return DeepResearchPlan(query=query, reasons=reasons, mode=str(context.get("research_mode") or "multistep"))
 
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
         try:
@@ -60,7 +65,8 @@ class DeepResearchEngine:
         except Exception:
             return []
 
-    async def fetch(self, plan: DeepResearchPlan) -> DeepResearchPlan:
+    async def fetch_single(self, plan: DeepResearchPlan) -> DeepResearchPlan:
+        """Fetch one question only; never orchestrate another pass."""
         timeout = 15.0
         max_bytes = 500_000
         headers = {"User-Agent": "BiteyIA-DeepResearch/1.0"}
@@ -90,6 +96,25 @@ class DeepResearchEngine:
                         plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True))
                 except Exception as exc:
                     plan.evidence.append(Evidence(url=url, error=type(exc).__name__))
+        return plan
+
+    async def fetch(self, plan: DeepResearchPlan) -> DeepResearchPlan:
+        if plan.mode != "multistep":
+            return await self.fetch_single(plan)
+        from .multistep_research_runtime import MultiStepResearchRuntime
+        runtime = MultiStepResearchRuntime(self)
+        result = await runtime.run(plan.query, {"research_mode": "multistep"})
+        plan.urls = list(dict.fromkeys(str(item.get("url")) for item in result.evidence if item.get("url")))[:20]
+        plan.evidence = [
+            Evidence(
+                url=str(item.get("url") or ""),
+                title=str(item.get("title") or ""),
+                content=str(item.get("content") or ""),
+                ok=bool(item.get("ok")),
+                error=item.get("error"),
+            )
+            for item in result.evidence
+        ]
         return plan
 
     def evidence_context(self, plan: DeepResearchPlan) -> str:
