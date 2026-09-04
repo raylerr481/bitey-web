@@ -34,8 +34,7 @@
     executed.cognitive_plan=plan;
     if(capability==='deep_research'||capability==='browser_research'){ open('Investigación de Bitey IA','Bitey ejecutó una investigación acotada y verificable.',researchResult(executed)); return; }
     if(capability==='documents'||capability==='slides'||capability==='spreadsheets'||capability==='code'){
-      open('Artefacto de Bitey IA','Bitey completó la generación y la evaluación antes de presentar el resultado.',artifactResult(executed));
-      return;
+      open('Artefacto de Bitey IA','Bitey completó la generación y la evaluación antes de presentar el resultado.',artifactResult(executed)); return;
     }
     open('Resultado de Bitey IA','Bitey completó la tarea sin ejecutar una segunda inferencia.',`<div class="workspace-result">${phaseMarkup(plan,'completed')}<pre class="workspace-evidence">${esc(String(executed.result?.answer||''))}</pre>${traceMarkup(executed.result?.execution_trace)}</div>`);
   }
