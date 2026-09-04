@@ -1,11 +1,11 @@
 (function () {
   'use strict';
 
-  const API = '/api/v1';
+  const API = () => `${window.BITEY_API_BASE || ''}/api/v1`;
   let activeWorkspace = null;
 
   async function request(path, options) {
-    const response = await fetch(API + path, {
+    const response = await fetch(API() + path, {
       headers: { 'Content-Type': 'application/json', ...(options && options.headers || {}) },
       ...options,
     });
@@ -36,13 +36,14 @@
     const content = artifact.content && typeof artifact.content === 'object'
       ? artifact.content.content || '' : (artifact.content || '');
     const status = artifact.status || 'ready';
-    const title = artifact.name || (type.charAt(0).toUpperCase() + type.slice(1));
+    const title = artifact.name || ({document:'Documento',presentation:'Presentación',spreadsheet:'Hoja de cálculo',code:'Código'}[type] || 'Artefacto');
+    const format = artifact.content && typeof artifact.content === 'object' ? artifact.content.format : artifact.format;
     return '<article class="artifact-card" data-artifact-index="' + index + '">' +
       '<div class="artifact-card-head"><span class="artifact-type">' + escapeHtml(type) + '</span>' +
       '<span class="artifact-status">' + escapeHtml(status) + '</span></div>' +
       '<h4>' + escapeHtml(title) + '</h4>' +
-      '<p class="artifact-format">' + escapeHtml(artifact.content && artifact.content.format || 'ready') + '</p>' +
-      '<div class="artifact-actions"><button type="button" data-artifact-preview="' + index + '">Preview</button></div>' +
+      '<p class="artifact-format">' + escapeHtml(format || 'Bitey artifact') + '</p>' +
+      '<div class="artifact-actions"><button type="button" data-artifact-preview="' + index + '">Vista previa</button></div>' +
       '<pre class="artifact-preview" hidden>' + escapeHtml(content) + '</pre>' +
       '</article>';
   }
@@ -56,12 +57,13 @@
       panel.className = 'workspace-artifact-collection';
       container.appendChild(panel);
     }
-    panel.innerHTML = '<div class="artifact-collection-head"><div><span class="workspace-eyebrow">OUTPUTS</span><h3>Artifact collection</h3></div><span class="artifact-count">' + artifacts.length + ' output' + (artifacts.length === 1 ? '' : 's') + '</span></div>' +
+    panel.innerHTML = '<div class="artifact-collection-head"><div><span class="workspace-eyebrow">RESULTADOS</span><h3>Artefactos de Bitey</h3></div><span class="artifact-count">' + artifacts.length + ' salida' + (artifacts.length === 1 ? '' : 's') + '</span></div>' +
       '<div class="artifact-grid">' + artifacts.map(artifactCard).join('') + '</div>';
     panel.querySelectorAll('[data-artifact-preview]').forEach(function (button) {
       button.addEventListener('click', function () {
         const preview = panel.querySelector('[data-artifact-index="' + button.dataset.artifactPreview + '"] .artifact-preview');
         if (preview) preview.hidden = !preview.hidden;
+        button.textContent = preview && preview.hidden ? 'Vista previa' : 'Ocultar vista previa';
       });
     });
   }
