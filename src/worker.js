@@ -5,7 +5,7 @@ export default {
     if (url.pathname.startsWith('/api/')) {
       const origin = env.SUPRABRAIN_ORIGIN;
       if (!origin) {
-        return new Response(JSON.stringify({ error: 'Supracerebro origin is not configured' }), {
+        return new Response(JSON.stringify({ error: 'Bitey backend origin is not configured' }), {
           status: 500,
           headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
         });
