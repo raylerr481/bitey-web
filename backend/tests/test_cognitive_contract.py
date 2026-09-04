@@ -3,6 +3,7 @@ import unittest
 from app.core.bitey_brain import BiteyBrain
 from app.core.cognitive_model import CognitiveModel
 from app.core.tool_orchestrator import ToolOrchestrator
+from app.core.executive_evaluator import ExecutiveEvaluator
 
 
 def decision(message: str, context: dict | None = None):
@@ -17,6 +18,15 @@ class CognitiveContractTests(unittest.TestCase):
         state = decision("Explícame cómo funciona una API REST")
         self.assertTrue(state.model_role)
         self.assertIn("model_selection_follows_cognitive_plan", state.constraints)
+
+    def test_brain_does_not_reuse_different_request(self):
+        brain = BiteyBrain()
+        ctx = {"cognition": CognitiveModel().process("¿Qué clima hace ahora en Esteio?", {}, evidence_available=False).as_dict()}
+        first = brain.think("¿Qué clima hace ahora en Esteio?", ctx)
+        ctx["cognition"] = CognitiveModel().process("Explica Python", {}, evidence_available=False).as_dict()
+        second = brain.think("Explica Python", ctx)
+        self.assertNotEqual(first.decision_fingerprint, second.decision_fingerprint)
+        self.assertNotEqual(first.task_class, second.task_class)
 
     def test_weather_requires_specialized_tool_and_freshness(self):
         state = decision("¿Qué temperatura hace ahora en Esteio?")
@@ -45,6 +55,20 @@ class CognitiveContractTests(unittest.TestCase):
         self.assertEqual(selected, ["weather"])
         self.assertTrue(ctx["bitey_brain"]["freshness_required"])
         self.assertEqual(ctx["selected_tools"], ["weather"])
+
+    def test_executive_evaluator_accepts_compliant_output(self):
+        state = decision("Investiga las opciones actuales de APIs gratuitas")
+        result = ExecutiveEvaluator().evaluate(state=state, answer="La investigación compara varias opciones y sus límites.", evidence="source A; source B", selected_tools=["search"])
+        self.assertTrue(result.passed)
+        self.assertEqual(result.decision, "accept")
+        self.assertTrue(result.provider_independent)
+
+    def test_executive_evaluator_rejects_missing_required_evidence(self):
+        state = decision("Investiga las opciones actuales de APIs gratuitas")
+        result = ExecutiveEvaluator().evaluate(state=state, answer="Estas son las mejores opciones actuales.", evidence="", selected_tools=[])
+        self.assertFalse(result.passed)
+        self.assertEqual(result.decision, "revise")
+        self.assertIn("required_evidence_missing", result.reasons)
 
 
 if __name__ == "__main__":
