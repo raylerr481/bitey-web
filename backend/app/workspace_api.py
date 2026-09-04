@@ -45,6 +45,19 @@ async def _db(method: str, table: str, **kwargs: Any) -> list[dict[str, Any]]:
         return r.json() if r.content else []
 
 
+async def _rpc(function: str, payload: dict[str, Any]) -> Any:
+    cfg = _supabase()
+    if not cfg:
+        return None
+    url, key = cfg
+    headers = {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(f"{url}/rest/v1/rpc/{function}", headers=headers, json=payload)
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"Supabase rpc {function} error")
+        return r.json() if r.content else None
+
+
 async def _workspace_exists(workspace_id: str) -> bool:
     rows = await _db("GET", "workspaces", params={"select": "id", "id": f"eq.{workspace_id}", "limit": "1"})
     return bool(rows) or workspace_id in _MEMORY
@@ -136,8 +149,23 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
 
 
 async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -> dict[str, Any]:
-    task.update({"status": "running", "updated_at": _now()})
-    await _save_task(task)
+    execution_token = str(uuid4())
+    if _supabase():
+        claimed = await _rpc("claim_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token})
+        if claimed is not True:
+            latest = await _get_task(workspace_id, task_id)
+            if latest and str(latest.get("status")) in TERMINAL_STATUSES:
+                return latest
+            raise HTTPException(status_code=409, detail="task_already_running")
+        task.update({"status": "running", "execution_token": execution_token, "started_at": task.get("started_at") or _now(), "updated_at": _now()})
+        _TASKS[task_id] = task
+    else:
+        if str(task.get("status") or "queued") != "queued":
+            if str(task.get("status")) in TERMINAL_STATUSES:
+                return task
+            raise HTTPException(status_code=409, detail="task_already_running")
+        task.update({"status": "running", "execution_token": execution_token, "started_at": task.get("started_at") or _now(), "updated_at": _now()})
+        await _save_task(task)
     try:
         execution = await _EXECUTOR.execute(prompt=str(task.get("prompt") or ""), capability=str(task.get("capability") or "chat"), context={"workspace_id": workspace_id, "task_id": task_id, "metadata": task.get("metadata") or {}})
         artifact_data = execution.get("artifact")
@@ -151,14 +179,28 @@ async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -
         status = str(execution.get("status") or "needs_review")
         if status not in TERMINAL_STATUSES:
             status = "needs_review"
-        task.update({"status": status, "updated_at": _now(), "result": execution})
-        await _save_task(task)
+        task.update({"status": status, "updated_at": _now(), "completed_at": _now(), "result": execution})
+        if _supabase():
+            finished = await _rpc("finish_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token, "p_status": status})
+            if finished is not True:
+                latest = await _get_task(workspace_id, task_id)
+                return latest or task
+            rows = await _db("PATCH", "workspace_tasks", json={"result": execution, "updated_at": task["updated_at"]}, params={"id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "execution_token": f"eq.{execution_token}"})
+            if rows:
+                task = rows[0]
+            _TASKS[task_id] = task
+        else:
+            await _save_task(task)
         return task
     except HTTPException:
         raise
     except Exception as exc:
-        task.update({"status": "failed", "updated_at": _now(), "result": {"error": type(exc).__name__}})
-        await _save_task(task)
+        task.update({"status": "failed", "updated_at": _now(), "completed_at": _now(), "result": {"error": type(exc).__name__}})
+        if _supabase():
+            await _rpc("finish_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token, "p_status": "failed"})
+            await _db("PATCH", "workspace_tasks", json={"result": task["result"], "updated_at": task["updated_at"]}, params={"id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "execution_token": f"eq.{execution_token}"})
+        else:
+            await _save_task(task)
         raise HTTPException(status_code=502, detail="workspace_task_execution_failed")
 
 
@@ -168,7 +210,7 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
     if not task:
         raise HTTPException(status_code=404, detail="task_not_found")
     status = str(task.get("status") or "queued")
-    if status in {"completed", "needs_review"}:
+    if status in TERMINAL_STATUSES:
         return task
     return await _execute_task(workspace_id, task_id, task)
 
@@ -185,7 +227,7 @@ async def retry_task(workspace_id: str, task_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="task_not_retryable")
     metadata = dict(task.get("metadata") or {})
     metadata["retry_count"] = int(metadata.get("retry_count") or 0) + 1
-    task.update({"status": "queued", "result": None, "metadata": metadata, "updated_at": _now()})
+    task.update({"status": "queued", "result": None, "metadata": metadata, "execution_token": None, "started_at": None, "completed_at": None, "updated_at": _now()})
     await _save_task(task)
     return await _execute_task(workspace_id, task_id, task)
 
