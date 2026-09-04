@@ -19,6 +19,8 @@ _ARTIFACTS: dict[str, dict[str, Any]] = {}
 _RUNTIME = MultiStepResearchRuntime(max_steps=4, max_sources_per_step=5)
 _EXECUTOR = WorkspaceExecutionService()
 
+TERMINAL_STATUSES = {"completed", "needs_review", "failed"}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -48,12 +50,18 @@ async def _workspace_exists(workspace_id: str) -> bool:
     return bool(rows) or workspace_id in _MEMORY
 
 
+async def _get_task(workspace_id: str, task_id: str) -> dict[str, Any] | None:
+    task = _TASKS.get(task_id)
+    if task and task.get("workspace_id") == workspace_id:
+        return task
+    rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
+    return rows[0] if rows else None
+
+
 async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
     _TASKS[task["id"]] = task
     rows = await _db("PATCH", "workspace_tasks", json=task, params={"id": f"eq.{task['id']}"})
-    if rows:
-        return rows[0]
-    return task
+    return rows[0] if rows else task
 
 
 @router.get("/workspace/catalog")
@@ -116,7 +124,10 @@ async def get_workspace(workspace_id: str) -> dict[str, Any]:
 async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not await _workspace_exists(workspace_id):
         raise HTTPException(status_code=404, detail="workspace_not_found")
-    task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or "Nueva tarea"), "prompt": str(payload.get("prompt") or ""), "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=422, detail="prompt_required")
+    task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or prompt[:80] or "Nueva tarea"), "prompt": prompt, "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_tasks", json=task)
     if rows:
         task = rows[0]
@@ -124,16 +135,7 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
     return task
 
 
-@router.post("/workspaces/{workspace_id}/tasks/{task_id}/run")
-async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
-    task = _TASKS.get(task_id)
-    if not task:
-        rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
-        task = rows[0] if rows else None
-    if not task or task.get("workspace_id") != workspace_id:
-        raise HTTPException(status_code=404, detail="task_not_found")
-    if task.get("status") == "completed":
-        return task
+async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -> dict[str, Any]:
     task.update({"status": "running", "updated_at": _now()})
     await _save_task(task)
     try:
@@ -146,7 +148,10 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
                 artifact = rows[0]
             _ARTIFACTS[artifact["id"]] = artifact
             execution["artifact"] = artifact
-        task.update({"status": execution.get("status", "needs_review"), "updated_at": _now(), "result": execution})
+        status = str(execution.get("status") or "needs_review")
+        if status not in TERMINAL_STATUSES:
+            status = "needs_review"
+        task.update({"status": status, "updated_at": _now(), "result": execution})
         await _save_task(task)
         return task
     except HTTPException:
@@ -157,13 +162,38 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="workspace_task_execution_failed")
 
 
+@router.post("/workspaces/{workspace_id}/tasks/{task_id}/run")
+async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
+    task = await _get_task(workspace_id, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task_not_found")
+    status = str(task.get("status") or "queued")
+    if status in {"completed", "needs_review"}:
+        return task
+    return await _execute_task(workspace_id, task_id, task)
+
+
+@router.post("/workspaces/{workspace_id}/tasks/{task_id}/retry")
+async def retry_task(workspace_id: str, task_id: str) -> dict[str, Any]:
+    task = await _get_task(workspace_id, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task_not_found")
+    status = str(task.get("status") or "queued")
+    if status == "running":
+        raise HTTPException(status_code=409, detail="task_already_running")
+    if status not in {"failed", "needs_review"}:
+        raise HTTPException(status_code=409, detail="task_not_retryable")
+    metadata = dict(task.get("metadata") or {})
+    metadata["retry_count"] = int(metadata.get("retry_count") or 0) + 1
+    task.update({"status": "queued", "result": None, "metadata": metadata, "updated_at": _now()})
+    await _save_task(task)
+    return await _execute_task(workspace_id, task_id, task)
+
+
 @router.get("/workspaces/{workspace_id}/tasks/{task_id}")
 async def get_task(workspace_id: str, task_id: str) -> dict[str, Any]:
-    task = _TASKS.get(task_id)
+    task = await _get_task(workspace_id, task_id)
     if not task:
-        rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
-        task = rows[0] if rows else None
-    if not task or task.get("workspace_id") != workspace_id:
         raise HTTPException(status_code=404, detail="task_not_found")
     return task
 
