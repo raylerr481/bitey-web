@@ -15,7 +15,7 @@ async def test_cognitive_inspect_does_not_invoke_model():
     assert result["model_invocation"] is False
     assert result["route"] == "research"
     assert result["brain"]["evidence_required"] is True
-    assert result["research_runtime"]["bounded"] if "bounded" in result["research_runtime"] else True
+    assert result["research_runtime"]["unbounded_execution"] is False
 
 
 @pytest.mark.asyncio
