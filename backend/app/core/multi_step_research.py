@@ -27,7 +27,7 @@ class MultiStepResearchResult:
 
 
 class MultiStepResearchRuntime:
-    """Executes research as a bounded tool, never as an autonomous LLM loop."""
+    """Bounded research executor; it never creates an unbounded agent loop."""
 
     def __init__(self, researcher: Researcher, *, max_subquestions: int = 3, max_passes: int = 2, max_sources: int = 8) -> None:
         self.researcher = researcher
@@ -45,6 +45,7 @@ class MultiStepResearchRuntime:
 
         for current_pass in range(self.max_passes):
             result.passes = current_pass + 1
+            next_candidates: list[str] = []
             for candidate in candidates[: self.max_subquestions]:
                 normalized = " ".join(candidate.lower().split())
                 if not normalized or normalized in seen:
@@ -52,7 +53,9 @@ class MultiStepResearchRuntime:
                 seen.add(normalized)
                 queries.append(candidate)
                 payload = await self.researcher(candidate, {**ctx, "research_pass": current_pass + 1, "research_queries": list(queries)})
-                for item in payload.get("evidence", []) if isinstance(payload, dict) else []:
+                if not isinstance(payload, dict):
+                    continue
+                for item in payload.get("evidence", []):
                     if not isinstance(item, dict):
                         continue
                     key = str(item.get("url") or item.get("id") or item.get("content") or "").strip()
@@ -70,8 +73,10 @@ class MultiStepResearchRuntime:
                     result.evidence = evidence
                     result.queries = queries
                     return result
-            # No implicit unlimited planning: the caller must supply follow-up questions.
-            break
+                next_candidates.extend(str(q) for q in payload.get("follow_up_queries", []) if str(q).strip())
+            candidates = list(dict.fromkeys(next_candidates))[: self.max_subquestions]
+            if not candidates:
+                break
 
         result.evidence = evidence[: self.max_sources]
         result.queries = queries
@@ -85,8 +90,6 @@ class MultiStepResearchRuntime:
 
     @staticmethod
     def _sufficient(payload: dict[str, Any], evidence: list[dict[str, Any]]) -> bool:
-        if not isinstance(payload, dict):
-            return False
         if payload.get("sufficient") is True:
             return True
         return len(evidence) >= int(payload.get("minimum_evidence", 2))
