@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 from .search_gateway import search as general_search
+from .web_research_policy import WebResearchPolicy
 
 
 @dataclass(frozen=True)
@@ -22,9 +23,9 @@ class ToolOrchestrator:
     """General-purpose capability router for Bitey IA, independent of enterprise context.
 
     Web research is a cross-domain capability, not a weather-only feature. The
-    router can trigger it explicitly from context or heuristically when a
-    question asks for current, factual, comparative, source-backed, or otherwise
-    externally verifiable information.
+    router delegates research-required requests to Bitey's bounded research
+    runtime when that capability is registered, avoiding a second independent
+    search path for the same request.
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
@@ -36,6 +37,7 @@ class ToolOrchestrator:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
+        self.research_policy = WebResearchPolicy()
         self.register(ToolSpec("search", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
 
@@ -55,16 +57,16 @@ class ToolOrchestrator:
             return True
         if cls.WEB_FACT_RE.search(message):
             return True
-        # Questions containing a concrete named target often benefit from
-        # verification; this deliberately avoids sending ordinary conversational
-        # prompts to the web by requiring a factual interrogative form.
         return bool(cls.QUESTION_RE.search(message) and len(message.split()) >= 4 and re.search(r"[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ.-]+", message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
         q = message.lower()
         selected: list[str] = []
         if self.needs_web_research(message, context) or self.URL_RE.search(message):
-            selected.append("search")
+            # The bounded multi-step runtime is the canonical research path.
+            # Only fall back to the lightweight search tool when that runtime
+            # capability has not been registered by the application.
+            selected.append("web_research" if "web_research" in self._tools else "search")
         if self.WEATHER_RE.search(message):
             selected.append("weather")
         if any(x in q for x in ("archivo", "documento", "pdf", "imagen", "fichero")):
