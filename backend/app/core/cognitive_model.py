@@ -94,6 +94,11 @@ class CognitiveModel:
         ctx = context or {}
         cached = ctx.get("_cognitive_state")
         if isinstance(cached, CognitiveState):
+            # Reuse perception/intention/plan, but never keep a stale evidence
+            # decision after tools have produced fresh evidence.
+            cached_available = bool(cached.evidence.get("available", False))
+            if cached_available != bool(evidence_available):
+                return self.evaluate(cached, evidence_available=evidence_available)
             return cached
         perception = self.perceive(message)
         intention = self.infer_intention(message, ctx)
