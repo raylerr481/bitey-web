@@ -25,6 +25,7 @@ from .core.vector_memory import QdrantVectorMemory
 from .core.workspace import WorkspaceStore
 from .notifications import send_trainer_test_email
 from .schemas import ConversationCreate, MessageCreate, MessageResponse
+from .workspace_api import router as workspace_router
 
 async def _background_loop(stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
@@ -43,6 +44,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bitey IA — Cognitive Core", version="0.15.0", description="General-purpose extensible intelligence with independent executive cognition, Supabase canonical memory, local Ollama inference, free-first model routing, general web search, evidence, learning and evaluation.", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
+app.include_router(workspace_router)
 
 context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
