@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from .executive_evaluator import ExecutiveEvaluator
 from .free_provider_policy import can_use_external_free_provider, cloud_allowed, env_true, free_only_mode, hard_stop, openrouter_model_is_free, openrouter_pricing_is_zero
 from .native_model import NativeReasoningModel
 from .ollama_provider import OllamaProvider
@@ -124,10 +125,25 @@ class ProviderGateway:
             attempted.add(provider.name)
             try:
                 if not await provider.health(): continue
-                answer=await provider.generate(messages=messages,context={**context,"bitey_model_role":role})
+                generation_context={**context,"bitey_model_role":role}
+                answer=await provider.generate(messages=messages,context=generation_context)
                 if answer:
+                    executive=ExecutiveEvaluator()
+                    executive_result=executive.evaluate(state=brain,answer=answer,evidence=str(context.get("evidence") or ""),selected_tools=context.get("selected_tools"))
+                    context["executive_evaluation"] = executive_result.as_dict()
+                    if executive_result.decision == "revise":
+                        revision_reasons=", ".join(executive_result.reasons)
+                        revision_messages=list(messages)+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Mantén la decisión de Bitey y no cambies sus límites. Produce una respuesta final corregida, sin mencionar este contrato."}]
+                        revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True})
+                        if revised:
+                            answer=revised
+                            executive_result=executive.evaluate(state=brain,answer=answer,evidence=str(context.get("evidence") or ""),selected_tools=context.get("selected_tools"))
+                            context["executive_evaluation"] = executive_result.as_dict()
+                            context["executive_revision_attempted"] = True
+                    if executive_result.decision == "revise":
+                        logger.warning("executive_contract_not_satisfied provider=%s reasons=%s",provider.name,executive_result.reasons)
                     if conversation_id: self._conversation_provider[conversation_id]=provider.name
-                    logger.info("provider_selected provider=%s role=%s attempt=%d",provider.name,role,attempt); return answer
+                    logger.info("provider_selected provider=%s role=%s attempt=%d executive=%s revision=%s",provider.name,role,attempt,executive_result.decision,context.get("executive_revision_attempted",False)); return answer
             except Exception as exc:
                 logger.warning("provider_failed provider=%s role=%s attempt=%d error=%s",provider.name,role,attempt,type(exc).__name__)
                 if conversation_id and self._conversation_provider.get(conversation_id)==provider.name: self._conversation_provider.pop(conversation_id,None)
