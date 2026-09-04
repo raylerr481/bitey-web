@@ -43,9 +43,16 @@ async def _db(method: str, table: str, **kwargs: Any) -> list[dict[str, Any]]:
         return r.json() if r.content else []
 
 
+async def _workspace_exists(workspace_id: str) -> bool:
+    rows = await _db("GET", "workspaces", params={"select": "id", "id": f"eq.{workspace_id}", "limit": "1"})
+    return bool(rows) or workspace_id in _MEMORY
+
+
 async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
     _TASKS[task["id"]] = task
-    await _db("PATCH", "workspace_tasks", json=task, params={"id": f"eq.{task['id']}"})
+    rows = await _db("PATCH", "workspace_tasks", json=task, params={"id": f"eq.{task['id']}"})
+    if rows:
+        return rows[0]
     return task
 
 
@@ -107,6 +114,8 @@ async def get_workspace(workspace_id: str) -> dict[str, Any]:
 
 @router.post("/workspaces/{workspace_id}/tasks")
 async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not await _workspace_exists(workspace_id):
+        raise HTTPException(status_code=404, detail="workspace_not_found")
     task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or "Nueva tarea"), "prompt": str(payload.get("prompt") or ""), "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_tasks", json=task)
     if rows:
@@ -140,6 +149,8 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
         task.update({"status": execution.get("status", "needs_review"), "updated_at": _now(), "result": execution})
         await _save_task(task)
         return task
+    except HTTPException:
+        raise
     except Exception as exc:
         task.update({"status": "failed", "updated_at": _now(), "result": {"error": type(exc).__name__}})
         await _save_task(task)
@@ -164,6 +175,8 @@ async def runtime_status() -> dict[str, Any]:
 
 @router.post("/workspaces/{workspace_id}/artifacts")
 async def create_artifact(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if not await _workspace_exists(workspace_id):
+        raise HTTPException(status_code=404, detail="workspace_not_found")
     artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "name": str(payload.get("name") or "Nuevo artefacto"), "artifact_type": str(payload.get("artifact_type") or "document"), "status": "draft", "content": payload.get("content"), "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_artifacts", json=artifact)
     if rows:
@@ -174,6 +187,8 @@ async def create_artifact(workspace_id: str, payload: dict[str, Any]) -> dict[st
 
 @router.get("/workspaces/{workspace_id}/artifacts")
 async def list_artifacts(workspace_id: str) -> dict[str, Any]:
+    if not await _workspace_exists(workspace_id):
+        raise HTTPException(status_code=404, detail="workspace_not_found")
     rows = await _db("GET", "workspace_artifacts", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "updated_at.desc"})
     if not rows:
         rows = [x for x in _ARTIFACTS.values() if x["workspace_id"] == workspace_id]
