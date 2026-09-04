@@ -1,5 +1,6 @@
 (() => {
   const K={projects:'bitey_projects_v1',library:'bitey_library_v1',settings:'bitey_settings_v1',profile:'bitey_profile_v1',tools:'bitey_tools_v1',memory:'bitey_memory_v1'};
+  const SBT_MARKET_URL='https://bitey-system-bots-trading.raylerr481.workers.dev/';
   const read=(k,d=[])=>{try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(d))}catch{return d}};
   const write=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
   const esc=s=>String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -11,6 +12,18 @@
   function settings(){const s={language:'auto',appearance:'system',memory:true,webSearch:true,...read(K.settings,{})};open('Configuración','Preferencias de Bitey IA.',`<div class="settings-form"><label>Idioma<select id="bs-lang"><option value="auto">Automático</option><option value="es">Español</option><option value="pt-BR">Português</option><option value="en">English</option></select></label><label>Apariencia<select id="bs-theme"><option value="system">Sistema</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label><label><input id="bs-memory" type="checkbox"> Memoria</label><label><input id="bs-web" type="checkbox"> Búsqueda web automática</label><button class="primary-action" id="bs-save">Guardar</button></div>`);bs('bs-lang').value=s.language;bs('bs-theme').value=s.appearance;bs('bs-memory').checked=s.memory;bs('bs-web').checked=s.webSearch;bs('bs-save').onclick=()=>{const n={language:bs('bs-lang').value,appearance:bs('bs-theme').value,memory:bs('bs-memory').checked,webSearch:bs('bs-web').checked};write(K.settings,n);document.documentElement.dataset.appearance=n.appearance;close()}}
   function toggleTool(name){const t={...read(K.tools,{web:false,research:false}),[name]:!read(K.tools,{web:false,research:false})[name]};write(K.tools,t);open('Explorar IA',`${name==='web'?'Búsqueda web':'Investigación profunda'} ${t[name]?'activada':'desactivada'}.`,`<p class="muted">La preferencia quedó guardada para este navegador.</p><button class="primary-action" id="tools-close">Continuar</button>`);bs('tools-close').onclick=close}
   function tools(){const t=read(K.tools,{web:false,research:false});open('Explorar IA','Selecciona una capacidad para la conversación.',`<div class="feature-list"><button class="feature-row" id="tool-web"><span>⌕</span><span><b>Búsqueda web</b><small>${t.web?'Activada':'Activada al seleccionarla'}</small></span></button><button class="feature-row" id="tool-research"><span>✦</span><span><b>Investigación profunda</b><small>${t.research?'Activada':'Activada al seleccionarla'}</small></span></button><button class="feature-row" id="tool-attach"><span>▣</span><span><b>Archivos</b><small>Añadir contexto a la conversación</small></span></button></div>`);bs('tool-web').onclick=()=>toggleTool('web');bs('tool-research').onclick=()=>toggleTool('research');bs('tool-attach').onclick=()=>bs('file-input')?.click()}
+  function markets(){
+    open('Mercados en vivo','Bitey IA puede abrir el entorno de inteligencia de mercado de Bitey SBT. La vista es informativa; las acciones de trading siguen separadas y protegidas por el Risk Gate.',
+      `<div class="market-live-card"><div class="market-live-head"><span class="live-dot"></span><div><b>Market Intelligence · Live</b><small>Fuente: Bitey System Bots Trading</small></div></div><iframe class="market-live-frame" src="${SBT_MARKET_URL}" title="Bitey SBT Market Intelligence" loading="lazy" referrerpolicy="no-referrer"></iframe><div class="market-live-actions"><a class="primary-action" href="${SBT_MARKET_URL}" target="_blank" rel="noopener noreferrer">Abrir terminal completo ↗</a><button class="secondary-action" id="market-close">Volver a Bitey</button></div><p class="muted">Si el navegador bloquea la vista embebida, usa «Abrir terminal completo». Bitey no introduce credenciales ni órdenes desde este panel.</p></div>`);
+    bs('market-close')?.addEventListener('click',close);
+  }
+  function ensureMarketEntry(){
+    const sidebar=document.querySelector('.sidebar-tools');
+    if(!sidebar || document.getElementById('bitey-live-markets')) return;
+    const button=document.createElement('button');
+    button.className='sidebar-tool'; button.id='bitey-live-markets'; button.type='button'; button.innerHTML='<span class="tool-icon">◉</span><span>Mercados en vivo</span>';
+    button.addEventListener('click',markets); sidebar.appendChild(button);
+  }
   function profileAction(type){
     if(type==='account')open('Cuenta','Gestiona identidad, datos y sesiones.','<div class="feature-list"><div class="feature-row"><span>◉</span><span><b>Perfil de Bitey IA</b><small>Cuenta preparada para identidad de usuario.</small></span></div><div class="feature-row"><span>⌁</span><span><b>Sesiones</b><small>Gestiona las sesiones desde tu cuenta.</small></span></div></div>');
     else if(type==='personalize'){const p={tone:'Equilibrado',language:'Automático',proactive:false,...read(K.profile,{})};open('Personalización','Define cómo quieres que Bitey interactúe contigo.',`<div class="settings-form"><label>Tono<select id="p-tone"><option>Equilibrado</option><option>Profesional</option><option>Directo</option><option>Creativo</option></select></label><label>Idioma<select id="p-lang"><option>Automático</option><option>Español</option><option>Português</option><option>English</option></select></label><label><input id="p-proactive" type="checkbox"> Sugerencias proactivas</label><button class="primary-action" id="p-save">Guardar preferencias</button></div>`);bs('p-tone').value=p.tone;bs('p-lang').value=p.language;bs('p-proactive').checked=!!p.proactive;bs('p-save').onclick=()=>{write(K.profile,{tone:bs('p-tone').value,language:bs('p-lang').value,proactive:bs('p-proactive').checked});close()}}
@@ -18,5 +31,6 @@
     else if(type==='settings')settings();
     else open('Ayuda','Cómo usar Bitey IA.','<p>Usa ＋ para añadir contenido, 🎙️ para voz y el menú lateral para explorar Bitey.</p>');
   }
-  window.BiteyUI={projects,library,settings,tools,profileAction,close};
+  window.BiteyUI={projects,library,settings,tools,markets,profileAction,close};
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ensureMarketEntry); else ensureMarketEntry();
 })();
