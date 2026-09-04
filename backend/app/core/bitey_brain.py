@@ -79,6 +79,12 @@ class BiteyBrain:
         intention = cognition.get("intention") or {}
         perception = cognition.get("perception") or {}
         domain = str(intention.get("domain") or ctx.get("domain") or "general")
+        evidence_available = bool(ctx.get("evidence_available"))
+
+        cached = ctx.get("_bitey_brain_state")
+        cached_evidence = ctx.get("_bitey_brain_evidence_available")
+        if isinstance(cached, BrainState) and cached_evidence == evidence_available:
+            return cached
 
         complexity = self._complexity(text, cognition)
         question_like = bool(perception.get("question")) or "?" in text
@@ -89,7 +95,7 @@ class BiteyBrain:
             ambiguity = 1.0
 
         freshness_required = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
-        evidence_required = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or ctx.get("evidence_available") or cognition.get("plan", {}).get("needs_evidence")) or freshness_required
+        evidence_required = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence")) or freshness_required
 
         risk_level = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS):
@@ -138,7 +144,7 @@ class BiteyBrain:
         if risk_level == "critical":
             constraints += ["never_bypass_domain_risk_gate", "no_live_execution"]
 
-        return BrainState(
+        state = BrainState(
             task_class=domain,
             objective=self._objective(capabilities, domain),
             complexity=complexity,
@@ -158,6 +164,9 @@ class BiteyBrain:
             goals=goals,
             constraints=constraints,
         )
+        ctx["_bitey_brain_state"] = state
+        ctx["_bitey_brain_evidence_available"] = evidence_available
+        return state
 
     @staticmethod
     def _complexity(text: str, cognition: dict[str, Any]) -> float:
