@@ -49,9 +49,9 @@ Learning observation + memory consolidation
 
 **Bitey owns the cognitive loop. Models are replaceable inference tools.**
 
-## Skywork-style workspace layer
+## Unified workspace layer
 
-Bitey IA now adds a **Skywork-style workspace experience** without copying Skywork's implementation or changing Bitey's core principle. The workspace is an orchestration surface over the existing cognitive engine.
+Bitey IA adds a **unified workspace experience** over the existing cognitive engine. The workspace is an orchestration surface, not a second brain.
 
 It exposes capability contracts for Chat, web/deep research, documents, presentations, spreadsheets, code, files, projects and bounded agent/task orchestration.
 
@@ -68,8 +68,6 @@ Evaluation / policy
      ↓
 Artifact or authorized result
 ```
-
-This is intentionally **not** a second brain. Bitey remains the decision-maker.
 
 ## Self-sufficient operation
 
