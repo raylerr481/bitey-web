@@ -36,6 +36,15 @@ class CognitiveModel:
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
     }
 
+    # High-signal expressions disambiguate common lexical ties. They are
+    # intent features, not provider/model selection rules.
+    _STRONG_INTENT = {
+        "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
+        "trading": ("eurusd", "gbpusd", "xauusd", "bitcoin", "btc", "forex", "acciones", "compra eurusd", "vende eurusd"),
+        "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather"),
+        "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest"),
+    }
+
     def perceive(self, message: str) -> dict[str, Any]:
         text = message.strip()
         words = len(text.split())
@@ -51,7 +60,20 @@ class CognitiveModel:
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = message.lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
+        max_strong = max(strong_scores.values(), default=0)
+        if max_strong:
+            strong_domains = [d for d, score in strong_scores.items() if score == max_strong]
+            if len(strong_domains) == 1:
+                scores[strong_domains[0]] += 2
+
+        # Prefer explicit domain context when supplied by an upstream caller.
+        explicit_domain = str(context.get("domain") or "").strip().lower()
+        if explicit_domain in scores:
+            scores[explicit_domain] += 2
+
+        order = list(self._DOMAIN_HINTS)
+        ranked = sorted(scores.items(), key=lambda item: (-item[1], order.index(item[0])))
         top_domain, top_score = ranked[0] if ranked else ("general", 0)
         second_score = ranked[1][1] if len(ranked) > 1 else 0
         if top_score == 0:
@@ -94,8 +116,6 @@ class CognitiveModel:
         ctx = context or {}
         cached = ctx.get("_cognitive_state")
         if isinstance(cached, CognitiveState):
-            # Reuse perception/intention/plan, but never keep a stale evidence
-            # decision after tools have produced fresh evidence.
             cached_available = bool(cached.evidence.get("available", False))
             if cached_available != bool(evidence_available):
                 return self.evaluate(cached, evidence_available=evidence_available)
