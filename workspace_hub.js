@@ -9,6 +9,8 @@
   async function workspaces(){ try{ const r=await fetch(`${API()}/workspaces`); return r.ok?(await r.json()).workspaces||[]:[]; }catch{return [];} }
   async function createWorkspace(name){ const r=await fetch(`${API()}/workspaces`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); return r.ok?r.json():null; }
   async function createTask(id, capability, prompt){ const r=await fetch(`${API()}/workspaces/${encodeURIComponent(id)}/tasks`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:prompt.slice(0,80)||'Nueva tarea',prompt,capability})}); return r.ok?r.json():null; }
+  async function runTask(id, taskId){ const r=await fetch(`${API()}/workspaces/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}/run`,{method:'POST',headers:{'Accept':'application/json'}}); return r.ok?r.json():null; }
+  function researchResult(task){ const result=task?.result||{}; const evidence=String(result.evidence_context||''); const steps=Array.isArray(result.steps)?result.steps:[]; const sources=steps.flatMap(s=>Array.isArray(s.sources)?s.sources:[]); return `<div class="workspace-result"><div class="feature-row"><span>✓</span><span><b>${esc(task.status==='completed'?'Investigación completada':'Investigación sin evidencia suficiente')}</b><small>${steps.length} pasos acotados · ${sources.length} fuentes registradas</small></span></div><pre class="workspace-evidence">${esc(evidence.slice(0,12000)||'Bitey no recuperó evidencia utilizable.')}</pre></div>`; }
   async function hub(){
     const [c, ws] = await Promise.all([catalog(), workspaces()]);
     const caps = c?.capabilities || [
@@ -24,12 +26,22 @@
       const capability=b.dataset.cap, prompt=window.prompt(`¿Qué quieres hacer con ${b.textContent.trim()}?`);
       if(!prompt?.trim()) return;
       let w=current; if(!w) w=await createWorkspace('Espacio general');
-      if(w) await createTask(w.id,capability,prompt.trim());
-      close(); const input=document.getElementById('prompt'); if(input){input.value=prompt.trim();input.focus();input.dispatchEvent(new Event('input'));document.getElementById('chat-form')?.requestSubmit();}
+      if(!w) return;
+      const task=await createTask(w.id,capability,prompt.trim());
+      if(!task){ open('Workspace de Bitey IA','No se pudo crear la tarea.'); return; }
+      const executed=await runTask(w.id,task.id);
+      if(!executed){ open('Workspace de Bitey IA','La tarea quedó creada pero no pudo iniciarse.'); return; }
+      if(capability==='deep_research'||capability==='browser_research'){
+        open('Investigación de Bitey IA','Ejecución controlada por el runtime cognitivo.',researchResult(executed));
+        return;
+      }
+      close();
+      const input=document.getElementById('prompt');
+      if(input){ input.value=prompt.trim(); input.focus(); input.dispatchEvent(new Event('input')); document.getElementById('chat-form')?.requestSubmit(); }
     });
     document.getElementById('new-workspace')?.addEventListener('click',async()=>{ const n=window.prompt('Nombre del espacio'); if(!n?.trim())return; await createWorkspace(n.trim()); hub(); });
   }
-  window.BiteyWorkspace={hub,catalog,workspaces};
+  window.BiteyWorkspace={hub,catalog,workspaces,createTask,runTask};
   window.BiteyUI=window.BiteyUI||{};
   window.BiteyUI.workspace=hub;
   document.addEventListener('DOMContentLoaded',()=>{ document.querySelectorAll('[data-workspace]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();hub();})); });
