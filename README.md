@@ -49,6 +49,28 @@ Learning observation + memory consolidation
 
 **Bitey owns the cognitive loop. Models are replaceable inference tools.**
 
+## Skywork-style workspace layer
+
+Bitey IA now adds a **Skywork-style workspace experience** without copying Skywork's implementation or changing Bitey's core principle. The workspace is an orchestration surface over the existing cognitive engine.
+
+It exposes capability contracts for Chat, web/deep research, documents, presentations, spreadsheets, code, files, projects and bounded agent/task orchestration.
+
+```text
+Workspace UI
+     ↓
+Bitey Workspace API
+     ↓
+Bitey Cognitive Core / Brain
+     ↓
+Tools + Research + Memory + Model workers
+     ↓
+Evaluation / policy
+     ↓
+Artifact or authorized result
+```
+
+This is intentionally **not** a second brain. Bitey remains the decision-maker.
+
 ## Self-sufficient operation
 
 Bitey IA Web must not stop functioning simply because one model or provider is unavailable.
@@ -78,73 +100,22 @@ Bitey can select authorized tools to obtain evidence or perform deterministic wo
 Bitey is designed to **create and register new tools**, but not by blindly executing arbitrary generated code.
 
 ```text
-Need detected
-   ↓
-Tool specification
-   ↓
-Permission + risk validation
-   ↓
-Implementation / adapter
-   ↓
-Sandboxed or deterministic execution
-   ↓
-Tool result
-   ↓
-Bitey evaluation
+Need detected → Specification → Validation → Implementation → Tests → Registry → Authorized execution → Evaluation
 ```
-
-A generated tool must declare its purpose, input schema, output schema, permissions, cost class, side effects and rollback/timeout behavior before it can be enabled. High-impact actions require explicit authorization.
-
-Examples of tool classes:
-
-- calculator and data transformation;
-- web/search/research;
-- file and project operations;
-- document extraction;
-- API connectors;
-- scheduling/automation;
-- code analysis and bounded execution;
-- specialized module capabilities.
 
 ## Model independence
 
-```text
-                 BITEY IA WEB
-                       │
-             Provider / Model Registry
-                       │
-          Capability + health + cost gates
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-     Local AI       Free APIs      Future free
-     / Ollama       / gateways     providers
-                       │
-                       ▼
-                 Bitey Evaluator
-```
-
-The configured free profile is a hard economic boundary: if no eligible free model is available, Bitey does not silently spend money. It can fall back to deterministic tools, cached/known information, local inference or explain that the requested capability is temporarily unavailable.
+The configured free profile is a hard economic boundary: if no eligible free model is available, Bitey does not silently spend money. It can fall back to deterministic tools, local inference or explain that the requested capability is temporarily unavailable.
 
 No Gemini API is required.
 
 ## Memory and knowledge
 
-**Supabase/Postgres is the canonical persistent layer.** Memory is organized conceptually as working context, episodic experience, semantic knowledge, user/project context and learned observations, while remaining governed by the same persistence boundary.
+**Supabase/Postgres is the canonical persistent layer.** Memory is organized conceptually as working context, episodic experience, semantic knowledge, user/project context and learned observations.
 
 No Neo4j or MongoDB dependency is part of the current architecture.
 
-```text
-Bitey Cognitive Core
-       ↓
-Context / Memory / Knowledge
-       ↓
-Supabase + PostgreSQL/pgvector when enabled
-```
-
 ## Modules
-
-Bitey IA Web can host or coordinate specialized capabilities without becoming their owner:
 
 - JobIA — employment intelligence.
 - Bitey SBT — trading intelligence, kept operationally isolated and subject to its own risk gate.
@@ -174,12 +145,12 @@ BiteFixes is separate and owns its CRM, SaaS and AI-agent implementation. **Bite
 ```text
                 BITEY IA WEB
                      │
-       ┌─────────────┼─────────────┐
-       ▼             ▼             ▼
-   Cognitive       Tool          Module
-     Core        Registry       Registry
-       │             │             │
-       └─────────────┼─────────────┘
+       ┌─────────────┼──────────────────┐
+       ▼             ▼                  ▼
+   Cognitive       Tool              Workspace
+     Core        Registry              Hub
+       │             │                  │
+       └─────────────┼──────────────────┘
                      ▼
              Supabase / pgvector
                      │
@@ -195,11 +166,12 @@ BiteFixes is separate and owns its CRM, SaaS and AI-agent implementation. **Bite
 2. Harden free-model discovery, health and fail-closed routing.
 3. Complete Supabase-backed cognitive memory and semantic retrieval.
 4. Add task-decomposition DAGs and bounded long-horizon planning.
-5. Add contradiction detection and confidence calibration.
-6. Add a permissioned Tool Factory for creating new deterministic/API tools.
-7. Add sandboxed code execution only where explicitly authorized.
-8. Add self-tests, capability benchmarks and recovery tests.
-9. Connect specialized modules through versioned contracts.
-10. Keep BiteFixes CRM/SaaS and Bitey IA Empresarial outside the general brain's ownership boundary.
+5. Connect Workspace tasks directly to the bounded cognitive runtime.
+6. Add contradiction detection and confidence calibration.
+7. Expand permissioned artifact generation for documents, slides and spreadsheets.
+8. Add sandboxed code execution only where explicitly authorized.
+9. Add self-tests, capability benchmarks and recovery tests.
+10. Connect specialized modules through versioned contracts.
+11. Keep BiteFixes CRM/SaaS and Bitey IA Empresarial outside the general brain's ownership boundary.
 
 **Core invariant:** Bitey IA Web is the general/integral AI. It can use other AIs, tools and modules, but it does not depend on one of them to exist, and the free profile never silently becomes paid.
