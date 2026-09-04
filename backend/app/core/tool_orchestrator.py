@@ -48,7 +48,10 @@ class ToolOrchestrator:
         ctx = dict(context or {})
         cognitive = self._cognition.process(message, ctx, evidence_available=bool(ctx.get("evidence_available")))
         ctx["cognition"] = cognitive.as_dict()
+        ctx["_cognitive_state"] = cognitive
         brain = self._brain.think(message, ctx)
+        ctx["bitey_brain"] = brain.as_dict()
+        ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
         if brain.freshness_required and brain.task_class == "weather":
             requested = ["weather"]
@@ -56,6 +59,12 @@ class ToolOrchestrator:
             requested.append("search")
         available = set(self._tools)
         selected = [name for name in dict.fromkeys(requested) if name in available]
+        if context is not None:
+            context["cognition"] = cognitive.as_dict()
+            context["_cognitive_state"] = cognitive
+            context["bitey_brain"] = brain.as_dict()
+            context["_bitey_brain_state"] = brain
+            context["selected_tools"] = selected
         return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected}
 
     @classmethod
@@ -82,22 +91,14 @@ class ToolOrchestrator:
                 if isinstance(result, dict) and result.get("evidence"):
                     existing = results.get("web_research")
                     if not existing or not existing.get("evidence"):
-                        results["web_research"] = {
-                            "ok": bool(result.get("ok", True)),
-                            "reasons": [f"specialized:{name}"],
-                            "sources": result.get("source"),
-                            "evidence": str(result["evidence"]),
-                        }
+                        results["web_research"] = {"ok": bool(result.get("ok", True)), "reasons": [f"specialized:{name}"], "sources": result.get("source"), "evidence": str(result["evidence"])}
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
         return results
 
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         result = await __import__("asyncio").to_thread(general_search, message, 8)
-        evidence = "\n\n".join(
-            f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title', '')}\nSNIPPET: {item.get('snippet', '')}"
-            for i, item in enumerate((result.get("results") or [])[:8], 1)
-        )
+        evidence = "\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title', '')}\nSNIPPET: {item.get('snippet', '')}" for i, item in enumerate((result.get("results") or [])[:8], 1))
         return {"ok": bool(result.get("results")), **result, "evidence": evidence}
 
     async def _weather(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -117,16 +118,7 @@ class ToolOrchestrator:
             payload = weather.json()
             current = payload.get("current") or {}
         units = {"temperature": "°C", "wind_speed": "km/h", "humidity": "%"}
-        evidence = (
-            f"WEATHER SOURCE: Open-Meteo\n"
-            f"LOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\n"
-            f"OBSERVATION TIME: {current.get('time', 'unknown')}\n"
-            f"TEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\n"
-            f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\n"
-            f"HUMIDITY: {current.get('relative_humidity_2m', 'unknown')} %\n"
-            f"WIND: {current.get('wind_speed_10m', 'unknown')} km/h\n"
-            f"WEATHER CODE: {current.get('weather_code', 'unknown')}"
-        )
+        evidence = (f"WEATHER SOURCE: Open-Meteo\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\nOBSERVATION TIME: {current.get('time', 'unknown')}\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\nAPPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\nHUMIDITY: {current.get('relative_humidity_2m', 'unknown')} %\nWIND: {current.get('wind_speed_10m', 'unknown')} km/h\nWEATHER CODE: {current.get('weather_code', 'unknown')}")
         return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "units": units, "evidence": evidence}
 
 
