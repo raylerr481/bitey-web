@@ -129,17 +129,20 @@ class ProviderGateway:
                 answer=await provider.generate(messages=messages,context=generation_context)
                 if answer:
                     executive=ExecutiveEvaluator()
-                    executive_result=executive.evaluate(state=brain,answer=answer,evidence=str(context.get("evidence") or ""),selected_tools=context.get("selected_tools"))
+                    evidence_signal = str(context.get("evidence") or "")
+                    if not evidence_signal and context.get("evidence_available"):
+                        evidence_signal = "[bitey_evidence_available]"
+                    executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"))
                     context["executive_evaluation"] = executive_result.as_dict()
                     if executive_result.decision == "revise":
                         revision_reasons=", ".join(executive_result.reasons)
                         revision_messages=list(messages)+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Mantén la decisión de Bitey y no cambies sus límites. Produce una respuesta final corregida, sin mencionar este contrato."}]
                         revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True})
+                        context["executive_revision_attempted"] = True
                         if revised:
                             answer=revised
-                            executive_result=executive.evaluate(state=brain,answer=answer,evidence=str(context.get("evidence") or ""),selected_tools=context.get("selected_tools"))
+                            executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"))
                             context["executive_evaluation"] = executive_result.as_dict()
-                            context["executive_revision_attempted"] = True
                     if executive_result.decision == "revise":
                         logger.warning("executive_contract_not_satisfied provider=%s reasons=%s",provider.name,executive_result.reasons)
                     if conversation_id: self._conversation_provider[conversation_id]=provider.name
