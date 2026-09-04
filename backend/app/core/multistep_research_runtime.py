@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .deep_research import DeepResearchEngine, DeepResearchPlan
+from .evidence_engine import EvidenceEngine
 
 
 @dataclass
@@ -23,6 +24,7 @@ class MultiStepResearchResult:
     stopped_reason: str = "not_started"
     max_subquestions: int = 4
     max_passes: int = 2
+    evidence_decision: dict[str, Any] = field(default_factory=dict)
 
     @property
     def successful_sources(self) -> int:
@@ -30,6 +32,8 @@ class MultiStepResearchResult:
 
     @property
     def confidence(self) -> float:
+        if self.evidence_decision:
+            return float(self.evidence_decision.get("confidence", 0.0))
         if not self.attempted_questions:
             return 0.0
         successful_questions = sum(item.successful for item in self.passes)
@@ -54,6 +58,7 @@ class MultiStepResearchResult:
             "source_count": len(self.evidence),
             "successful_sources": self.successful_sources,
             "confidence": self.confidence,
+            "evidence_decision": self.evidence_decision,
             "stopped_reason": self.stopped_reason,
             "max_subquestions": self.max_subquestions,
             "max_passes": self.max_passes,
@@ -63,12 +68,13 @@ class MultiStepResearchResult:
 class MultiStepResearchRuntime:
     """Bounded research orchestration owned by Bitey, never by an LLM."""
 
-    def __init__(self, engine: DeepResearchEngine | None = None, *, max_subquestions: int = 4, max_passes: int = 2) -> None:
+    def __init__(self, engine: DeepResearchEngine | None = None, *, max_subquestions: int = 4, max_passes: int = 2, evidence_engine: EvidenceEngine | None = None) -> None:
         if max_subquestions < 1:
             raise ValueError("max_subquestions must be >= 1")
         if max_passes < 1:
             raise ValueError("max_passes must be >= 1")
         self.engine = engine or DeepResearchEngine()
+        self.evidence_engine = evidence_engine or EvidenceEngine()
         self.max_subquestions = max_subquestions
         self.max_passes = max_passes
 
@@ -103,12 +109,25 @@ class MultiStepResearchRuntime:
                 research_pass.completed += 1
                 if usable:
                     research_pass.successful += 1
+
+            decision = self.evidence_engine.assess(query, result.evidence)
+            result.evidence_decision = {
+                "sufficient": decision.sufficient,
+                "confidence": decision.confidence,
+                "agreement": decision.agreement,
+                "contradiction_detected": decision.contradiction_detected,
+                "reasons": decision.reasons,
+                "assessments": [a.__dict__ for a in decision.assessments],
+            }
+            if decision.sufficient:
+                result.stopped_reason = "evidence_gate_passed"
+                break
             if pass_number >= self.max_passes:
-                result.stopped_reason = "pass_limit"
+                result.stopped_reason = "pass_limit_evidence_insufficient"
                 break
             questions = self._follow_up_questions(query, result)
             if not questions:
-                result.stopped_reason = "evidence_sufficient_or_no_followups"
+                result.stopped_reason = "evidence_insufficient_or_no_followups"
                 break
         if result.stopped_reason == "not_started":
             result.stopped_reason = "completed"
