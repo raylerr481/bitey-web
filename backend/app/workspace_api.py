@@ -59,6 +59,41 @@ async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
     return task
 
 
+async def _workspace_memory(workspace_id: str, limit: int = 12) -> list[dict[str, Any]]:
+    rows = await _db(
+        "GET",
+        "workspace_memory",
+        params={
+            "select": "id,memory_type,memory_key,content,metadata,importance,created_at,updated_at",
+            "workspace_id": f"eq.{workspace_id}",
+            "order": "importance.desc,updated_at.desc",
+            "limit": str(max(1, min(limit, 50))),
+        },
+    )
+    if rows:
+        return rows
+    return [x for x in _MEMORY.values() if x.get("workspace_id") == workspace_id][:limit]
+
+
+async def _save_memory(workspace_id: str, content: str, memory_type: str = "execution", memory_key: str | None = None, metadata: dict[str, Any] | None = None, importance: float = 0.6) -> dict[str, Any]:
+    memory = {
+        "id": str(uuid4()),
+        "workspace_id": workspace_id,
+        "memory_type": memory_type,
+        "memory_key": memory_key,
+        "content": content,
+        "metadata": metadata or {},
+        "importance": max(0.0, min(float(importance), 1.0)),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    rows = await _db("POST", "workspace_memory", json=memory)
+    if rows:
+        memory = rows[0]
+    _MEMORY[memory["id"]] = memory
+    return memory
+
+
 @router.get("/workspace/catalog")
 async def workspace_catalog() -> dict[str, Any]:
     return {
@@ -90,6 +125,11 @@ async def inspect_cognitive_plan(payload: dict[str, Any]) -> dict[str, Any]:
     if not prompt:
         raise HTTPException(status_code=422, detail="prompt_required")
     context = dict(payload.get("context") or {})
+    workspace_id = str(context.get("workspace_id") or "").strip()
+    if workspace_id:
+        memories = await _workspace_memory(workspace_id)
+        if memories:
+            context["learned_cognitive_context"] = {"available": True, "items": memories}
     state = _BRAIN.think(prompt, context)
     research = capability in {"deep_research", "browser_research"} or state.evidence_required
     artifact_type = WorkspaceExecutionService.ARTIFACT_CAPABILITIES.get(capability)
@@ -102,6 +142,7 @@ async def inspect_cognitive_plan(payload: dict[str, Any]) -> dict[str, Any]:
         "artifact_type": artifact_type,
         "brain": state.as_dict(),
         "research_runtime": _RUNTIME.status() if research else None,
+        "memory_context": {"available": bool(workspace_id), "items": len(memories) if workspace_id else 0},
         "side_effects": {"allowed": state.execution_allowed, "human_authorization_required": True},
     }
 
@@ -120,7 +161,7 @@ async def create_workspace(payload: dict[str, Any]) -> dict[str, Any]:
 async def list_workspaces() -> dict[str, Any]:
     rows = await _db("GET", "workspaces", params={"select": "*", "order": "updated_at.desc"})
     if not rows:
-        rows = list(_MEMORY.values())
+        rows = [x for x in _MEMORY.values() if "name" in x]
     return {"workspaces": rows}
 
 
@@ -133,13 +174,14 @@ async def get_workspace(workspace_id: str) -> dict[str, Any]:
     artifacts = await _db("GET", "workspace_artifacts", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "created_at.desc"})
     if not artifacts:
         artifacts = [x for x in _ARTIFACTS.values() if x["workspace_id"] == workspace_id]
-    return {"workspace": workspace, "tasks": tasks, "artifacts": artifacts}
+    memory = await _workspace_memory(workspace_id)
+    return {"workspace": workspace, "tasks": tasks, "artifacts": artifacts, "memory": memory}
 
 
 @router.post("/workspaces/{workspace_id}/tasks")
 async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     await _workspace_or_404(workspace_id)
-    task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or "Nueva tarea"), "prompt": str(payload.get("prompt") or ""), "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
+    task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or "Nueva tarea"), "prompt": str(payload.get("prompt") or ""), "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "result": None, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_tasks", json=task)
     if rows:
         task = rows[0]
@@ -161,7 +203,11 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
     task.update({"status": "running", "updated_at": _now()})
     await _save_task(task)
     try:
-        execution = await _EXECUTOR.execute(prompt=str(task.get("prompt") or ""), capability=str(task.get("capability") or "chat"), context={"workspace_id": workspace_id, "task_id": task_id, "metadata": task.get("metadata") or {}})
+        memories = await _workspace_memory(workspace_id)
+        execution_context = {"workspace_id": workspace_id, "task_id": task_id, "metadata": task.get("metadata") or {}}
+        if memories:
+            execution_context["learned_cognitive_context"] = {"available": True, "items": memories}
+        execution = await _EXECUTOR.execute(prompt=str(task.get("prompt") or ""), capability=str(task.get("capability") or "chat"), context=execution_context)
         artifact_data = execution.get("artifact")
         if artifact_data:
             artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "task_id": task_id, **artifact_data, "created_at": _now(), "updated_at": _now()}
@@ -172,6 +218,14 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
             execution["artifact"] = artifact
         task.update({"status": execution.get("status", "needs_review"), "updated_at": _now(), "result": execution})
         await _save_task(task)
+        await _save_memory(
+            workspace_id,
+            content=str(task.get("prompt") or ""),
+            memory_type="task_context",
+            memory_key=f"task:{task_id}",
+            metadata={"task_id": task_id, "capability": task.get("capability"), "status": task.get("status"), "cognitive_decision": execution.get("cognitive_decision"), "execution_trace": execution.get("execution_trace", [])},
+            importance=0.65,
+        )
         return task
     except Exception as exc:
         task.update({"status": "failed", "updated_at": _now(), "result": {"error": type(exc).__name__}})
@@ -191,6 +245,28 @@ async def get_task(workspace_id: str, task_id: str) -> dict[str, Any]:
     return task
 
 
+@router.get("/workspaces/{workspace_id}/memory")
+async def list_memory(workspace_id: str) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
+    return {"memory": await _workspace_memory(workspace_id, limit=50)}
+
+
+@router.post("/workspaces/{workspace_id}/memory")
+async def create_memory(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
+    content = str(payload.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="memory_content_required")
+    return await _save_memory(
+        workspace_id,
+        content=content,
+        memory_type=str(payload.get("memory_type") or "context"),
+        memory_key=str(payload.get("memory_key") or "") or None,
+        metadata=payload.get("metadata") or {},
+        importance=float(payload.get("importance", 0.5)),
+    )
+
+
 @router.get("/workspace/runtime/status")
 async def runtime_status() -> dict[str, Any]:
     return _RUNTIME.status()
@@ -199,7 +275,7 @@ async def runtime_status() -> dict[str, Any]:
 @router.post("/workspaces/{workspace_id}/artifacts")
 async def create_artifact(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     await _workspace_or_404(workspace_id)
-    artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "name": str(payload.get("name") or "Nuevo artefacto"), "artifact_type": str(payload.get("artifact_type") or "document"), "status": "draft", "content": payload.get("content"), "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
+    artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "task_id": payload.get("task_id"), "name": str(payload.get("name") or "Nuevo artefacto"), "artifact_type": str(payload.get("artifact_type") or "document"), "status": "draft", "content": payload.get("content"), "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_artifacts", json=artifact)
     if rows:
         artifact = rows[0]
