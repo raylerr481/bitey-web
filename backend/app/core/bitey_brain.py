@@ -26,8 +26,7 @@ class BrainState:
     constraints: list[str] = field(default_factory=list)
     decision_fingerprint: str = ""
 
-    def as_dict(self) -> dict[str, Any]:
-        return {k: getattr(self, k) for k in self.__dataclass_fields__}
+    def as_dict(self) -> dict[str, Any]: return {k: getattr(self, k) for k in self.__dataclass_fields__}
 
 class BiteyBrain:
     """Executive cognition. It decides WHAT must happen before model selection."""
@@ -36,42 +35,28 @@ class BiteyBrain:
     FRESHNESS_WORDS = ("ahora", "actualmente", "hoy", "último", "ultimo", "reciente", "latest", "current", "recent", "en vivo", "tiempo real")
 
     def _fingerprint(self, message: str, context: dict[str, Any], evidence_available: bool) -> str:
-        cognition = context.get("cognition") or {}
-        intention = cognition.get("intention") or {}
-        plan = cognition.get("plan") or {}
-        material = {
-            "message": message.strip(), "domain": intention.get("domain") or context.get("domain") or "general",
-            "evidence": evidence_available, "freshness": context.get("freshness_required"),
-            "research": context.get("research"), "needs_web": context.get("needs_web"),
-            "capabilities": sorted(map(str, context.get("required_capabilities") or [])),
-            "plan_evidence": plan.get("needs_evidence"),
-        }
+        cognition = context.get("cognition") or {}; intention = cognition.get("intention") or {}; plan = cognition.get("plan") or {}
+        material = {"message": message.strip(), "domain": intention.get("domain") or context.get("domain") or "general", "evidence": evidence_available, "freshness": context.get("freshness_required"), "research": context.get("research"), "needs_web": context.get("needs_web"), "capabilities": sorted(map(str, context.get("required_capabilities") or [])), "plan_evidence": plan.get("needs_evidence")}
         return hashlib.sha256(repr(sorted(material.items())).encode("utf-8")).hexdigest()[:16]
 
     def think(self, message: str, context: dict[str, Any] | None = None) -> BrainState:
-        ctx = context if context is not None else {}
-        text = message.strip(); low = text.lower()
-        cognition = ctx.get("cognition") or {}; intention = cognition.get("intention") or {}; perception = cognition.get("perception") or {}
-        domain = str(intention.get("domain") or ctx.get("domain") or "general")
+        ctx = context if context is not None else {}; text = message.strip(); low = text.lower()
+        cognition = ctx.get("cognition") or {}; intention = cognition.get("intention") or {}; perception = cognition.get("perception") or {}; domain = str(intention.get("domain") or ctx.get("domain") or "general")
         evidence_available = bool(ctx.get("evidence_available")); fingerprint = self._fingerprint(message, ctx, evidence_available)
         cached = ctx.get("_bitey_brain_state")
-        if isinstance(cached, BrainState) and cached.decision_fingerprint == fingerprint:
-            return cached
-        complexity = self._complexity(text, cognition)
-        ambiguity = float(cognition.get("ambiguity", 0.0) or 0.0)
+        if isinstance(cached, BrainState) and cached.decision_fingerprint == fingerprint: return cached
+        complexity = self._complexity(text, cognition); ambiguity = float(cognition.get("ambiguity", 0.0) or 0.0)
         if (bool(perception.get("question")) or "?" in text) and len(text.split()) < 8: ambiguity = max(ambiguity, 0.12)
         if not text: ambiguity = 1.0
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
         evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence")) or freshness
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
-        elif any(x in self.HIGH_RISK for x in self.HIGH_RISK if x in low): risk = "high"
+        elif any(x in low for x in self.HIGH_RISK): risk = "high"
         elif any(x in low for x in self.ACTION_WORDS): risk = "medium"
-        capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx)
-        tools = self._tool_policy(capabilities, domain, ctx)
-        verification = evidence or complexity >= .60 or risk in {"high", "critical"}
+        capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx); tools = self._tool_policy(capabilities, domain, ctx); verification = evidence or complexity >= .60 or risk in {"high", "critical"}
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
-        role, reason = self._model_policy(domain, complexity, evidence, capabilities, verification)
+        role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
         if evidence: state.goals.insert(3,"ground_claims_in_evidence")
         if verification: state.goals.append("verify_before_presenting_high_impact_claims")
@@ -95,9 +80,9 @@ class BiteyBrain:
         if evidence:c.append("external_evidence")
         if freshness:c.append("fresh_data")
         if complexity>=.60:c.append("multi_step_reasoning")
-        if domain=="research":c += ["source_comparison","research_synthesis"]
-        if domain=="programming":c.append("code_reasoning")
-        if domain=="trading":c.append("risk_guard")
+        if domain=="research": c += ["source_comparison","research_synthesis"]
+        if domain=="programming": c.append("code_reasoning")
+        if domain=="trading": c.append("risk_guard")
         for x in context.get("required_capabilities") or []:
             if x not in c:c.append(str(x))
         return c
