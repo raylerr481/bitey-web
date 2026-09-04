@@ -1,8 +1,7 @@
-"""General-purpose Bitey cognitive pipeline.
+"""General-purpose Bitey cognitive state and intent model.
 
-This module generalizes proven patterns from the BiteFixes backend without
-importing or modifying BiteFixes. Domain knowledge is supplied as context;
-the cognitive pipeline itself remains domain-neutral.
+This layer creates structured task state. It is not the language-generation
+model and does not select a provider. The executive Brain consumes its state.
 """
 from __future__ import annotations
 
@@ -22,21 +21,14 @@ class CognitiveState:
     decision: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            "perception": self.perception,
-            "intention": self.intention,
-            "context": self.context,
-            "plan": self.plan,
-            "evidence": self.evidence,
-            "confidence": self.confidence,
-            "decision": self.decision,
-        }
+        return {"perception": self.perception, "intention": self.intention, "context": self.context, "plan": self.plan, "evidence": self.evidence, "confidence": self.confidence, "decision": self.decision}
 
 
 class CognitiveModel:
-    """Domain-neutral cognition built from reusable enterprise-AI patterns."""
+    """Domain-neutral structured cognition used before model routing."""
 
     _DOMAIN_HINTS = {
+        "weather": ("temperatura", "clima", "tiempo", "weather", "temperature", "forecast", "previsão", "previsao"),
         "trading": ("trading", "trade", "forex", "stock", "mercado", "tradingview", "mt5"),
         "support": ("ticket", "soporte", "error", "incidencia", "cliente", "reparación", "repair"),
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar"),
@@ -46,40 +38,55 @@ class CognitiveModel:
 
     def perceive(self, message: str) -> dict[str, Any]:
         text = message.strip()
+        words = len(text.split())
         return {
             "message_length": len(text),
+            "word_count": words,
             "language_hint": self._language_hint(text),
-            "question": "?" in text or bool(re.match(r"^(que|qué|como|cómo|por que|por qué|what|how|why)\b", text.lower())),
+            "question": "?" in text or bool(re.match(r"^(que|qué|como|cómo|por que|por qué|what|how|why|qual|como|onde|quando)\b", text.lower())),
+            "has_url": bool(re.search(r"https?://|www\.", text, re.I)),
+            "complexity_signal": min(1.0, 0.20 + min(0.30, words / 180)),
         }
 
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = message.lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
-        domain = max(scores, key=scores.get) if scores and max(scores.values()) else "general"
-        return {"domain": domain, "scores": scores, "source": "generalized_context_inference"}
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        top_domain, top_score = ranked[0] if ranked else ("general", 0)
+        second_score = ranked[1][1] if len(ranked) > 1 else 0
+        if top_score == 0:
+            top_domain = "general"
+        confidence = 0.55 if top_score else 0.35
+        if top_score > second_score:
+            confidence += min(0.25, (top_score - second_score) * 0.08)
+        return {"domain": top_domain, "scores": scores, "confidence": min(1.0, confidence), "source": "structured_intent_inference"}
 
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
-        needs_evidence = bool(context.get("research")) or intention.get("domain") == "research"
+        domain = intention.get("domain", "general")
+        freshness = domain == "weather" or bool(context.get("freshness_required"))
+        evidence = freshness or bool(context.get("research") or context.get("requires_web_research") or context.get("needs_web")) or domain == "research"
         return {
-            "objective": "answer_or_assist",
-            "domain": intention.get("domain", "general"),
-            "needs_evidence": needs_evidence,
-            "requires_specialized_module": intention.get("domain") not in {"general", "research"},
+            "objective": "retrieve_current_data_and_answer" if freshness else "answer_or_assist",
+            "domain": domain,
+            "needs_evidence": evidence,
+            "freshness_required": freshness,
+            "requires_specialized_module": domain not in {"general", "research", "weather"},
+            "verification_required": evidence or domain == "research",
+            "stop_condition": "fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence",
         }
 
     def evaluate(self, state: CognitiveState, *, evidence_available: bool = False) -> CognitiveState:
-        base = 0.55
-        if state.intention.get("domain") != "general": base += 0.10
+        base = float(state.intention.get("confidence", 0.35))
         if state.plan.get("needs_evidence"):
-            base += 0.15 if evidence_available else -0.10
-        if state.context.get("enterprise") is not None: base += 0.05
+            base += 0.15 if evidence_available else -0.05
         state.evidence = {"available": evidence_available}
         state.confidence = max(0.0, min(1.0, base))
         state.decision = {
-            "mode": "respond",
+            "mode": "retrieve_then_respond" if state.plan.get("needs_evidence") else "respond",
             "domain": state.intention.get("domain", "general"),
             "confidence": state.confidence,
-            "evidence_required": state.plan.get("needs_evidence", False),
+            "evidence_required": bool(state.plan.get("needs_evidence")),
+            "freshness_required": bool(state.plan.get("freshness_required")),
         }
         return state
 
@@ -94,7 +101,7 @@ class CognitiveModel:
     @staticmethod
     def _language_hint(text: str) -> str:
         lowered = text.lower()
-        if any(token in lowered for token in (" que ", "cómo", "quiero", "para", "puede")): return "es"
-        if any(token in lowered for token in (" que ", "como", "quero", "para", "pode")): return "pt"
-        if any(token in lowered for token in (" what ", "how ", "want ", "can ", "please")): return "en"
+        if any(token in lowered for token in ("cómo", "qué", "quiero", "puede", "tiempo", "clima")): return "es"
+        if any(token in lowered for token in ("como", "quero", "pode", "previsao", "clima")): return "pt"
+        if any(token in lowered for token in ("what ", "how ", "want ", "can ", "please", "weather")): return "en"
         return "unknown"
