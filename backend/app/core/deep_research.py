@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from html import unescape
 import re
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
 
 import httpx
 
@@ -21,17 +21,22 @@ class Evidence:
 @dataclass
 class DeepResearchPlan:
     query: str
-    mode: str = "deep"
+    mode: str = "multistep"
     reasons: list[str] = field(default_factory=list)
     urls: list[str] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
 
 
 class DeepResearchEngine:
-    """General public-web research, free-first and evidence-first."""
+    """General public-web research, free-first and evidence-first.
+
+    The public fetch boundary routes through Bitey's bounded research runtime.
+    ``fetch_single`` is the low-level evidence capability and never starts a
+    second research pass, preventing recursive or unbounded orchestration.
+    """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
+    RESULT_LINK_RE = re.compile(r"<a\b[^>]*>(.*?)</a>", re.I | re.S)
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -43,24 +48,56 @@ class DeepResearchEngine:
             reasons.append("research_intent")
         if any(x in q for x in ("último", "ultima", "última", "actual", "hoy", "latest", "current", "precio")):
             reasons.append("freshness")
-        return DeepResearchPlan(query=query, reasons=reasons, mode=str(context.get("research_mode") or "deep"))
+        return DeepResearchPlan(query=query, reasons=reasons, mode=str(context.get("research_mode") or "multistep"))
+
+    @classmethod
+    def _extract_search_urls(cls, html: str, limit: int = 5) -> list[str]:
+        """Extract DuckDuckGo result URLs despite attribute-order/redirect changes."""
+        urls: list[str] = []
+        for anchor in cls.RESULT_LINK_RE.findall(html):
+            opening_match = re.search(r"<a\b([^>]*)>", anchor, re.I | re.S)
+            # RESULT_LINK_RE captures only the body, so inspect the original
+            # document separately below when the anchor attributes are needed.
+            if opening_match:
+                attributes = opening_match.group(1)
+            else:
+                attributes = ""
+            _ = attributes
+
+        # Parse complete anchors so class/href can occur in either order.
+        for match in re.finditer(r"<a\b([^>]*)>(.*?)</a>", html, re.I | re.S):
+            attributes, _title = match.groups()
+            class_match = re.search(r"\bclass\s*=\s*[\"']([^\"']*)[\"']", attributes, re.I)
+            if not class_match or "result__a" not in class_match.group(1).split():
+                continue
+            href_match = re.search(r"\bhref\s*=\s*[\"']([^\"']+)[\"']", attributes, re.I)
+            if not href_match:
+                continue
+            href = unescape(href_match.group(1)).strip()
+            parsed = urlparse(href)
+            if parsed.path.startswith("/l/"):
+                target = parse_qs(parsed.query).get("uddg", [""])[0]
+                href = unquote(target) if target else href
+            else:
+                href = unquote(href)
+            if href.startswith("//"):
+                href = "https:" + href
+            if href.startswith("http") and href not in urls:
+                urls.append(href)
+            if len(urls) >= limit:
+                break
+        return urls
 
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
         try:
             r = await client.get(f"https://html.duckduckgo.com/html/?q={quote_plus(query)}")
             r.raise_for_status()
-            urls: list[str] = []
-            for href, _title in self.RESULT_RE.findall(r.text):
-                href = unescape(href)
-                if href.startswith("http") and href not in urls:
-                    urls.append(href)
-                if len(urls) >= limit:
-                    break
-            return urls
+            return self._extract_search_urls(r.text, limit=limit)
         except Exception:
             return []
 
-    async def fetch(self, plan: DeepResearchPlan) -> DeepResearchPlan:
+    async def fetch_single(self, plan: DeepResearchPlan) -> DeepResearchPlan:
+        """Fetch one question only; never orchestrate another pass."""
         timeout = 15.0
         max_bytes = 500_000
         headers = {"User-Agent": "BiteyIA-DeepResearch/1.0"}
@@ -90,6 +127,25 @@ class DeepResearchEngine:
                         plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True))
                 except Exception as exc:
                     plan.evidence.append(Evidence(url=url, error=type(exc).__name__))
+        return plan
+
+    async def fetch(self, plan: DeepResearchPlan) -> DeepResearchPlan:
+        if plan.mode != "multistep":
+            return await self.fetch_single(plan)
+        from .multistep_research_runtime import MultiStepResearchRuntime
+        runtime = MultiStepResearchRuntime(self)
+        result = await runtime.run(plan.query, {"research_mode": "multistep"})
+        plan.urls = list(dict.fromkeys(str(item.get("url")) for item in result.evidence if item.get("url")))[:20]
+        plan.evidence = [
+            Evidence(
+                url=str(item.get("url") or ""),
+                title=str(item.get("title") or ""),
+                content=str(item.get("content") or ""),
+                ok=bool(item.get("ok")),
+                error=item.get("error"),
+            )
+            for item in result.evidence
+        ]
         return plan
 
     def evidence_context(self, plan: DeepResearchPlan) -> str:

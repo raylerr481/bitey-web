@@ -1,14 +1,14 @@
 """Bitey Brain: provider-independent executive control layer.
 
 This is not another language model. It is the deterministic executive layer
-that turns the available context, evidence, tools, memory and risk signals
-into a structured cognitive contract for whichever model is selected.
+that turns context, evidence, tools, memory and risk signals into a structured
+cognitive contract for whichever model is selected.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 import re
+from typing import Any
 
 
 @dataclass
@@ -44,17 +44,29 @@ class BrainState:
 
 
 class BiteyBrain:
-    """Executive cognition for Bitey IA.
+    """Deterministic executive cognition for Bitey IA.
 
-    The brain deliberately does not generate prose. It controls how prose or
-    actions should be produced, using deterministic signals before a model is
-    invoked and giving the evaluator a stable cognitive contract afterward.
+    The brain does not generate prose. It controls how prose or actions should
+    be produced before a model is invoked.
     """
 
-    HIGH_RISK = ("password", "contraseña", "api key", "secret", "token", "dinero real", "real money")
-    ACTION_WORDS = ("ejecuta", "ejecutar", "compra", "comprar", "vende", "vender", "borra", "elimina", "deploy", "envía", "envia")
-    RESEARCH_WORDS = ("investiga", "investigar", "evidencia", "fuentes", "actual", "último", "ultimo", "latest", "compara", "verifica")
-    COMPLEX_WORDS = ("arquitectura", "analiza", "análisis", "analisis", "diseña", "diseñar", "estrategia", "plan", "debug", "diagnóstico", "diagnostico", "integra", "integrar")
+    HIGH_RISK = (
+        "password", "contraseña", "api key", "secret", "token",
+        "dinero real", "real money",
+    )
+    ACTION_WORDS = (
+        "ejecuta", "ejecutar", "compra", "comprar", "vende", "vender",
+        "borra", "elimina", "deploy", "envía", "envia",
+    )
+    RESEARCH_WORDS = (
+        "investiga", "investigar", "evidencia", "fuentes", "actual",
+        "último", "ultimo", "latest", "compara", "verifica",
+    )
+    COMPLEX_WORDS = (
+        "arquitectura", "analiza", "análisis", "analisis", "diseña",
+        "diseñar", "estrategia", "plan", "debug", "diagnóstico",
+        "diagnostico", "integra", "integrar",
+    )
 
     def think(self, message: str, context: dict[str, Any] | None = None) -> BrainState:
         ctx = context or {}
@@ -71,14 +83,23 @@ class BiteyBrain:
             complexity += 0.05
         complexity = min(1.0, complexity)
 
-        question_like = "?" in text or low.startswith(("qué", "que ", "cómo", "como ", "why ", "what ", "how "))
+        question_like = "?" in text or low.startswith(
+            ("qué", "que ", "cómo", "como ", "why ", "what ", "how ")
+        )
         ambiguity = 0.12 if question_like and len(text.split()) < 8 else 0.0
         if not text:
             ambiguity = 1.0
         if any(x in low for x in ("quizás", "tal vez", "no sé", "no se", "maybe", "perhaps")):
             ambiguity = min(1.0, ambiguity + 0.25)
 
-        evidence_required = bool(ctx.get("research")) or domain == "research" or any(x in low for x in self.RESEARCH_WORDS)
+        research_ctx = ctx.get("research") if isinstance(ctx.get("research"), dict) else {}
+        evidence_required = (
+            bool(research_ctx.get("required"))
+            or bool(ctx.get("evidence_required"))
+            or domain == "research"
+            or any(x in low for x in self.RESEARCH_WORDS)
+        )
+
         risk_level = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS):
             risk_level = "critical"
@@ -141,13 +162,19 @@ class BiteyBrain:
         """Compact executive directive injected ahead of model generation."""
         return (
             "BITEY BRAIN EXECUTIVE DIRECTIVE\n"
-            f"task={state.task_class}; complexity={state.complexity:.2f}; ambiguity={state.ambiguity:.2f}; "
-            f"mode={state.reasoning_mode}; risk={state.risk_level}; evidence_required={state.evidence_required}; "
+            f"task={state.task_class}; complexity={state.complexity:.2f}; "
+            f"ambiguity={state.ambiguity:.2f}; mode={state.reasoning_mode}; "
+            f"risk={state.risk_level}; evidence_required={state.evidence_required}; "
             f"verification_required={state.verification_required}.\n"
-            "Separate facts, evidence and inference. Preserve constraints. Do not invent missing data. "
-            "Treat retrieved memory and model output as fallible context. "
-            + ("Do not execute high-impact actions; respect the domain risk gate. " if not state.execution_allowed else "")
-            + "Before answering, internally decompose complex tasks, check contradictions, then synthesize the response."
+            "Separate facts, evidence and inference. Preserve constraints. "
+            "Do not invent missing data. Treat retrieved memory and model output "
+            "as fallible context. "
+            + (
+                "Do not execute high-impact actions; respect the domain risk gate. "
+                if not state.execution_allowed else ""
+            )
+            + "Before answering, internally decompose complex tasks, check contradictions, "
+            "then synthesize the response."
         )
 
     def status(self) -> dict[str, Any]:
@@ -157,7 +184,10 @@ class BiteyBrain:
             "type": "executive_cognitive_orchestrator",
             "provider_independent": True,
             "generates_language": False,
-            "owns": ["task_classification", "complexity", "ambiguity", "reasoning_mode", "evidence_policy", "risk_policy", "verification_policy"],
+            "owns": [
+                "task_classification", "complexity", "ambiguity", "reasoning_mode",
+                "evidence_policy", "risk_policy", "verification_policy",
+            ],
             "depends_on": ["context", "memory", "tools", "models", "evaluation"],
             "external_models_are_tools": True,
         }

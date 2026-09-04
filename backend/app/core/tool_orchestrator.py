@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 from .search_gateway import search as general_search
+from .web_research_policy import WebResearchPolicy
 
 
 @dataclass(frozen=True)
@@ -19,12 +20,11 @@ class ToolSpec:
 
 
 class ToolOrchestrator:
-    """General-purpose capability router for Bitey IA, independent of enterprise context.
+    """General-purpose capability router for Bitey IA.
 
-    Web research is a cross-domain capability, not a weather-only feature. The
-    router can trigger it explicitly from context or heuristically when a
-    question asks for current, factual, comparative, source-backed, or otherwise
-    externally verifiable information.
+    WebResearchPolicy is the single authority for deciding whether external
+    web evidence is required. Legacy heuristics remain only as a compatibility
+    fallback when no structured policy decision has been persisted yet.
     """
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
@@ -36,6 +36,7 @@ class ToolOrchestrator:
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
+        self.research_policy = WebResearchPolicy()
         self.register(ToolSpec("search", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
 
@@ -45,26 +46,39 @@ class ToolOrchestrator:
     def available(self) -> list[dict[str, Any]]:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
-    @classmethod
-    def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
-        """Return true when answering from memory alone is unsafe or insufficient."""
-        ctx = context or {}
-        if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
-            return True
-        if cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message):
-            return True
-        if cls.WEB_FACT_RE.search(message):
-            return True
-        # Questions containing a concrete named target often benefit from
-        # verification; this deliberately avoids sending ordinary conversational
-        # prompts to the web by requiring a factual interrogative form.
-        return bool(cls.QUESTION_RE.search(message) and len(message.split()) >= 4 and re.search(r"[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑ.-]+", message))
+    def needs_web_research(self, message: str, context: dict[str, Any] | None = None) -> bool:
+        """Return the canonical policy decision, with heuristic compatibility fallback."""
+        ctx = context if context is not None else {}
+        research_ctx = ctx.get("research") if isinstance(ctx.get("research"), dict) else None
+        if research_ctx is not None and "required" in research_ctx:
+            return bool(research_ctx.get("required"))
+
+        decision = self.research_policy.decide(message, ctx)
+        return decision.required
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
+        ctx = context if context is not None else {}
+        # Compute and persist the policy decision before routing. This keeps
+        # tool selection and ResearchEngine aligned even when the caller has
+        # not planned research separately yet.
+        research_ctx = ctx.get("research") if isinstance(ctx.get("research"), dict) else None
+        if research_ctx is None or "required" not in research_ctx:
+            decision = self.research_policy.decide(message, ctx)
+            ctx["research"] = {
+                "required": decision.required,
+                "confidence": decision.confidence,
+                "reasons": list(decision.reasons),
+                "strategy": decision.strategy,
+                "owner": "bitey_research_policy",
+            }
+
         q = message.lower()
         selected: list[str] = []
-        if self.needs_web_research(message, context) or self.URL_RE.search(message):
-            selected.append("search")
+        if self.needs_web_research(message, ctx) or self.URL_RE.search(message):
+            # The bounded multi-step runtime is the canonical research path.
+            # Only fall back to lightweight search when that runtime capability
+            # has not been registered by the application.
+            selected.append("web_research" if "web_research" in self._tools else "search")
         if self.WEATHER_RE.search(message):
             selected.append("weather")
         if any(x in q for x in ("archivo", "documento", "pdf", "imagen", "fichero")):
