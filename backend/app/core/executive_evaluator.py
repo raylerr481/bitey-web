@@ -1,9 +1,4 @@
-"""Executive post-generation contract owned by Bitey.
-
-The evaluator validates the generated answer against the decision made by the
-Brain. It is deterministic and provider-independent: models never decide
-whether their own output is accepted.
-"""
+"""Executive post-generation contract owned by Bitey."""
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
@@ -26,30 +21,44 @@ class ExecutiveEvaluation:
 
 
 class ExecutiveEvaluator:
-    """Validate output against an already-issued Brain decision."""
+    """Validate generated output against Bitey's already-issued decision."""
 
-    def evaluate(self, *, state: Any, answer: str, evidence: str = "", selected_tools: list[str] | None = None) -> ExecutiveEvaluation:
+    @staticmethod
+    def _get(state: Any, key: str, default: Any = None) -> Any:
+        if isinstance(state, dict):
+            return state.get(key, default)
+        return getattr(state, key, default)
+
+    def evaluate(
+        self,
+        *,
+        state: Any,
+        answer: str,
+        evidence: str = "",
+        selected_tools: list[str] | None = None,
+    ) -> ExecutiveEvaluation:
         tools = list(selected_tools or [])
         reasons: list[str] = []
         text = (answer or "").strip()
 
-        evidence_required = bool(getattr(state, "evidence_required", False))
+        evidence_required = bool(self._get(state, "evidence_required", False))
         evidence_ok = bool(evidence) if evidence_required else True
         if evidence_required and not evidence_ok:
             reasons.append("required_evidence_missing")
 
-        required_tools = list(getattr(state, "tool_priority", []) or [])
+        required_tools = list(self._get(state, "tool_priority", []) or [])
         tool_ok = all(tool in tools for tool in required_tools)
         if required_tools and not tool_ok:
             reasons.append("required_tool_not_executed")
 
-        risk = str(getattr(state, "risk_level", "low"))
-        risk_ok = not (risk == "critical" and bool(getattr(state, "execution_allowed", False)))
+        risk = str(self._get(state, "risk_level", "low"))
+        execution_allowed = bool(self._get(state, "execution_allowed", False))
+        risk_ok = not (risk == "critical" and execution_allowed)
         if not risk_ok:
             reasons.append("critical_risk_execution_policy_violation")
 
-        verification_required = bool(getattr(state, "verification_required", False))
-        verification_ok = not verification_required or bool(evidence) or "verif" in text.lower()
+        verification_required = bool(self._get(state, "verification_required", False))
+        verification_ok = not verification_required or bool(evidence)
         if verification_required and not verification_ok:
             reasons.append("verification_requirement_not_satisfied")
 
@@ -59,4 +68,13 @@ class ExecutiveEvaluator:
 
         passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok
         decision = "accept" if passed else "revise"
-        return ExecutiveEvaluation(decision, passed, evidence_ok, tool_ok, risk_ok, verification_ok, provider_independent, reasons or ["executive_contract_satisfied"])
+        return ExecutiveEvaluation(
+            decision=decision,
+            passed=passed,
+            evidence_compliant=evidence_ok,
+            tool_compliant=tool_ok,
+            risk_compliant=risk_ok,
+            verification_compliant=verification_ok,
+            provider_independent=provider_independent,
+            reasons=reasons or ["executive_contract_satisfied"],
+        )
