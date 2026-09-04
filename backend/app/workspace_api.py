@@ -8,11 +8,14 @@ from uuid import uuid4
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from .core.multistep_runtime import MultiStepResearchRuntime
+
 router = APIRouter(prefix="/api/v1", tags=["Bitey Workspace"])
 
 _MEMORY: dict[str, dict[str, Any]] = {}
 _TASKS: dict[str, dict[str, Any]] = {}
 _ARTIFACTS: dict[str, dict[str, Any]] = {}
+_RUNTIME = MultiStepResearchRuntime(max_steps=4, max_sources_per_step=5)
 
 
 def _now() -> str:
@@ -38,6 +41,12 @@ async def _db(method: str, table: str, **kwargs: Any) -> list[dict[str, Any]]:
         return r.json() if r.content else []
 
 
+async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
+    _TASKS[task["id"]] = task
+    await _db("PATCH", "workspace_tasks", json=task, params={"id": f"eq.{task['id']}"})
+    return task
+
+
 @router.get("/workspace/catalog")
 async def workspace_catalog() -> dict[str, Any]:
     return {
@@ -57,6 +66,7 @@ async def workspace_catalog() -> dict[str, Any]:
         ],
         "execution": {"deterministic_first": True, "free_only": True, "paid_fallback": False, "human_authorization_for_side_effects": True},
         "storage": {"canonical": "supabase", "local_fallback": True},
+        "research_runtime": _RUNTIME.status(),
     }
 
 
@@ -101,6 +111,47 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
         task = rows[0]
     _TASKS[task["id"]] = task
     return task
+
+
+@router.post("/workspaces/{workspace_id}/tasks/{task_id}/run")
+async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
+    task = _TASKS.get(task_id)
+    if not task:
+        rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
+        task = rows[0] if rows else None
+    if not task or task.get("workspace_id") != workspace_id:
+        raise HTTPException(status_code=404, detail="task_not_found")
+    task.update({"status": "running", "updated_at": _now()})
+    await _save_task(task)
+    try:
+        if task.get("capability") not in {"deep_research", "browser_research"}:
+            task.update({"status": "ready_for_cognitive_core", "updated_at": _now(), "result": {"route": "cognitive_core", "prompt": task.get("prompt", "")}})
+            await _save_task(task)
+            return task
+        result = await _RUNTIME.run(task.get("prompt", ""), {"workspace_id": workspace_id, "task_id": task_id})
+        task.update({"status": "completed" if any(s.status == "completed" for s in result.steps) else "no_evidence", "updated_at": _now(), "result": result.as_dict()})
+        await _save_task(task)
+        return task
+    except Exception as exc:
+        task.update({"status": "failed", "updated_at": _now(), "result": {"error": type(exc).__name__}})
+        await _save_task(task)
+        raise HTTPException(status_code=502, detail="workspace_task_execution_failed")
+
+
+@router.get("/workspaces/{workspace_id}/tasks/{task_id}")
+async def get_task(workspace_id: str, task_id: str) -> dict[str, Any]:
+    task = _TASKS.get(task_id)
+    if not task:
+        rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
+        task = rows[0] if rows else None
+    if not task or task.get("workspace_id") != workspace_id:
+        raise HTTPException(status_code=404, detail="task_not_found")
+    return task
+
+
+@router.get("/workspace/runtime/status")
+async def runtime_status() -> dict[str, Any]:
+    return _RUNTIME.status()
 
 
 @router.post("/workspaces/{workspace_id}/artifacts")
