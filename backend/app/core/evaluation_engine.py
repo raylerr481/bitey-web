@@ -4,6 +4,8 @@ from dataclasses import dataclass, asdict
 import re
 from typing import Any
 
+from .executive_evaluator import ExecutiveEvaluator
+
 
 @dataclass(frozen=True)
 class EvaluationResult:
@@ -14,6 +16,7 @@ class EvaluationResult:
     confidence: float
     decision: str
     reasons: list[str]
+    executive: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -22,22 +25,14 @@ class EvaluationResult:
 class EvaluationEngine:
     """Deterministic post-generation evaluator owned by Bitey.
 
-    It does not claim to be another neural model. It checks structural quality,
-    evidence usage and policy signals so an external generator cannot silently
-    bypass Bitey's cognitive and safety layer.
+    The structural evaluator and the executive evaluator are complementary.
+    The provider only generates; Bitey decides whether the result is accepted.
     """
 
     _RISK_WORDS = re.compile(r"\b(buy|sell|purchase|order|execute|live|real money|compra|vende|vender|orden|ejecuta|ejecutar|dinero real)\b", re.I)
     _UNCERTAINTY = re.compile(r"\b(no sé|no tengo|no puedo verificar|uncertain|unclear|não sei|não posso verificar)\b", re.I)
 
-    def evaluate(
-        self,
-        *,
-        user_message: str,
-        answer: str,
-        context: dict[str, Any] | None = None,
-        evidence: str = "",
-    ) -> EvaluationResult:
+    def evaluate(self, *, user_message: str, answer: str, context: dict[str, Any] | None = None, evidence: str = "") -> EvaluationResult:
         context = context or {}
         text = (answer or "").strip()
         reasons: list[str] = []
@@ -62,25 +57,18 @@ class EvaluationEngine:
                 reasons.append("missing_evidence_disclosure")
         elif evidence:
             evidence_alignment = 0.85 if len(text) >= 60 else 0.65
-        else:
-            evidence_alignment = 1.0
 
         domain = str((context.get("cognition") or {}).get("intention", {}).get("domain") or context.get("domain") or "general").lower()
         if domain == "trading" or any(k in user_message.lower() for k in ("trading", "forex", "mt5", "trader", "bolsa")):
             if self._RISK_WORDS.search(text):
-                safety -= 0.55
-                reasons.append("trading_action_language_detected")
+                safety -= 0.55; reasons.append("trading_action_language_detected")
             if "live" in text.lower() and "disabled" not in text.lower() and "deshabil" not in text.lower() and "desactiv" not in text.lower():
-                safety -= 0.20
-                reasons.append("live_trading_not_explicitly_guarded")
+                safety -= 0.20; reasons.append("live_trading_not_explicitly_guarded")
 
         if any(word in text.lower() for word in ("siempre", "garantizado", "guaranteed", "sem risco", "sin riesgo")):
-            contradiction_risk += 0.20
-            reasons.append("overconfident_claim")
+            contradiction_risk += 0.20; reasons.append("overconfident_claim")
 
-        quality = max(0.0, min(1.0, quality))
-        safety = max(0.0, min(1.0, safety))
-        contradiction_risk = max(0.0, min(1.0, contradiction_risk))
+        quality = max(0.0, min(1.0, quality)); safety = max(0.0, min(1.0, safety)); contradiction_risk = max(0.0, min(1.0, contradiction_risk))
         confidence = max(0.0, min(1.0, quality * 0.4 + evidence_alignment * 0.25 + safety * 0.25 + (1.0 - contradiction_risk) * 0.10))
 
         if safety < 0.60:
@@ -91,6 +79,17 @@ class EvaluationEngine:
             decision = "revise"
         else:
             decision = "accept"
+
+        brain_state = context.get("bitey_brain") or context.get("_bitey_brain_state")
+        selected_tools = context.get("selected_tools") or context.get("tools_selected") or []
+        executive = ExecutiveEvaluator().evaluate(state=brain_state or {}, answer=text, evidence=evidence, selected_tools=selected_tools).as_dict()
+        if not executive["passed"]:
+            reasons.extend(f"executive:{reason}" for reason in executive["reasons"])
+            if executive["risk_compliant"] is False:
+                decision = "reject"
+            elif decision != "reject":
+                decision = "revise"
+
         if not reasons:
             reasons.append("response_passed_structural_policy_checks")
-        return EvaluationResult(quality, evidence_alignment, safety, contradiction_risk, confidence, decision, reasons)
+        return EvaluationResult(quality, evidence_alignment, safety, contradiction_risk, confidence, decision, reasons, executive)
