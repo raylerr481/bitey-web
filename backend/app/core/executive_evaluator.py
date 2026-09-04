@@ -37,6 +37,7 @@ class ExecutiveEvaluator:
         evidence: str = "",
         selected_tools: list[str] | None = None,
     ) -> ExecutiveEvaluation:
+        tools_known = selected_tools is not None
         tools = list(selected_tools or [])
         reasons: list[str] = []
         text = (answer or "").strip()
@@ -47,8 +48,8 @@ class ExecutiveEvaluator:
             reasons.append("required_evidence_missing")
 
         required_tools = list(self._get(state, "tool_priority", []) or [])
-        tool_ok = all(tool in tools for tool in required_tools)
-        if required_tools and not tool_ok:
+        tool_ok = True if not tools_known else all(tool in tools for tool in required_tools)
+        if tools_known and required_tools and not tool_ok:
             reasons.append("required_tool_not_executed")
 
         risk = str(self._get(state, "risk_level", "low"))
