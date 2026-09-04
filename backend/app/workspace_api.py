@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from .core.bitey_brain import BiteyBrain
 from .core.multistep_runtime import MultiStepResearchRuntime
 from .core.workspace_execution import WorkspaceExecutionService
 
@@ -18,6 +19,7 @@ _TASKS: dict[str, dict[str, Any]] = {}
 _ARTIFACTS: dict[str, dict[str, Any]] = {}
 _RUNTIME = MultiStepResearchRuntime(max_steps=4, max_sources_per_step=5)
 _EXECUTOR = WorkspaceExecutionService()
+_BRAIN = BiteyBrain()
 
 
 def _now() -> str:
@@ -41,6 +43,14 @@ async def _db(method: str, table: str, **kwargs: Any) -> list[dict[str, Any]]:
         if r.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Supabase {table} error")
         return r.json() if r.content else []
+
+
+async def _workspace_or_404(workspace_id: str) -> dict[str, Any]:
+    rows = await _db("GET", "workspaces", params={"select": "*", "id": f"eq.{workspace_id}", "limit": "1"})
+    workspace = rows[0] if rows else _MEMORY.get(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="workspace_not_found")
+    return workspace
 
 
 async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -72,6 +82,30 @@ async def workspace_catalog() -> dict[str, Any]:
     }
 
 
+@router.post("/workspace/cognitive/inspect")
+async def inspect_cognitive_plan(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return Bitey's deterministic plan before any model inference occurs."""
+    prompt = str(payload.get("prompt") or "").strip()
+    capability = str(payload.get("capability") or "chat")
+    if not prompt:
+        raise HTTPException(status_code=422, detail="prompt_required")
+    context = dict(payload.get("context") or {})
+    state = _BRAIN.think(prompt, context)
+    research = capability in {"deep_research", "browser_research"} or state.evidence_required
+    artifact_type = WorkspaceExecutionService.ARTIFACT_CAPABILITIES.get(capability)
+    return {
+        "owner": "bitey_ia",
+        "authority": "bitey_brain",
+        "model_invocation": False,
+        "capability": capability,
+        "route": "research" if research else ("artifact" if artifact_type else "conversation"),
+        "artifact_type": artifact_type,
+        "brain": state.as_dict(),
+        "research_runtime": _RUNTIME.status() if research else None,
+        "side_effects": {"allowed": state.execution_allowed, "human_authorization_required": True},
+    }
+
+
 @router.post("/workspaces")
 async def create_workspace(payload: dict[str, Any]) -> dict[str, Any]:
     row = {"id": str(uuid4()), "name": str(payload.get("name") or "Nuevo espacio"), "description": str(payload.get("description") or ""), "mode": str(payload.get("mode") or "general"), "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
@@ -92,10 +126,7 @@ async def list_workspaces() -> dict[str, Any]:
 
 @router.get("/workspaces/{workspace_id}")
 async def get_workspace(workspace_id: str) -> dict[str, Any]:
-    rows = await _db("GET", "workspaces", params={"select": "*", "id": f"eq.{workspace_id}", "limit": "1"})
-    workspace = rows[0] if rows else _MEMORY.get(workspace_id)
-    if not workspace:
-        raise HTTPException(status_code=404, detail="workspace_not_found")
+    workspace = await _workspace_or_404(workspace_id)
     tasks = await _db("GET", "workspace_tasks", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "created_at.desc"})
     if not tasks:
         tasks = [x for x in _TASKS.values() if x["workspace_id"] == workspace_id]
@@ -107,6 +138,7 @@ async def get_workspace(workspace_id: str) -> dict[str, Any]:
 
 @router.post("/workspaces/{workspace_id}/tasks")
 async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
     task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or "Nueva tarea"), "prompt": str(payload.get("prompt") or ""), "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_tasks", json=task)
     if rows:
@@ -117,6 +149,7 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
 
 @router.post("/workspaces/{workspace_id}/tasks/{task_id}/run")
 async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
     task = _TASKS.get(task_id)
     if not task:
         rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
@@ -148,6 +181,7 @@ async def run_task(workspace_id: str, task_id: str) -> dict[str, Any]:
 
 @router.get("/workspaces/{workspace_id}/tasks/{task_id}")
 async def get_task(workspace_id: str, task_id: str) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
     task = _TASKS.get(task_id)
     if not task:
         rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
@@ -164,6 +198,7 @@ async def runtime_status() -> dict[str, Any]:
 
 @router.post("/workspaces/{workspace_id}/artifacts")
 async def create_artifact(workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
     artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "name": str(payload.get("name") or "Nuevo artefacto"), "artifact_type": str(payload.get("artifact_type") or "document"), "status": "draft", "content": payload.get("content"), "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_artifacts", json=artifact)
     if rows:
@@ -174,6 +209,7 @@ async def create_artifact(workspace_id: str, payload: dict[str, Any]) -> dict[st
 
 @router.get("/workspaces/{workspace_id}/artifacts")
 async def list_artifacts(workspace_id: str) -> dict[str, Any]:
+    await _workspace_or_404(workspace_id)
     rows = await _db("GET", "workspace_artifacts", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "updated_at.desc"})
     if not rows:
         rows = [x for x in _ARTIFACTS.values() if x["workspace_id"] == workspace_id]
