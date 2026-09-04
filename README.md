@@ -1,205 +1,148 @@
-# Bitey IA Web — General Integral AI
+# Bitey IA Web — General Integral AI Workspace
 
-`bitey-web` is **Bitey IA Web**, the general/integral Bitey IA architecture. It is the general-purpose intelligence of the ecosystem, conceptually comparable to a general assistant such as ChatGPT.
+`bitey-web` is **Bitey IA**, the general/integral AI workspace of the ecosystem. The target is a free-first AI environment with a ChatGPT-like conversation experience and a Skywork-class unified workbench. Skywork is used only as a functional benchmark, never as a dependency. Its official feature surface currently spans General, Images, Documents, Slides, Sheets, Websites, Videos and additional workspace tools. citeturn0search0turn0search1
 
-It is not the BiteFixes CRM, not BiteFixes SaaS and not the WordPress plugin. Those remain separate product boundaries.
+## Unified workspace surface
 
-## Mission
+The Bitey IA web shell now exposes a single capability hub and dedicated workspace buttons for:
 
-Build an AI that can operate as independently as possible from any single external model: it must have its own cognitive architecture, memory, planning, evaluation, tool orchestration and capability routing, while using external or local AI models when they improve language/inference quality.
+- General Chat
+- Deep Research
+- Documents
+- Slides / presentations
+- Sheets / data analysis
+- Images / visual creation
+- Websites / apps
+- AI Developer
+- Video
+- Audio / Podcast
+- Skills / reusable capabilities
+- Automations / workflows
+- Live Markets / Bitey System Bots Trading
+- Projects, Library, conversation history, memory, personalization and settings
 
-The target is **free-first by design**:
+The interface is deliberately similar in **functional organization** to modern AI workspaces: one conversation can become research, a document, a presentation, data analysis, a visual asset, a website/app or a bounded workflow. It is not intended to copy Skywork's proprietary implementation or branding.
 
-- free external models only when the free profile is selected;
+Skywork's own documentation confirms the unified workspace model and its General, Images, Documents, Slides, Sheets, Websites and Videos feature areas. citeturn0search0
+
+## Product principle
+
+Bitey must behave as a **complete AI**, not as a thin wrapper around another model.
+
+> **Bitey thinks, plans, acts, verifies and learns. Other AIs are replaceable tools.**
+
+The Brain decides what capability is needed. Skills, local models, free-compatible providers and specialized modules are workers/capabilities. The user-facing web environment remains Bitey IA.
+
+## Free-first contract
+
+- deterministic/local capabilities first;
+- Ollama/local open-weight inference when available;
+- free-compatible providers only when explicitly admitted by policy;
 - no silent paid fallback;
-- local/open-weight models as the quota-independent path;
-- deterministic tools for work that does not require an LLM;
-- graceful degradation when a provider disappears;
-- Supabase as the canonical persistent data/knowledge layer.
+- open-source/free libraries for generated artifacts where possible;
+- visible quotas and bounded execution;
+- graceful degradation when providers disappear;
+- no mandatory Skywork, Gemini, MongoDB or Neo4j dependency.
 
-Free services can have quotas or change their policies, so the architecture guarantees **no intentional paid inference**, not unlimited third-party usage.
+Free-first does not mean unlimited third-party quotas. Bitey remains useful with native/deterministic capabilities when external inference is unavailable.
 
 ## Cognitive architecture
 
 ```text
-INPUT
-  ↓
-Perception / Intent / Context
-  ↓
-BITEY BRAIN
-  ├── goals + constraints
-  ├── task decomposition
-  ├── memory selection
-  ├── evidence policy
-  ├── tool selection
-  ├── model selection
-  ├── risk / permission policy
-  └── verification plan
-  ↓
-Memory + Knowledge + Tools + Research
-  ↓
-Free/local/external model when useful
-  ↓
-Evaluation + contradiction + confidence
-  ↓
-Answer / authorized action
-  ↓
-Learning observation + memory consolidation
+User goal
+   ↓
+Bitey IA Web
+   ↓
+Perception → Native cognitive substrate → Bitey Brain
+                                      ↓
+                           capability / skill decision
+                                      ↓
+          ┌───────────────┬───────────┬───────────────┐
+          ↓               ↓           ↓               ↓
+       Research        Documents    Data           Markets
+          ↓               ↓           ↓               ↓
+       Slides          Images      Websites       SBT Live
+          ↓               ↓           ↓               ↓
+                    execution / inference workers
+                                      ↓
+                              evaluation / verify
+                                      ↓
+                         response / artifact / action
 ```
 
-**Bitey owns the cognitive loop. Models are replaceable inference tools.**
+The native neural substrate is a software cognitive architecture, not a claim of human consciousness.
 
-## Self-sufficient operation
+## Workspace behavior
 
-Bitey IA Web must not stop functioning simply because one model or provider is unavailable.
+### General
+ChatGPT-like conversation, history, project context, files, voice input, activity indicators and multimodal attachment entry points.
 
-### Level 0 — deterministic core
+### Deep Research
+Bounded multi-step research with source provenance, evidence collection, deduplication and explicit stopping conditions.
 
-Can perform routing, validation, calculations, state transitions, policy checks, memory operations and other deterministic tasks without an LLM.
+### Documents
+Markdown/HTML first, with open/free generation paths for DOCX/PDF and research reports.
 
-### Level 1 — local AI
+### Slides
+Presentation planning, structured slide generation, speaker notes, charts and PPTX export through pluggable/open tooling.
 
-When available, a local/open-weight model through an OpenAI-compatible endpoint provides private, quota-independent inference.
+### Sheets
+CSV/XLSX ingestion, formulas, transformations, Python-assisted analysis, charts and export.
 
-### Level 2 — verified free providers
+### Images
+Provider-independent image generation/editing adapters, prioritizing local/open tooling where feasible.
 
-Bitey can dynamically discover and select currently free-compatible providers/models. Free status must be verified before admission to the free pool.
+### Websites / Apps
+Natural-language requirements → architecture → files → implementation → tests → preview → explicit deployment.
 
-### Level 3 — model cooperation
+### AI Developer
+Repository inspection, coding, tests, debugging, documentation and bounded execution with explicit authorization for high-impact actions.
 
-For complex tasks Bitey can use multiple eligible free models sequentially or as bounded specialist workers. They are workers, not separate brains. Bitey's evaluator remains authoritative.
+### Video / Audio
+Workspace entry points for scripts, storyboards, audio/podcast structures and pluggable media generation. Media providers remain optional workers.
 
-### Level 4 — tool execution
+### Skills
+A capability registry for reusable workflows such as research, documents, presentations, spreadsheets, design, development, market intelligence and automation. Skills are capability contracts, not independent brains.
 
-Bitey can select authorized tools to obtain evidence or perform deterministic work. Tools are capability contracts with explicit permissions, inputs, outputs and safety limits.
+### Automations
+Bounded scheduled or event-driven workflows with budgets, permissions, timeouts and stop conditions.
 
-## Tool creation architecture
+### Live Markets
+Bitey IA can open and later consume structured live market intelligence from **Bitey System Bots Trading**. Market observation and analysis are separated from trading execution. Execution remains subject to SBT risk controls.
 
-Bitey is designed to **create and register new tools**, but not by blindly executing arbitrary generated code.
+## Persistent projects
 
-```text
-Need detected
-   ↓
-Tool specification
-   ↓
-Permission + risk validation
-   ↓
-Implementation / adapter
-   ↓
-Sandboxed or deterministic execution
-   ↓
-Tool result
-   ↓
-Bitey evaluation
-```
+Projects should contain conversations, files, artifacts, research evidence, instructions, memories, skills, task history, provenance and versions. Supabase/PostgreSQL remains the canonical persistence and knowledge layer, with pgvector where enabled.
 
-A generated tool must declare its purpose, input schema, output schema, permissions, cost class, side effects and rollback/timeout behavior before it can be enabled. High-impact actions require explicit authorization.
+## Benchmark and inspiration
 
-Examples of tool classes:
+Skywork and ChatGPT are functional benchmarks only. Skywork also publishes an open-source skills collection covering document, PPT, Excel, design and search/deep-research capabilities; Bitey may learn from public patterns and open standards, but its runtime remains independently controlled. citeturn0search3turn0search5
 
-- calculator and data transformation;
-- web/search/research;
-- file and project operations;
-- document extraction;
-- API connectors;
-- scheduling/automation;
-- code analysis and bounded execution;
-- specialized module capabilities.
+## Current implementation status
 
-## Model independence
+- Native cognitive neural substrate: implemented on feature branch.
+- Bounded `MultiStepResearchRuntime`: implemented on feature branch.
+- Unified workspace capability hub: implemented on feature branch.
+- Live Markets entry point to Bitey SBT: implemented on feature branch.
+- Full artifact engines (DOCX/PDF/PPTX/XLSX/media), sandboxed developer execution, persistent Supabase workspace data and autonomous task graphs: next implementation layers.
 
-```text
-                 BITEY IA WEB
-                       │
-             Provider / Model Registry
-                       │
-          Capability + health + cost gates
-                       │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-     Local AI       Free APIs      Future free
-     / Ollama       / gateways     providers
-                       │
-                       ▼
-                 Bitey Evaluator
-```
+## Boundaries
 
-The configured free profile is a hard economic boundary: if no eligible free model is available, Bitey does not silently spend money. It can fall back to deterministic tools, cached/known information, local inference or explain that the requested capability is temporarily unavailable.
-
-No Gemini API is required.
-
-## Memory and knowledge
-
-**Supabase/Postgres is the canonical persistent layer.** Memory is organized conceptually as working context, episodic experience, semantic knowledge, user/project context and learned observations, while remaining governed by the same persistence boundary.
-
-No Neo4j or MongoDB dependency is part of the current architecture.
-
-```text
-Bitey Cognitive Core
-       ↓
-Context / Memory / Knowledge
-       ↓
-Supabase + PostgreSQL/pgvector when enabled
-```
-
-## Modules
-
-Bitey IA Web can host or coordinate specialized capabilities without becoming their owner:
-
-- JobIA — employment intelligence.
-- Bitey SBT — trading intelligence, kept operationally isolated and subject to its own risk gate.
-- Other future modules through explicit capability contracts.
-
-### BiteFixes boundary
-
-BiteFixes is separate and owns its CRM, SaaS and AI-agent implementation. **Bitey IA Empresarial** is the contextual enterprise implementation used by BiteFixes. Bitey IA Web may provide general intelligence capabilities through contracts, but it does not absorb BiteFixes CRM/SaaS.
-
-## WordPress boundary
-
-`bitey-ai` is the **Bitey IA WordPress plugin**. It provides the Web widget/globe and integration transport. It is not the general Bitey IA Web brain.
-
-## Security and autonomy rules
-
-- Models are untrusted inputs to the evaluator.
-- Tools are permissioned capabilities, not unrestricted shell access.
-- External actions require explicit capability authorization.
-- Secrets remain server-side.
-- Tenant/private enterprise context is isolated.
-- High-impact actions require stronger policy gates.
-- Free-only mode fails closed.
-- No provider can silently change the billing mode.
-
-## Current infrastructure
-
-```text
-                BITEY IA WEB
-                     │
-       ┌─────────────┼─────────────┐
-       ▼             ▼             ▼
-   Cognitive       Tool          Module
-     Core        Registry       Registry
-       │             │             │
-       └─────────────┼─────────────┘
-                     ▼
-             Supabase / pgvector
-                     │
-       ┌─────────────┼─────────────┐
-       ▼             ▼             ▼
-   Local AI      Free model     Research/Web
-   / Ollama       providers       tools
-```
+`bitey-ai` remains the WordPress plugin/integration. BiteFixes CRM/SaaS remains separate and protected. JobIA and Bitey SBT remain modular specialized systems. MongoDB and Neo4j are not architecture dependencies.
 
 ## Roadmap
 
-1. Complete the deterministic executive loop.
-2. Harden free-model discovery, health and fail-closed routing.
-3. Complete Supabase-backed cognitive memory and semantic retrieval.
-4. Add task-decomposition DAGs and bounded long-horizon planning.
-5. Add contradiction detection and confidence calibration.
-6. Add a permissioned Tool Factory for creating new deterministic/API tools.
-7. Add sandboxed code execution only where explicitly authorized.
-8. Add self-tests, capability benchmarks and recovery tests.
-9. Connect specialized modules through versioned contracts.
-10. Keep BiteFixes CRM/SaaS and Bitey IA Empresarial outside the general brain's ownership boundary.
+1. Complete the workspace shell and responsive UX.
+2. Integrate the cognitive loop with bounded research.
+3. Persist projects, messages, files and artifacts in Supabase.
+4. Build document, slide and spreadsheet engines using free/open libraries.
+5. Add multimodal image/video/audio adapters.
+6. Build AI Developer sandbox and repository workflows.
+7. Add skill registry and bounded agent/task graphs.
+8. Integrate structured live market context from SBT.
+9. Add evaluation, recovery, provenance and contradiction detection.
+10. Progressively reduce dependence on external inference.
 
-**Core invariant:** Bitey IA Web is the general/integral AI. It can use other AIs, tools and modules, but it does not depend on one of them to exist, and the free profile never silently becomes paid.
+## Core invariant
+
+**Bitey IA is the AI. The Brain is its cognitive control system. Models, tools and specialized modules are workers/capabilities that Bitey can use, replace, combine or do without.**
