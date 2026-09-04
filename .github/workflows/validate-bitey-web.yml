@@ -1,0 +1,64 @@
+name: Validate Bitey Web
+
+on:
+  push:
+    branches:
+      - feat/workspace-cognitive-contract
+  pull_request:
+    branches:
+      - main
+      - feat/workspace-cognitive-contract
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check frontend modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in $(find . -type f -name '*.js' -not -path './node_modules/*' -not -path './.git/*'); do
+            node --check "$file"
+          done
+
+  validate-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Python sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q backend
+
+  deployment-config:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Verify Cloudflare configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f wrangler.toml
+          test -f src/worker.js
+          test -f .github/workflows/deploy-cloudflare.yml
+          grep -q 'BITEY_API_ORIGIN' wrangler.toml
+          grep -q 'CLOUDFLARE_API_TOKEN' .github/workflows/deploy-cloudflare.yml
+          grep -q 'CLOUDFLARE_ACCOUNT_ID' .github/workflows/deploy-cloudflare.yml
+          grep -q 'wrangler-action@v3' .github/workflows/deploy-cloudflare.yml
