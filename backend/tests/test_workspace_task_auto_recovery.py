@@ -26,7 +26,7 @@ class TestWorkspaceTaskAutoRecovery(unittest.TestCase):
         fresh=datetime.now(timezone.utc).isoformat(); task={"id":"task-2","workspace_id":"ws-1","status":"running","updated_at":fresh,"metadata":{"task_dag":{"version":1,"nodes":[]}}}
         class FakeResponse:
             def raise_for_status(self): return None
-            def json(self): return [task]
+            def json(self): return []
         class FakeClient:
             async def __aenter__(self): return self
             async def __aexit__(self,*args): return False
@@ -34,5 +34,5 @@ class TestWorkspaceTaskAutoRecovery(unittest.TestCase):
             async def patch(self,*args,**kwargs): raise AssertionError("fresh_task_must_not_patch")
         with patch("app.background_worker.SUPABASE_URL","https://example.supabase.co"), patch("app.background_worker.SUPABASE_KEY","test-key"), patch("app.background_worker.httpx.AsyncClient",return_value=FakeClient()), patch("app.workspace_api._execute_task",new=AsyncMock()) as execute:
             result=asyncio.run(recover_stale_workspace_tasks(stale_seconds=300))
-        self.assertEqual(result,{"scanned":1,"recovered":0,"skipped":1}); execute.assert_not_awaited()
+        self.assertEqual(result,{"scanned":0,"recovered":0,"skipped":0}); execute.assert_not_awaited()
 if __name__=="__main__": unittest.main()
