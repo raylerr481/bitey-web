@@ -59,8 +59,11 @@ class WorkspaceExecutionService:
 
     @staticmethod
     def _saved(dag: TaskDAG, node_id: str) -> Any:
-        try: node = dag.get(node_id)
-        except ValueError: return None
+        """Return a completed node result without assuming a particular DAG shape."""
+        try:
+            node = dag.get(node_id)
+        except KeyError:
+            return None
         return node.result if node.status == "completed" else None
 
     async def execute(self, *, prompt: str, capability: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
