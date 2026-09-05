@@ -11,7 +11,7 @@ from .multistep_runtime import MultiStepResearchRuntime
 from .provider_gateway import ProviderGateway
 from .task_contract import TaskContract
 from .task_dag import TaskDAG, TaskNode
-from .task_dag_store import dag_from_task
+from .task_dag_store import dag_from_task, persist_dag_to_supabase
 
 validate_core_components()
 
@@ -26,13 +26,11 @@ class WorkspaceExecutionService:
 
     @classmethod
     def _resolve_capability(cls, prompt: str, requested: str, state: Any) -> tuple[str, str]:
-        text = prompt.lower()
-        explicit = (("documents", ("documento", "document", "informe", "report", "redacta un")), ("slides", ("presentación", "presentacion", "diapositiva", "slides", "powerpoint")), ("spreadsheets", ("hoja de cálculo", "hoja de calculo", "spreadsheet", "excel", "tabla de datos")), ("code", ("código", "codigo", "programa", "script", "función", "funcion")), ("deep_research", ("investiga", "investigación", "investigacion", "deep research", "fuentes")), ("browser_research", ("busca en internet", "web actual", "información actual", "informacion actual")))
+        text = prompt.lower(); explicit = (("documents", ("documento", "document", "informe", "report", "redacta un")), ("slides", ("presentación", "presentacion", "diapositiva", "slides", "powerpoint")), ("spreadsheets", ("hoja de cálculo", "hoja de calculo", "spreadsheet", "excel", "tabla de datos")), ("code", ("código", "codigo", "programa", "script", "función", "funcion")), ("deep_research", ("investiga", "investigación", "investigacion", "deep research", "fuentes")), ("browser_research", ("busca en internet", "web actual", "información actual", "informacion actual")))
         for capability, signals in explicit:
             if any(signal in text for signal in signals): return capability, "prompt_signal"
         if state.evidence_required: return ("browser_research" if state.freshness_required else "deep_research"), "cognitive_evidence_policy"
-        normalized = cls.CAPABILITY_ALIASES.get((requested or "").strip().lower())
-        return (normalized, "validated_client_hint") if normalized else ("chat", "cognitive_default")
+        normalized = cls.CAPABILITY_ALIASES.get((requested or "").strip().lower()); return (normalized, "validated_client_hint") if normalized else ("chat", "cognitive_default")
 
     @staticmethod
     def _needs_multistep(prompt: str, state: Any, capability: str) -> bool:
@@ -54,6 +52,10 @@ class WorkspaceExecutionService:
         if callback:
             result = callback(dag)
             if hasattr(result, "__await__"): await result
+            return
+        workspace_id = context.get("workspace_id"); task_id = context.get("task_id"); metadata = context.get("metadata")
+        if workspace_id and task_id and isinstance(metadata, dict):
+            await persist_dag_to_supabase(workspace_id=str(workspace_id), task_id=str(task_id), metadata=metadata, dag=dag)
 
     @staticmethod
     def _saved(dag: TaskDAG, node_id: str) -> Any:
@@ -62,8 +64,7 @@ class WorkspaceExecutionService:
         return node.result if node.status == "completed" else None
 
     async def execute(self, *, prompt: str, capability: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        ctx = dict(context or {}); requested = (capability or "chat").strip().lower(); state = self.brain.think(prompt, ctx); decision = state.as_dict()
-        resolved, reason = self._resolve_capability(prompt, requested, state); complex_task = self._needs_multistep(prompt, state, resolved)
+        ctx = dict(context or {}); requested = (capability or "chat").strip().lower(); state = self.brain.think(prompt, ctx); decision = state.as_dict(); resolved, reason = self._resolve_capability(prompt, requested, state); complex_task = self._needs_multistep(prompt, state, resolved)
         persisted = {"metadata": ctx.get("metadata") or {}, "result": ctx.get("result") or {}}; dag = dag_from_task(persisted); resumed = dag is not None
         if dag is None: dag = self._build_dag(capability=resolved, state=state, complex_task=complex_task)
         else: dag.reset_running(); dag.validate()
@@ -79,8 +80,7 @@ class WorkspaceExecutionService:
         contract.transition("planning"); await self._checkpoint(dag,ctx)
         while not dag.is_complete():
             ready = dag.ready()
-            if not ready:
-                raise RuntimeError("task_dag_deadlock" if dag.is_deadlocked() else "task_dag_no_ready_node")
+            if not ready: raise RuntimeError("task_dag_deadlock" if dag.is_deadlocked() else "task_dag_no_ready_node")
             node = ready[0]; dag.mark_running(node.id); await self._checkpoint(dag,ctx)
             try:
                 if node.action == "bounded_research":
