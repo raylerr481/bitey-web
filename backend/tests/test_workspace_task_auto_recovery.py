@@ -15,7 +15,15 @@ class TestWorkspaceTaskAutoRecovery(unittest.TestCase):
             "status": "running",
             "updated_at": old,
             "execution_token": "dead-process-token",
-            "metadata": {"task_dag": {"version": 1, "nodes": [{"id": "research", "action": "worker", "status": "completed", "result": {"ok": True}, "attempts": 1}, {"id": "synthesize", "action": "synthesize", "depends_on": ["research"], "status": "running", "attempts": 1}]}}},
+            "metadata": {
+                "task_dag": {
+                    "version": 1,
+                    "nodes": [
+                        {"id": "research", "action": "worker", "status": "completed", "result": {"ok": True}, "attempts": 1},
+                        {"id": "synthesize", "action": "synthesize", "depends_on": ["research"], "status": "running", "attempts": 1},
+                    ],
+                }
+            },
         }
 
         class FakeResponse:
