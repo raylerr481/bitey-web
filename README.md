@@ -1,17 +1,27 @@
-# Bitey IA Web — General Integral AI
+# Bitey IA Web — General AI Web Channel
 
-`bitey-web` es la plataforma general/integral de **Bitey IA**. Es la capa superior de inteligencia, memoria, planificación, evaluación, herramientas, modelos y políticas del ecosistema.
+`bitey-web` is the official web channel of **Bitey IA**, the general/integral AI system. It provides the web interface for general intelligence, memory, planning, evaluation, tools, models, and policies. It is a channel, not a separate brain.
 
-## Arquitectura de módulos
+## Language and naming standard
+
+All repository documentation, API contracts, backend/frontend references, variable names, model fields, JSON keys, configuration keys, database-facing names, endpoint parameters, and internal technical identifiers must use **English**.
+
+The user interface may be localized, but technical identifiers must remain English and consistent across the Bitey ecosystem.
+
+Examples: `job_id`, `company`, `location`, `modality`, `skills`, `match_score`, `application`, `VITE_JOBIA_API_URL`.
+
+Do not introduce Spanish variable names, JSON keys, API parameters, database fields, or internal identifiers in new code.
+
+## Module architecture
 
 ```text
-                         BITEY IA WEB
-                  General / Integral AI
+                         BITEY IA
+                    general intelligence
                            │
              ┌─────────────┼─────────────┐
              │             │             │
-          JobIA         Bitey SBT    futuros módulos
-       empleo IA       trading IA
+          JobIA         Bitey SBT     other modules
+       employment/work     trading
              │
              ▼
        JobIA Backend
@@ -19,93 +29,94 @@
        ┌─────┴─────┐
        ▼           ▼
   JobIA-Web    JobIA-app
-  web client   Android client
+  web channel  Android channel
 ```
 
-**JobIA es un módulo especializado de Bitey IA Web.** Su dominio es empleo y oportunidades profesionales. No sustituye al cerebro general de Bitey.
+**JobIA is a specialized module of Bitey IA.** Its domain is employment and professional opportunities. `bitey-web` is only the web channel of Bitey IA and must not be treated as the parent backend or as a second intelligence system.
 
-## Responsabilidades de Bitey IA Web
+## Responsibilities of Bitey IA Web
 
-Bitey conserva la autoridad sobre:
+The web channel presents and coordinates access to general Bitey IA capabilities. The underlying Bitey IA system remains authoritative for:
 
-- comprensión general de contexto e intención;
-- planificación y descomposición de tareas;
-- memoria y conocimiento;
-- selección de herramientas;
-- selección y enrutamiento de modelos;
-- evaluación, contradicción y confianza;
-- permisos y políticas de riesgo;
-- aprendizaje y observaciones;
-- workspace y capacidades generales.
+- general context and intent understanding;
+- planning and task decomposition;
+- memory and general knowledge;
+- tool selection;
+- model selection and routing;
+- evaluation, contradiction detection, and confidence;
+- permissions and risk policies;
+- learning and observations;
+- workspace and general capabilities.
 
-Los modelos son trabajadores de inferencia reemplazables. Bitey no depende de un único modelo.
+Models are replaceable inference workers. Bitey IA must not depend on a single model provider.
 
-## JobIA como módulo
+## JobIA as a module
 
-JobIA implementa la capacidad especializada de empleo mediante un backend propio y un contrato versionado `jobia-v1`.
+JobIA implements specialized employment intelligence through its own backend and versioned `jobia-v1` contract.
 
 ```text
-Bitey IA Web
-     │
-     │ módulo / capacidad
-     ▼
-   JobIA Backend
-     │
-     ├── oportunidades
-     ├── matching / ranking
-     ├── perfiles
-     ├── aplicaciones
-     └── alertas
-     │
-     ├───────────────┐
-     ▼               ▼
- JobIA-Web       JobIA-app
+Bitey IA
+   │
+   │ specialized employment capability
+   ▼
+ JobIA Backend
+   │
+   ├── opportunities
+   ├── matching / ranking
+   ├── profiles
+   ├── applications
+   └── alerts
+   │
+   ├───────────────┐
+   ▼               ▼
+JobIA-Web      JobIA-app
+web channel    Android channel
 ```
 
-El backend de JobIA puede solicitar capacidades cognitivas de Bitey cuando una tarea lo requiera, pero los clientes nunca deben depender de detalles internos del cerebro.
+The JobIA backend may request general Bitey IA capabilities when required. Client channels must never depend on private implementation details of either intelligence layer.
 
 ## Bitey Trainer
 
-`bitey-trainer` es el motor interno de entrenamiento y validación de las capacidades especializadas de JobIA. No es un cliente ni un segundo cerebro.
+`bitey-trainer` is an internal Bitey IA capability for training, evaluation, and validation of specialized capabilities used by modules such as JobIA. It is not a client and not a second brain.
 
 ```text
-Bitey Trainer → valida capacidades → JobIA → clientes
+Bitey Trainer → validates capabilities → JobIA → channels
 ```
 
-## Clientes JobIA
+## JobIA channels
 
-- **JobIA-Web:** frontend web oficial.
-- **JobIA-app:** aplicación Android oficial.
+- **JobIA-Web:** official web channel.
+- **JobIA-app:** official Android channel.
 
-Ambos consumen el mismo backend JobIA. Ninguno contiene credenciales privadas ni implementa un backend paralelo.
+Both consume the same JobIA backend contract. Neither contains private credentials or a parallel backend.
 
-## Datos y memoria
+## Data and persistence
 
-Supabase/Postgres es la capa persistente canónica de Bitey IA Web cuando se requiere persistencia. Los módulos deben acceder a datos mediante contratos y aislamiento adecuados.
+Supabase/Postgres is the canonical persistence layer when Bitey IA requires persistent application data. Modules must access data through appropriate contracts and isolation boundaries.
 
-No se introduce Neo4j ni MongoDB como dependencia arquitectónica.
+Neo4j and MongoDB are not architectural dependencies.
 
-## Política de coste
+## Cost policy
 
-El diseño es free-first:
+The architecture is free-first:
 
-- sin fallback silencioso a pago;
-- modelos locales/open-weight cuando estén disponibles;
-- proveedores gratuitos verificados cuando corresponda;
-- herramientas deterministas para tareas que no necesitan LLM;
-- degradación controlada cuando un proveedor no esté disponible.
+- no silent paid fallback;
+- local/open-weight models where practical;
+- verified free providers where appropriate;
+- deterministic tools for tasks that do not require an LLM;
+- controlled degradation when a provider is unavailable.
 
-No se requiere Gemini API.
+Gemini API is not required.
 
-## Seguridad
+## Security
 
-- Secretos exclusivamente del lado servidor.
-- Modelos externos tratados como entradas no confiables hasta evaluación.
-- Herramientas con permisos explícitos.
-- Contexto privado aislado por usuario/tenant.
-- Acciones de impacto requieren autorización.
-- Los módulos se comunican mediante contratos versionados.
+- Secrets are server-side only.
+- External models are untrusted inputs until evaluated.
+- Tools require explicit permissions.
+- Private context is isolated by user/tenant.
+- High-impact actions require authorization.
+- Modules communicate through versioned contracts.
 
-## Principio
+## Principle
 
-> **Bitey IA Web es el sistema general. JobIA es un módulo de empleo. JobIA es su backend especializado. JobIA-Web y JobIA-app son clientes del mismo backend. Bitey Trainer entrena y valida las capacidades de JobIA.**
+> **Bitey IA is the general system. `bitey-web` is its web channel. JobIA is a specialized employment/work module of Bitey IA. JobIA-Web and JobIA-app are JobIA channels. Bitey Trainer is an internal training and validation capability.**
