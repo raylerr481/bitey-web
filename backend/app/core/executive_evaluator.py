@@ -2,18 +2,28 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
+
 @dataclass(frozen=True)
 class ExecutiveEvaluation:
     decision: str; passed: bool; evidence_compliant: bool; tool_compliant: bool; risk_compliant: bool; verification_compliant: bool; provider_independent: bool; reasons: list[str]
     def as_dict(self) -> dict[str, Any]: return asdict(self)
+
 class ExecutiveEvaluator:
     @staticmethod
     def _get(state: Any, key: str, default: Any = None) -> Any: return state.get(key, default) if isinstance(state, dict) else getattr(state, key, default)
+
+    @staticmethod
+    def _tool_satisfied(required: str, selected: set[str]) -> bool:
+        """Accept the canonical tool name plus its legacy equivalent during migration."""
+        if required in selected: return True
+        aliases = {"web_research": {"search"}, "search": {"web_research"}}
+        return bool(aliases.get(required, set()) & selected)
+
     def evaluate(self, *, state: Any, answer: str, evidence: str = "", selected_tools: list[str] | None = None) -> ExecutiveEvaluation:
-        tools_known = selected_tools is not None; tools = list(selected_tools or []); reasons: list[str] = []; text = (answer or "").strip()
+        tools_known = selected_tools is not None; tools = set(selected_tools or []); reasons: list[str] = []; text = (answer or "").strip()
         evidence_required = bool(self._get(state, "evidence_required", False)); evidence_ok = bool(evidence) if evidence_required else True
         if evidence_required and not evidence_ok: reasons.append("required_evidence_missing")
-        required_tools = list(self._get(state, "tool_priority", []) or []); tool_ok = True if not tools_known else all(tool in tools for tool in required_tools)
+        required_tools = list(self._get(state, "tool_priority", []) or []); tool_ok = True if not tools_known else all(self._tool_satisfied(tool, tools) for tool in required_tools)
         if tools_known and required_tools and not tool_ok: reasons.append("required_tool_not_executed")
         risk = str(self._get(state, "risk_level", "low")); execution_allowed = bool(self._get(state, "execution_allowed", False)); risk_ok = not (risk == "critical" and execution_allowed)
         if not risk_ok: reasons.append("critical_risk_execution_policy_violation")
