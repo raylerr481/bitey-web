@@ -25,7 +25,6 @@ class BrainState:
     goals: list[str] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
     decision_fingerprint: str = ""
-
     def as_dict(self) -> dict[str, Any]: return {k: getattr(self, k) for k in self.__dataclass_fields__}
 
 class BiteyBrain:
@@ -33,6 +32,7 @@ class BiteyBrain:
     HIGH_RISK = ("password", "contraseña", "api key", "secret", "token", "dinero real", "real money")
     ACTION_WORDS = ("ejecuta", "ejecutar", "compra", "comprar", "vende", "vender", "borra", "elimina", "deploy", "envía", "envia")
     FRESHNESS_WORDS = ("ahora", "actualmente", "hoy", "último", "ultimo", "reciente", "latest", "current", "recent", "en vivo", "tiempo real")
+    EVIDENCE_WORDS = ("investiga", "investigar", "investigue", "compara", "comparar", "compara la", "fuentes", "verifica las fuentes", "evidencia", "research", "compare", "sources", "verify")
 
     def _fingerprint(self, message: str, context: dict[str, Any], evidence_available: bool) -> str:
         cognition = context.get("cognition") or {}; intention = cognition.get("intention") or {}; plan = cognition.get("plan") or {}
@@ -49,7 +49,7 @@ class BiteyBrain:
         if (bool(perception.get("question")) or "?" in text) and len(text.split()) < 8: ambiguity = max(ambiguity, 0.12)
         if not text: ambiguity = 1.0
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
-        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence")) or freshness
+        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence")) or freshness or any(x in low for x in self.EVIDENCE_WORDS)
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
@@ -86,16 +86,17 @@ class BiteyBrain:
         for x in context.get("required_capabilities") or []:
             if x not in c:c.append(str(x))
         return c
-
     @staticmethod
     def _tool_policy(capabilities,domain,context):
-        t=[]
-        if "fresh_data" in capabilities and domain=="weather":t.append("weather")
-        if "external_evidence" in capabilities and "weather" not in t:t.append("search")
+        # Specialized live-data tools own their domain; do not add generic web research.
+        if domain == "weather" and "fresh_data" in capabilities:
+            t=["weather"]
+        else:
+            t=[]
+            if "external_evidence" in capabilities:t.append("web_research")
         if "code_reasoning" in capabilities:t.append("code_reasoning")
         if context.get("workspace_files_required"):t.append("workspace_files")
         return t
-
     @staticmethod
     def _objective(capabilities,domain):
         if "research_synthesis" in capabilities:return "research_and_synthesize"
@@ -103,7 +104,6 @@ class BiteyBrain:
         if "code_reasoning" in capabilities:return "reason_about_or_create_code"
         if domain=="trading":return "analyze_under_risk_policy"
         return "answer_or_assist"
-
     @staticmethod
     def _model_policy(*,domain,complexity,evidence_required,required_capabilities,verification_required):
         if "research_synthesis" in required_capabilities or complexity>=.75:return "strong_reasoning_synthesis","high_complexity_or_research"
@@ -111,9 +111,7 @@ class BiteyBrain:
         if "code_reasoning" in required_capabilities:return "code_reasoning","programming_capability_required"
         if domain=="trading":return "guarded_analysis","trading_risk_policy"
         return "fast_synthesis","low_complexity_direct_response"
-
     def system_directive(self,state):
         return ("BITEY BRAIN EXECUTIVE CONTRACT\n" f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n" "Bitey has already decided what must be done. The selected model is only an inference/synthesis worker. Do not invent facts, bypass tool/evidence requirements, or override the cognitive contract.")
-
     def status(self):
         return {"name":"Bitey Brain","version":"2.1.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"],"external_models_are_tools":True}
