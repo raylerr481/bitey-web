@@ -4,17 +4,21 @@ from __future__ import annotations
 from typing import Any
 
 from .bitey_brain import BiteyBrain
+from .component_policy import validate_core_components
 from .evaluation_engine import EvaluationEngine
 from .multistep_runtime import MultiStepResearchRuntime
 from .provider_gateway import ProviderGateway
 
 
+# Enforce the zero-cost architecture whenever the workspace runtime is loaded.
+validate_core_components()
+
+
 class WorkspaceExecutionService:
     """Connect executive cognition, research, generation and evaluation.
 
-    The service never grants a model executive authority. Bitey Brain decides
-    the route; research is bounded; generation is delegated to the provider
-    gateway; evaluation decides whether the result can become an artifact.
+    Bitey Brain remains the executive authority. Research is bounded, providers
+    are workers, and an artifact is deliverable only after evaluation accepts it.
     """
 
     ARTIFACT_CAPABILITIES = {
@@ -57,7 +61,11 @@ class WorkspaceExecutionService:
                 messages.insert(1, {"role": "system", "content": "EVIDENCE CONTEXT:\n" + evidence[:18000]})
             answer = await self.providers.generate(
                 messages=messages,
-                context={**ctx, "evidence_required": state.evidence_required, "cognition": {"intention": {"domain": state.task_class}}},
+                context={
+                    **ctx,
+                    "evidence_required": state.evidence_required,
+                    "cognition": {"intention": {"domain": state.task_class}},
+                },
             )
 
         evaluation = self.evaluator.evaluate(
@@ -77,9 +85,11 @@ class WorkspaceExecutionService:
                 "content": self._artifact_content(answer, artifact_type),
                 "metadata": {
                     "capability": capability,
+                    "lifecycle": ["create", "validate", "evaluate", "deliver"],
                     "evaluation": evaluation.as_dict(),
                     "cognitive_decision": decision,
                     "evidence_present": bool(evidence),
+                    "owner": "bitey_ia",
                 },
             }
 
@@ -95,7 +105,12 @@ class WorkspaceExecutionService:
     @staticmethod
     def _artifact_name(prompt: str, artifact_type: str) -> str:
         title = " ".join(prompt.strip().split())[:70] or "Nuevo artefacto"
-        suffix = {"document": "Documento", "presentation": "Presentación", "spreadsheet": "Hoja de cálculo", "code": "Código"}.get(artifact_type, "Artefacto")
+        suffix = {
+            "document": "Documento",
+            "presentation": "Presentación",
+            "spreadsheet": "Hoja de cálculo",
+            "code": "Código",
+        }.get(artifact_type, "Artefacto")
         return f"{title} — {suffix}"
 
     @staticmethod
