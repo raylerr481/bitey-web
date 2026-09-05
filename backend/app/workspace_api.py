@@ -74,14 +74,10 @@ async def _get_task(workspace_id: str, task_id: str) -> dict[str, Any] | None:
     if not rows:
         return None
     task = rows[0]
-    # Hydrate the in-process cache from the durable task record. The contract
-    # lives inside JSON metadata, so no schema migration is required.
     try:
         contract = contract_from_task(task)
         persist_contract(task, contract)
     except ValueError:
-        # Keep the persisted row readable even if an older/invalid contract
-        # exists; execution will surface a bounded failure instead of guessing.
         pass
     _TASKS[task_id] = task
     return task
@@ -142,10 +138,8 @@ async def get_workspace(workspace_id: str) -> dict[str, Any]:
     tasks = await _db("GET", "workspace_tasks", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "created_at.desc"})
     if not tasks: tasks = [x for x in _TASKS.values() if x["workspace_id"] == workspace_id]
     for task in tasks:
-        try:
-            persist_contract(task, contract_from_task(task))
-        except ValueError:
-            pass
+        try: persist_contract(task, contract_from_task(task))
+        except ValueError: pass
     artifacts = await _db("GET", "workspace_artifacts", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "created_at.desc"})
     if not artifacts: artifacts = [x for x in _ARTIFACTS.values() if x["workspace_id"] == workspace_id]
     return {"workspace": workspace, "tasks": tasks, "artifacts": artifacts}
@@ -157,13 +151,15 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
     prompt = str(payload.get("prompt") or "").strip()
     if not prompt: raise HTTPException(status_code=422, detail="prompt_required")
     metadata = dict(payload.get("metadata") or {})
-    max_retries = int(metadata.get("max_retries", 2))
+    try: max_retries = int(metadata.get("max_retries", 2))
+    except (TypeError, ValueError): raise HTTPException(status_code=422, detail="invalid_retry_budget")
     if max_retries < 0: raise HTTPException(status_code=422, detail="invalid_retry_budget")
     task_id = str(uuid4())
-    contract = __import__("app.core.task_contract", fromlist=["TaskContract"]).TaskContract(task_id=task_id, prompt=prompt, capability=str(payload.get("capability") or "chat"), budget={"paid_inference": False, "max_retries": max_retries})
+    capability = str(payload.get("capability") or "chat")
+    contract = __import__("app.core.task_contract", fromlist=["TaskContract"]).TaskContract(task_id=task_id, prompt=prompt, capability=capability, budget={"paid_inference": False, "max_retries": max_retries})
     persist_contract({"metadata": metadata}, contract)
     metadata = {**metadata, "task_contract": metadata["task_contract"], "retry_count": 0}
-    task = {"id": task_id, "workspace_id": workspace_id, "title": str(payload.get("title") or prompt[:80] or "Nueva tarea"), "prompt": prompt, "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": metadata, "created_at": _now(), "updated_at": _now()}
+    task = {"id": task_id, "workspace_id": workspace_id, "title": str(payload.get("title") or prompt[:80] or "Nueva tarea"), "prompt": prompt, "capability": capability, "status": "queued", "metadata": metadata, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_tasks", json=task)
     if rows: task = rows[0]
     _TASKS[task["id"]] = task
@@ -171,11 +167,8 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
 
 
 async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -> dict[str, Any]:
-    try:
-        contract = contract_from_task(task)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
+    try: contract = contract_from_task(task)
+    except ValueError as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
     execution_token = str(uuid4())
     if _supabase():
         claimed = await _rpc("claim_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token})
@@ -191,18 +184,14 @@ async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -
             raise HTTPException(status_code=409, detail="task_already_running")
         task.update({"status": "running", "execution_token": execution_token, "started_at": task.get("started_at") or _now(), "updated_at": _now()})
         await _save_task(task)
-
     try:
         contract.transition("planning")
         await _persist_contract(task, contract)
         execution = await _EXECUTOR.execute(prompt=str(task.get("prompt") or ""), capability=str(task.get("capability") or "chat"), context={"workspace_id": workspace_id, "task_id": task_id, "metadata": task.get("metadata") or {}})
         contract = sync_contract_from_execution(task, execution)
-        # Runtime contract is authoritative for cognitive planning; retry
-        # count remains persisted by the workspace API.
         contract.retry_count = int((task.get("metadata") or {}).get("retry_count") or 0)
         contract.validate()
         await _persist_contract(task, contract)
-
         artifact_data = execution.get("artifact")
         if artifact_data:
             artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "task_id": task_id, **artifact_data, "created_at": _now(), "updated_at": _now()}
@@ -232,8 +221,7 @@ async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -
         try:
             contract.transition("failed", reason=type(exc).__name__)
             persist_contract(task, contract)
-        except ValueError:
-            pass
+        except ValueError: pass
         task.update({"status": "failed", "updated_at": _now(), "completed_at": _now(), "result": {"error": type(exc).__name__}})
         if _supabase():
             await _rpc("finish_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token, "p_status": "failed"})
@@ -258,14 +246,11 @@ async def retry_task(workspace_id: str, task_id: str) -> dict[str, Any]:
     status = str(task.get("status") or "queued")
     if status == "running": raise HTTPException(status_code=409, detail="task_already_running")
     if status not in {"failed", "needs_review"}: raise HTTPException(status_code=409, detail="task_not_retryable")
-    try:
-        contract = contract_from_task(task)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try: contract = contract_from_task(task)
+    except ValueError as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
     next_retry = contract.retry_count + 1
     max_retries = int(contract.budget.get("max_retries", 2))
-    if next_retry > max_retries:
-        raise HTTPException(status_code=409, detail="retry_budget_exhausted")
+    if next_retry > max_retries: raise HTTPException(status_code=409, detail="retry_budget_exhausted")
     contract.retry_count = next_retry
     contract.transition("pending", reason="manual_retry")
     metadata = dict(task.get("metadata") or {})
@@ -298,7 +283,11 @@ async def create_artifact(workspace_id: str, payload: dict[str, Any]) -> dict[st
         validation = validate_artifact(artifact_type, content)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail={"error": "invalid_artifact", "message": str(exc)}) from exc
+    if not validation["valid"]:
+        raise HTTPException(status_code=422, detail={"error": "invalid_artifact", "validation": validation})
     artifact = build_artifact(name=name, artifact_type=artifact_type, content=content, metadata={**(payload.get("metadata") or {}), "creation_mode": "workspace_api"})
+    if artifact is None:
+        raise HTTPException(status_code=422, detail={"error": "invalid_artifact", "validation": validation})
     artifact.update({"id": str(uuid4()), "workspace_id": workspace_id, "status": "draft", "validation": validation, "created_at": _now(), "updated_at": _now()})
     rows = await _db("POST", "workspace_artifacts", json=artifact)
     if rows: artifact = rows[0]
