@@ -76,8 +76,9 @@ class TaskDAG:
         return {"version": 1, "max_nodes": self.max_nodes, "max_depth": self.max_depth, "nodes": [{"id": n.id, "action": n.action, "depends_on": list(n.depends_on), "status": n.status, "result": n.result, "attempts": n.attempts} for n in self.nodes]}
 
 def dag_from_plan(plan: list[dict[str, Any]]) -> TaskDAG:
-    """Build a bounded sequential DAG, truncating untrusted plans to the hard node limit."""
-    bounded_plan = list(plan[:MAX_NODES])
+    """Build a bounded sequential DAG; sequential plans are also capped by depth."""
+    # A sequential chain cannot exceed MAX_DEPTH, so apply both hard bounds before validation.
+    bounded_plan = list(plan[:min(MAX_NODES, MAX_DEPTH)])
     nodes: list[TaskNode] = []; previous: str | None = None
     for index, step in enumerate(bounded_plan, start=1):
         node_id = str(step.get("id") or f"step-{index}")
