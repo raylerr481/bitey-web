@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from .core.artifact_pipeline import build_artifact, validate_artifact
 from .core.component_policy import component_manifest, validate_core_components
 from .core.multistep_runtime import MultiStepResearchRuntime
+from .core.task_contract_store import contract_from_task, persist_contract, sync_contract_from_execution
 from .core.workspace_execution import WorkspaceExecutionService
 
 router = APIRouter(prefix="/api/v1", tags=["Bitey Workspace"])
@@ -70,13 +71,39 @@ async def _get_task(workspace_id: str, task_id: str) -> dict[str, Any] | None:
     if task and task.get("workspace_id") == workspace_id:
         return task
     rows = await _db("GET", "workspace_tasks", params={"select": "*", "id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "limit": "1"})
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    task = rows[0]
+    # Hydrate the in-process cache from the durable task record. The contract
+    # lives inside JSON metadata, so no schema migration is required.
+    try:
+        contract = contract_from_task(task)
+        persist_contract(task, contract)
+    except ValueError:
+        # Keep the persisted row readable even if an older/invalid contract
+        # exists; execution will surface a bounded failure instead of guessing.
+        pass
+    _TASKS[task_id] = task
+    return task
 
 
 async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
     _TASKS[task["id"]] = task
     rows = await _db("PATCH", "workspace_tasks", json=task, params={"id": f"eq.{task['id']}"})
     return rows[0] if rows else task
+
+
+async def _persist_contract(task: dict[str, Any], contract: Any) -> dict[str, Any]:
+    persist_contract(task, contract)
+    task["updated_at"] = _now()
+    if _supabase():
+        rows = await _db("PATCH", "workspace_tasks", json={"metadata": task["metadata"], "updated_at": task["updated_at"]}, params={"id": f"eq.{task['id']}", "workspace_id": f"eq.{task['workspace_id']}"})
+        if rows:
+            task = rows[0]
+            _TASKS[task["id"]] = task
+    else:
+        _TASKS[task["id"]] = task
+    return task
 
 
 @router.get("/architecture/components")
@@ -114,6 +141,11 @@ async def get_workspace(workspace_id: str) -> dict[str, Any]:
     if not workspace: raise HTTPException(status_code=404, detail="workspace_not_found")
     tasks = await _db("GET", "workspace_tasks", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "created_at.desc"})
     if not tasks: tasks = [x for x in _TASKS.values() if x["workspace_id"] == workspace_id]
+    for task in tasks:
+        try:
+            persist_contract(task, contract_from_task(task))
+        except ValueError:
+            pass
     artifacts = await _db("GET", "workspace_artifacts", params={"select": "*", "workspace_id": f"eq.{workspace_id}", "order": "created_at.desc"})
     if not artifacts: artifacts = [x for x in _ARTIFACTS.values() if x["workspace_id"] == workspace_id]
     return {"workspace": workspace, "tasks": tasks, "artifacts": artifacts}
@@ -124,7 +156,14 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
     if not await _workspace_exists(workspace_id): raise HTTPException(status_code=404, detail="workspace_not_found")
     prompt = str(payload.get("prompt") or "").strip()
     if not prompt: raise HTTPException(status_code=422, detail="prompt_required")
-    task = {"id": str(uuid4()), "workspace_id": workspace_id, "title": str(payload.get("title") or prompt[:80] or "Nueva tarea"), "prompt": prompt, "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": payload.get("metadata") or {}, "created_at": _now(), "updated_at": _now()}
+    metadata = dict(payload.get("metadata") or {})
+    max_retries = int(metadata.get("max_retries", 2))
+    if max_retries < 0: raise HTTPException(status_code=422, detail="invalid_retry_budget")
+    task_id = str(uuid4())
+    contract = __import__("app.core.task_contract", fromlist=["TaskContract"]).TaskContract(task_id=task_id, prompt=prompt, capability=str(payload.get("capability") or "chat"), budget={"paid_inference": False, "max_retries": max_retries})
+    persist_contract({"metadata": metadata}, contract)
+    metadata = {**metadata, "task_contract": metadata["task_contract"], "retry_count": 0}
+    task = {"id": task_id, "workspace_id": workspace_id, "title": str(payload.get("title") or prompt[:80] or "Nueva tarea"), "prompt": prompt, "capability": str(payload.get("capability") or "chat"), "status": "queued", "metadata": metadata, "created_at": _now(), "updated_at": _now()}
     rows = await _db("POST", "workspace_tasks", json=task)
     if rows: task = rows[0]
     _TASKS[task["id"]] = task
@@ -132,6 +171,11 @@ async def create_task(workspace_id: str, payload: dict[str, Any]) -> dict[str, A
 
 
 async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -> dict[str, Any]:
+    try:
+        contract = contract_from_task(task)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     execution_token = str(uuid4())
     if _supabase():
         claimed = await _rpc("claim_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token})
@@ -147,8 +191,18 @@ async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -
             raise HTTPException(status_code=409, detail="task_already_running")
         task.update({"status": "running", "execution_token": execution_token, "started_at": task.get("started_at") or _now(), "updated_at": _now()})
         await _save_task(task)
+
     try:
+        contract.transition("planning")
+        await _persist_contract(task, contract)
         execution = await _EXECUTOR.execute(prompt=str(task.get("prompt") or ""), capability=str(task.get("capability") or "chat"), context={"workspace_id": workspace_id, "task_id": task_id, "metadata": task.get("metadata") or {}})
+        contract = sync_contract_from_execution(task, execution)
+        # Runtime contract is authoritative for cognitive planning; retry
+        # count remains persisted by the workspace API.
+        contract.retry_count = int((task.get("metadata") or {}).get("retry_count") or 0)
+        contract.validate()
+        await _persist_contract(task, contract)
+
         artifact_data = execution.get("artifact")
         if artifact_data:
             artifact = {"id": str(uuid4()), "workspace_id": workspace_id, "task_id": task_id, **artifact_data, "created_at": _now(), "updated_at": _now()}
@@ -158,22 +212,32 @@ async def _execute_task(workspace_id: str, task_id: str, task: dict[str, Any]) -
             execution["artifact"] = artifact
         status = str(execution.get("status") or "needs_review")
         if status not in TERMINAL_STATUSES: status = "needs_review"
+        if status == "completed": contract.transition("completed")
+        elif status == "needs_review": contract.transition("needs_review", reason="runtime_requires_review")
+        else: contract.transition("failed", reason="runtime_failed")
+        persist_contract(task, contract)
         task.update({"status": status, "updated_at": _now(), "completed_at": _now(), "result": execution})
+        task["metadata"]["task_contract"] = {"version": 1, **contract.to_dict()}
         if _supabase():
             finished = await _rpc("finish_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token, "p_status": status})
             if finished is not True:
                 latest = await _get_task(workspace_id, task_id); return latest or task
-            rows = await _db("PATCH", "workspace_tasks", json={"result": execution, "updated_at": task["updated_at"]}, params={"id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "execution_token": f"eq.{execution_token}"})
+            rows = await _db("PATCH", "workspace_tasks", json={"result": execution, "metadata": task["metadata"], "updated_at": task["updated_at"]}, params={"id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "execution_token": f"eq.{execution_token}"})
             if rows: task = rows[0]
             _TASKS[task_id] = task
         else: await _save_task(task)
         return task
     except HTTPException: raise
     except Exception as exc:
+        try:
+            contract.transition("failed", reason=type(exc).__name__)
+            persist_contract(task, contract)
+        except ValueError:
+            pass
         task.update({"status": "failed", "updated_at": _now(), "completed_at": _now(), "result": {"error": type(exc).__name__}})
         if _supabase():
             await _rpc("finish_workspace_task", {"p_workspace_id": workspace_id, "p_task_id": task_id, "p_execution_token": execution_token, "p_status": "failed"})
-            await _db("PATCH", "workspace_tasks", json={"result": task["result"], "updated_at": task["updated_at"]}, params={"id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "execution_token": f"eq.{execution_token}"})
+            await _db("PATCH", "workspace_tasks", json={"result": task["result"], "metadata": task.get("metadata") or {}, "updated_at": task["updated_at"]}, params={"id": f"eq.{task_id}", "workspace_id": f"eq.{workspace_id}", "execution_token": f"eq.{execution_token}"})
         else: await _save_task(task)
         raise HTTPException(status_code=502, detail="workspace_task_execution_failed")
 
@@ -194,8 +258,20 @@ async def retry_task(workspace_id: str, task_id: str) -> dict[str, Any]:
     status = str(task.get("status") or "queued")
     if status == "running": raise HTTPException(status_code=409, detail="task_already_running")
     if status not in {"failed", "needs_review"}: raise HTTPException(status_code=409, detail="task_not_retryable")
-    metadata = dict(task.get("metadata") or {}); metadata["retry_count"] = int(metadata.get("retry_count") or 0) + 1
+    try:
+        contract = contract_from_task(task)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    next_retry = contract.retry_count + 1
+    max_retries = int(contract.budget.get("max_retries", 2))
+    if next_retry > max_retries:
+        raise HTTPException(status_code=409, detail="retry_budget_exhausted")
+    contract.retry_count = next_retry
+    contract.transition("pending", reason="manual_retry")
+    metadata = dict(task.get("metadata") or {})
+    metadata["retry_count"] = next_retry
     task.update({"status": "queued", "result": None, "metadata": metadata, "execution_token": None, "started_at": None, "completed_at": None, "updated_at": _now()})
+    persist_contract(task, contract)
     await _save_task(task)
     return await _execute_task(workspace_id, task_id, task)
 
