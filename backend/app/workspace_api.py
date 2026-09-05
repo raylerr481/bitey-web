@@ -8,6 +8,7 @@ from uuid import uuid4
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from .core.component_policy import component_manifest, validate_core_components
 from .core.multistep_runtime import MultiStepResearchRuntime
 from .core.workspace_execution import WorkspaceExecutionService
 
@@ -75,6 +76,21 @@ async def _save_task(task: dict[str, Any]) -> dict[str, Any]:
     _TASKS[task["id"]] = task
     rows = await _db("PATCH", "workspace_tasks", json=task, params={"id": f"eq.{task['id']}"})
     return rows[0] if rows else task
+
+
+@router.get("/architecture/components")
+async def architecture_components() -> dict[str, Any]:
+    """Expose the enforceable ownership/cost manifest to the UI and diagnostics."""
+    validate_core_components()
+    manifest = component_manifest()
+    return {
+        "policy": "zero_cost",
+        "decision_owner": "bitey_ia",
+        "paid_fallback": False,
+        "vendor_lock_in": False,
+        "all_allowed": all(item["allowed"] for item in manifest),
+        "components": manifest,
+    }
 
 
 @router.get("/workspace/catalog")
