@@ -15,7 +15,12 @@ def validate_artifact(artifact_type: str, content: Any) -> dict[str, Any]:
         errors.append("empty_content")
     if isinstance(content, dict) and not str(content.get("content", "")).strip():
         errors.append("empty_content")
-    return {"valid": not errors, "errors": errors, "stage": "validate"}
+    return {
+        "valid": not errors,
+        "errors": errors,
+        "artifact_type": artifact_type,
+        "stage": "validate",
+    }
 
 
 def build_artifact(*, name: str, artifact_type: str, content: Any, metadata: dict[str, Any]) -> dict[str, Any] | None:
