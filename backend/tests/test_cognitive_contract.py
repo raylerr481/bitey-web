@@ -38,7 +38,7 @@ class CognitiveContractTests(unittest.TestCase):
     def test_research_requires_search_evidence(self):
         state = decision("Investiga y compara las opciones actuales para una API gratuita")
         self.assertTrue(state.evidence_required)
-        self.assertIn("search", state.tool_priority)
+        self.assertIn("web_research", state.tool_priority)
         self.assertIn("external_evidence", state.required_capabilities)
 
     def test_trading_action_is_blocked(self):
@@ -58,7 +58,7 @@ class CognitiveContractTests(unittest.TestCase):
 
     def test_executive_evaluator_accepts_compliant_output(self):
         state = decision("Investiga las opciones actuales de APIs gratuitas")
-        result = ExecutiveEvaluator().evaluate(state=state, answer="La investigación compara varias opciones y sus límites.", evidence="source A; source B", selected_tools=["search"])
+        result = ExecutiveEvaluator().evaluate(state=state, answer="La investigación compara varias opciones y sus límites.", evidence="source A; source B", selected_tools=["web_research"])
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "accept")
         self.assertTrue(result.provider_independent)
