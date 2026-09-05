@@ -76,9 +76,10 @@ class TaskDAG:
         return {"version": 1, "max_nodes": self.max_nodes, "max_depth": self.max_depth, "nodes": [{"id": n.id, "action": n.action, "depends_on": list(n.depends_on), "status": n.status, "result": n.result, "attempts": n.attempts} for n in self.nodes]}
 
 def dag_from_plan(plan: list[dict[str, Any]]) -> TaskDAG:
-    if len(plan) > MAX_NODES: raise ValueError("task_dag_node_limit_exceeded")
+    """Build a bounded sequential DAG, truncating untrusted plans to the hard node limit."""
+    bounded_plan = list(plan[:MAX_NODES])
     nodes: list[TaskNode] = []; previous: str | None = None
-    for index, step in enumerate(plan, start=1):
+    for index, step in enumerate(bounded_plan, start=1):
         node_id = str(step.get("id") or f"step-{index}")
         deps = list(step.get("depends_on") or ([] if previous is None else [previous]))
         nodes.append(TaskNode(id=node_id, action=str(step.get("action") or "worker"), depends_on=deps)); previous = node_id
