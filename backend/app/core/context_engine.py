@@ -3,6 +3,7 @@ from typing import Any
 import os
 
 from .enterprise_context import EnterpriseContextResolver
+from .bitefixes_context_bridge import BiteFixesContextBridge
 
 
 @dataclass
@@ -28,10 +29,11 @@ class ContextEnvelope:
 
 
 class ContextEngine:
-    """Build dynamic general context with optional tenant/company enrichment."""
+    """Build general context first; enterprise context is opt-in and read-only."""
 
     def __init__(self) -> None:
         self.enterprise_resolver = EnterpriseContextResolver()
+        self.bitefixes_bridge = BiteFixesContextBridge()
 
     def assemble(self, *, message: str, metadata: dict[str, Any] | None = None) -> ContextEnvelope:
         metadata = metadata or {}
@@ -50,3 +52,21 @@ class ContextEngine:
             enterprise=enterprise,
             channel=metadata.get("channel", {}),
         )
+
+    async def enrich_from_bitefixes(self, context: ContextEnvelope, metadata: dict[str, Any] | None = None) -> ContextEnvelope:
+        """Fetch enterprise context only when a company is explicitly identified."""
+        metadata = metadata or {}
+        company_id = metadata.get("company_id") or metadata.get("enterprise_company_id")
+        if not company_id or not self.bitefixes_bridge.configured:
+            return context
+        remote = await self.bitefixes_bridge.company(str(company_id))
+        if remote:
+            context.enterprise = {
+                "company_id": str(company_id),
+                "company": remote.get("company") or {},
+                "profile": remote.get("profile") or {},
+                "source": "bitefixes_backend",
+                "read_only": True,
+                "authoritative": True,
+            }
+        return context
