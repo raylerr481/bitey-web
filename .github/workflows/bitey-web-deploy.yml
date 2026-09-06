@@ -42,24 +42,31 @@ jobs:
             conversation_id=$(jq -r '.conversation_id // empty' /tmp/bitey-conversation.json 2>/dev/null || true)
             message_status=000
             memory_status=000
+            research_status=000
             if [ -n "$conversation_id" ]; then
               message_status=$(curl -L -sS -o /tmp/bitey-message-1.json -w '%{http_code}' --max-time 45 -X POST "https://bitey-web.raylerr481.workers.dev/api/v1/conversations/${conversation_id}/messages" -H 'Content-Type: application/json' --data '{"message":"Me llamo Rayler."}' || true)
               memory_status=$(curl -L -sS -o /tmp/bitey-message-2.json -w '%{http_code}' --max-time 45 -X POST "https://bitey-web.raylerr481.workers.dev/api/v1/conversations/${conversation_id}/messages" -H 'Content-Type: application/json' --data '{"message":"¿Qué nombre te acabo de decir?"}' || true)
+              research_status=$(curl -L -sS -o /tmp/bitey-research.json -w '%{http_code}' --max-time 60 -X POST "https://bitey-web.raylerr481.workers.dev/api/v1/conversations/${conversation_id}/messages" -H 'Content-Type: application/json' --data '{"message":"Investiga en la web cuáles son las mejores alternativas gratuitas para crear una IA."}' || true)
             fi
-            echo "root=${root_status} api=${api_status} edge_ai=${ai_status} conversation=${conversation_status} first_message=${message_status} memory_message=${memory_status}"
-            if [ "$root_status" = "200" ] && [ "$api_status" = "200" ] && [ "$ai_status" = "200" ] && [ "$conversation_status" = "200" ] && [ "$message_status" = "200" ] && [ "$memory_status" = "200" ]; then
+            echo "root=${root_status} api=${api_status} edge_ai=${ai_status} conversation=${conversation_status} first_message=${message_status} memory_message=${memory_status} research_message=${research_status}"
+            if [ "$root_status" = "200" ] && [ "$api_status" = "200" ] && [ "$ai_status" = "200" ] && [ "$conversation_status" = "200" ] && [ "$message_status" = "200" ] && [ "$memory_status" = "200" ] && [ "$research_status" = "200" ]; then
               grep -q "Workspace de Bitey IA" /tmp/bitey-root.html
               grep -q '"ok":true' /tmp/bitey-ai.json
               grep -q '"selected_provider":"cloudflare-workers-ai"' /tmp/bitey-ai.json
               jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-1.json >/dev/null
               jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-2.json >/dev/null
               grep -qi 'Rayler' /tmp/bitey-message-2.json
-              echo "Public Worker, real LLM generation, conversation continuity and memory smoke tests passed."
+              jq -e '.answer and (.answer | length > 0)' /tmp/bitey-research.json >/dev/null
+              jq -e '.research_required == true' /tmp/bitey-research.json >/dev/null
+              jq -e '(.sources | type) == "array" and (.sources | length) > 0' /tmp/bitey-research.json >/dev/null
+              jq -e '.sources[0].url and (.sources[0].url | startswith("http"))' /tmp/bitey-research.json >/dev/null
+              echo "Public Worker, real LLM generation, conversation continuity, memory and research sources smoke tests passed."
               exit 0
             fi
             cat /tmp/bitey-conversation.json || true
             cat /tmp/bitey-message-1.json || true
             cat /tmp/bitey-message-2.json || true
+            cat /tmp/bitey-research.json || true
             cat /tmp/bitey-ai.json || true
             sleep 10
           done
