@@ -26,13 +26,16 @@ class BrainState:
     constraints: list[str] = field(default_factory=list)
     decision_fingerprint: str = ""
 
-    def as_dict(self) -> dict[str, Any]: return {k: getattr(self, k) for k in self.__dataclass_fields__}
+    def as_dict(self) -> dict[str, Any]:
+        return {k: getattr(self, k) for k in self.__dataclass_fields__}
+
 
 class BiteyBrain:
     """Executive cognition. It decides WHAT must happen before model selection."""
     HIGH_RISK = ("password", "contraseña", "api key", "secret", "token", "dinero real", "real money")
     ACTION_WORDS = ("ejecuta", "ejecutar", "compra", "comprar", "vende", "vender", "borra", "elimina", "deploy", "envía", "envia")
     FRESHNESS_WORDS = ("ahora", "actualmente", "hoy", "último", "ultimo", "reciente", "latest", "current", "recent", "en vivo", "tiempo real")
+    RESEARCH_WORDS = ("investiga", "investigar", "investigación", "investigacion", "fuentes", "compara", "comparar", "verifica", "verificar", "evidencia", "research")
 
     def _fingerprint(self, message: str, context: dict[str, Any], evidence_available: bool) -> str:
         cognition = context.get("cognition") or {}; intention = cognition.get("intention") or {}; plan = cognition.get("plan") or {}
@@ -49,7 +52,8 @@ class BiteyBrain:
         if (bool(perception.get("question")) or "?" in text) and len(text.split()) < 8: ambiguity = max(ambiguity, 0.12)
         if not text: ambiguity = 1.0
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
-        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence")) or freshness
+        lexical_research = any(x in low for x in self.RESEARCH_WORDS)
+        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research) or freshness
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
