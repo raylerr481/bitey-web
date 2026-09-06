@@ -50,8 +50,13 @@ class ToolOrchestrator:
         brain = self._brain.think(message, ctx)
         ctx["bitey_brain"] = brain.as_dict(); ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
-        if brain.freshness_required and brain.task_class == "weather": requested = ["weather"]
-        elif brain.evidence_required and "search" not in requested: requested.append("search")
+        # Weather is a specialized deterministic tool. Natural-language weather
+        # requests must route to it even when the upstream cognitive classifier
+        # labels the domain as general.
+        if self.WEATHER_RE.search(message):
+            requested = ["weather"]
+        elif brain.evidence_required and "search" not in requested:
+            requested.append("search")
         selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
             context.update({"cognition": cognitive.as_dict(), "_cognitive_state": cognitive, "bitey_brain": brain.as_dict(), "_bitey_brain_state": brain, "selected_tools": selected})
