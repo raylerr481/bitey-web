@@ -96,7 +96,7 @@ class BiteyBrain:
         t=[]
         if "fresh_data" in capabilities and domain=="weather":t.append("weather")
         if "external_evidence" in capabilities:
-            t.append("web_research")
+            t.append("search")
         if "code_reasoning" in capabilities:t.append("code_reasoning")
         if context.get("workspace_files_required"):t.append("workspace_files")
         return t
