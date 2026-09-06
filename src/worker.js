@@ -2,7 +2,7 @@ const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
 const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en este momento. Inténtalo nuevamente en unos momentos.';
 const WEATHER_RE = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i;
-const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|contrasta|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
+const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|mejores|recomendaciones|recomienda|gratuita|gratuito|gratuitas|gratuitos|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
 
 export default {
   async fetch(request, env) {
@@ -71,9 +71,6 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   if (conversationId) history=await loadConversationHistory(origin,conversationId,requestId);
   const compactHistory=history.slice(-8).map(item=>({role:item.role,content:String(item.content||'').slice(-800)})).filter(item=>item.content&&(item.role==='user'||item.role==='assistant'));
 
-  // Recovery must preserve the same tool -> evidence -> LLM -> answer contract.
-  // The backend remains the primary executor. These edge calls are only a recovery
-  // path when the backend cannot produce the final language response.
   const evidence = await recoverToolEvidence(message, requestId);
   const backendEvidence = String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
@@ -137,23 +134,34 @@ async function recoverWeather(message, requestId) {
 }
 
 async function recoverSearch(message, requestId) {
-  const url=new URL('https://html.duckduckgo.com/html/'); url.searchParams.set('q',message);
-  const response=await fetch(url,{headers:{'User-Agent':'BiteySearch/1.0','Accept':'text/html'}});
-  if(!response.ok)return null;
-  const body=await response.text();
-  const blocks=[...body.matchAll(/<div class="result__body".*?<\/div>\s*<\/div>/gs)].slice(0,8);
-  const items=[];
-  for(const blockMatch of blocks){
-    const block=blockMatch[0];
-    const link=block.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s);
-    if(!link)continue;
-    const raw=decodeHtml(link[1]); const redirect=raw.match(/[?&]uddg=([^&]+)/); const target=redirect?decodeURIComponent(redirect[1]):raw;
-    const title=stripHtml(decodeHtml(link[2]));
-    const snippetMatch=block.match(/class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s);
-    const snippet=stripHtml(decodeHtml(snippetMatch?.[1]||''));
-    if(/^https?:\/\//i.test(target)&&title)items.push(`SOURCE ${items.length+1}: ${target}\nTITLE: ${title}\nSNIPPET: ${snippet}`);
+  const sources = [
+    { base: 'https://html.duckduckgo.com/html/', selector: /<div class="result__body".*?<\/div>\s*<\/div>/gs, link: /class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s, snippet: /class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s },
+    { base: 'https://lite.duckduckgo.com/lite/', selector: /<tr>\s*<td[^>]*class="result-link"[\s\S]*?<\/tr>/gi, link: /<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i, snippet: /class="result-snippet"[^>]*>(.*?)<\//i }
+  ];
+  for (const source of sources) {
+    try {
+      const url=new URL(source.base); url.searchParams.set('q',message);
+      const response=await fetch(url,{headers:{'User-Agent':'BiteySearch/1.0','Accept':'text/html'}});
+      if(!response.ok) continue;
+      const body=await response.text();
+      const blocks=[...body.matchAll(source.selector)].slice(0,8);
+      const items=[];
+      for(const blockMatch of blocks){
+        const block=blockMatch[0];
+        const link=block.match(source.link);
+        if(!link)continue;
+        const raw=decodeHtml(link[1]); const redirect=raw.match(/[?&]uddg=([^&]+)/); const target=redirect?decodeURIComponent(redirect[1]):raw;
+        const title=stripHtml(decodeHtml(link[2]));
+        const snippetMatch=block.match(source.snippet);
+        const snippet=stripHtml(decodeHtml(snippetMatch?.[1]||''));
+        if(/^https?:\/\//i.test(target)&&title)items.push(`SOURCE ${items.length+1}: ${target}\nTITLE: ${title}\nSNIPPET: ${snippet}`);
+      }
+      if(items.length) return {text:items.join('\n\n')};
+    } catch(error) {
+      console.warn('Bitey edge search source failed',{requestId,source:source.base,error:String(error)});
+    }
   }
-  return items.length?{text:items.join('\n\n')}:null;
+  return null;
 }
 
 function stripHtml(value){return String(value||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();}
