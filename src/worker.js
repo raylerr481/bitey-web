@@ -1,6 +1,8 @@
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
 const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en este momento. Inténtalo nuevamente en unos momentos.';
+const WEATHER_RE = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i;
+const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|contrasta|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
 
 export default {
   async fetch(request, env) {
@@ -45,21 +47,19 @@ async function runEdgeAiDiagnostic(env, requestId) {
 async function tryRealAiFallback(upstream, request, env, requestId, origin) {
   if (!request) return null;
   let degraded = !upstream.ok;
+  let upstreamBody = null;
   try {
     const raw = await upstream.clone().text();
-    let body = null;
-    try { body = JSON.parse(raw); } catch (_) {}
-    const answer=String(body?.answer||'').trim();
-    const providers=Array.isArray(body?.providers) ? body.providers : [];
+    try { upstreamBody = JSON.parse(raw); } catch (_) {}
+    const answer=String(upstreamBody?.answer||'').trim();
+    const providers=Array.isArray(upstreamBody?.providers) ? upstreamBody.providers : [];
     degraded = degraded || !answer || !providers.length || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
     if (!degraded) return null;
-  } catch (_) {
-    degraded = true;
-  }
-  return runRealAiFallback(request,env,requestId,new Error(`backend_status_${upstream.status}`),origin);
+  } catch (_) { degraded = true; }
+  return runRealAiFallback(request,env,requestId,new Error(`backend_status_${upstream.status}`),origin,upstreamBody);
 }
 
-async function runRealAiFallback(request, env, requestId, cause, origin) {
+async function runRealAiFallback(request, env, requestId, cause, origin, upstreamBody = null) {
   if (!env.AI) return null;
   let payload;
   try { payload=await request.clone().json(); } catch (error) { console.error('Bitey edge fallback could not parse request',{requestId,error:String(error)}); return null; }
@@ -70,19 +70,29 @@ async function runRealAiFallback(request, env, requestId, cause, origin) {
   let history=[];
   if (conversationId) history=await loadConversationHistory(origin,conversationId,requestId);
   const compactHistory=history.slice(-8).map(item=>({role:item.role,content:String(item.content||'').slice(-800)})).filter(item=>item.content&&(item.role==='user'||item.role==='assistant'));
-  const system='Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Mantén continuidad con el historial disponible. Si la consulta requiere información actual o evidencia externa y no tienes esa evidencia, dilo claramente.';
-  const messages=[{role:'system',content:system},...compactHistory,{role:'user',content:message}];
+
+  // Recovery must preserve the same tool -> evidence -> LLM -> answer contract.
+  // The backend remains the primary executor. These edge calls are only a recovery
+  // path when the backend cannot produce the final language response.
+  const evidence = await recoverToolEvidence(message, requestId);
+  const backendEvidence = String(upstreamBody?.evidence_context || '').trim();
+  const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
+  const evidenceInstruction = combinedEvidence
+    ? `EVIDENCIA RECUPERADA POR BITEY:\n${combinedEvidence}\n\nUsa esta evidencia para responder. No inventes datos y no menciones herramientas internas.`
+    : (RESEARCH_RE.test(message) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
+  const system='Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';
+  const messages=[{role:'system',content:system},...(evidenceInstruction?[{role:'system',content:evidenceInstruction}]:[]),...compactHistory,{role:'user',content:message}];
 
   const attempts=[
     {messages,max_tokens:512},
-    {messages:[{role:'system',content:system},{role:'user',content:message}],max_tokens:512}
+    {messages:[{role:'system',content:system},...(evidenceInstruction?[{role:'system',content:evidenceInstruction}]:[]),{role:'user',content:message}],max_tokens:512}
   ];
   for (let index=0; index<attempts.length; index++) {
     try {
       const response=await env.AI.run(AI_MODEL,{messages:attempts[index].messages,max_tokens:attempts[index].max_tokens,temperature:0.2,chat_template_kwargs:{enable_thinking:false}});
       const answer=extractAiText(response);
       if(!answer) throw new Error('empty_response');
-      return jsonResponse({conversation_id:conversationId,answer,research_required:false,research_reasons:[],providers:[AI_MODEL],selected_provider:'cloudflare-workers-ai',elapsed_ms:null,activity_events:[index===0 && compactHistory.length?'Generación de recuperación realizada por un modelo de lenguaje real de Cloudflare Workers AI con contexto compacto.':'Generación de recuperación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],request_id:requestId},200,'cloudflare-ai-fallback',requestId);
+      return jsonResponse({conversation_id:conversationId,answer,research_required:Boolean(combinedEvidence),research_reasons:combinedEvidence?['evidence_recovery']:[],providers:[AI_MODEL],selected_provider:'cloudflare-workers-ai',elapsed_ms:null,activity_events:[combinedEvidence?'Respuesta final generada por un modelo de lenguaje real usando evidencia recuperada por Bitey.':'Generación de recuperación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],request_id:requestId},200,'cloudflare-ai-fallback',requestId);
     } catch(error) {
       console.error('Bitey Workers AI fallback attempt failed',{requestId,attempt:index+1,cause:String(cause),error:String(error)});
     }
@@ -90,10 +100,69 @@ async function runRealAiFallback(request, env, requestId, cause, origin) {
   return null;
 }
 
+async function recoverToolEvidence(message, requestId) {
+  try {
+    if (WEATHER_RE.test(message)) return await recoverWeather(message, requestId);
+    if (RESEARCH_RE.test(message)) return await recoverSearch(message, requestId);
+  } catch (error) {
+    console.warn('Bitey edge evidence recovery failed',{requestId,error:String(error)});
+  }
+  return null;
+}
+
+function weatherLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre)\b/i);
+  if (known) return known[1];
+  const match = message.match(/(?:en|in|em|de|da|do)\s+(.+?)(?:,\s*(?:brasil|brazil))?(?:[?!.]|$)/i);
+  return (match?.[1] || '').replace(/\b(?:rio grande do sul|rs|estado de)\b/ig,'').replace(/\s+/g,' ').trim() || null;
+}
+
+async function recoverWeather(message, requestId) {
+  const locationQuery=weatherLocation(message);
+  if(!locationQuery)return null;
+  const geoUrl=new URL('https://geocoding-api.open-meteo.com/v1/search');
+  geoUrl.searchParams.set('name',locationQuery); geoUrl.searchParams.set('count','5'); geoUrl.searchParams.set('language','pt'); geoUrl.searchParams.set('format','json');
+  const geoResponse=await fetch(geoUrl,{headers:{'User-Agent':'BiteyWeb/1.0'}});
+  if(!geoResponse.ok)return null;
+  const locations=(await geoResponse.json())?.results || [];
+  if(!locations.length)return null;
+  const location=locations.find(x=>String(x?.name||'').toLowerCase()===locationQuery.toLowerCase()) || locations[0];
+  const weatherUrl=new URL('https://api.open-meteo.com/v1/forecast');
+  weatherUrl.searchParams.set('latitude',String(location.latitude)); weatherUrl.searchParams.set('longitude',String(location.longitude));
+  weatherUrl.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code'); weatherUrl.searchParams.set('timezone','auto'); weatherUrl.searchParams.set('forecast_days','1');
+  const weatherResponse=await fetch(weatherUrl,{headers:{'User-Agent':'BiteyWeb/1.0'}});
+  if(!weatherResponse.ok)return null;
+  const current=(await weatherResponse.json())?.current || {};
+  return {text:`WEATHER SOURCE: Open-Meteo\nLOCATION: ${location.name}, ${location.admin1||''}, ${location.country||''}\nOBSERVATION TIME: ${current.time||'unknown'}\nTEMPERATURE: ${current.temperature_2m??'unknown'} °C\nAPPARENT TEMPERATURE: ${current.apparent_temperature??'unknown'} °C\nHUMIDITY: ${current.relative_humidity_2m??'unknown'} %\nWIND: ${current.wind_speed_10m??'unknown'} km/h\nWEATHER CODE: ${current.weather_code??'unknown'}`};
+}
+
+async function recoverSearch(message, requestId) {
+  const url=new URL('https://html.duckduckgo.com/html/'); url.searchParams.set('q',message);
+  const response=await fetch(url,{headers:{'User-Agent':'BiteySearch/1.0','Accept':'text/html'}});
+  if(!response.ok)return null;
+  const body=await response.text();
+  const blocks=[...body.matchAll(/<div class="result__body".*?<\/div>\s*<\/div>/gs)].slice(0,8);
+  const items=[];
+  for(const blockMatch of blocks){
+    const block=blockMatch[0];
+    const link=block.match(/class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s);
+    if(!link)continue;
+    const raw=decodeHtml(link[1]); const redirect=raw.match(/[?&]uddg=([^&]+)/); const target=redirect?decodeURIComponent(redirect[1]):raw;
+    const title=stripHtml(decodeHtml(link[2]));
+    const snippetMatch=block.match(/class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s);
+    const snippet=stripHtml(decodeHtml(snippetMatch?.[1]||''));
+    if(/^https?:\/\//i.test(target)&&title)items.push(`SOURCE ${items.length+1}: ${target}\nTITLE: ${title}\nSNIPPET: ${snippet}`);
+  }
+  return items.length?{text:items.join('\n\n')}:null;
+}
+
+function stripHtml(value){return String(value||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();}
+function decodeHtml(value){return String(value||'').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');}
+
 async function loadConversationHistory(origin, conversationId, requestId) {
   if(!origin||!conversationId)return [];
   try { const url=new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`,origin); const response=await fetch(url,{method:'GET',headers:{'Accept':'application/json','x-bitey-channel':'web','x-bitey-origin':'cloudflare','x-request-id':requestId}}); if(!response.ok)return []; const body=await response.json(); return Array.isArray(body?.messages)?body.messages.slice(-8):[]; }
-  catch(error){console.warn('Bitey edge could not load conversation history',{requestId,error:String(error)});return [];} 
+  catch(error){console.warn('Bitey edge could not load conversation history',{requestId,error:String(error)});return [];}
 }
 
 function extractAiText(response){ if(!response)return ''; const direct=response.response??response.result; if(typeof direct==='string'&&direct.trim())return direct.trim(); const choice=response.choices?.[0]; const content=choice?.message?.content??choice?.text; if(typeof content==='string'&&content.trim())return content.trim(); if(Array.isArray(content))return content.map(part=>typeof part==='string'?part:part?.text||'').join('').trim(); return ''; }
