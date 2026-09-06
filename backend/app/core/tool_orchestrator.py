@@ -44,50 +44,35 @@ class ToolOrchestrator:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
     def cognitive_selection(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Produce the executive tool decision before any tool is executed."""
         ctx = dict(context or {})
         cognitive = self._cognition.process(message, ctx, evidence_available=bool(ctx.get("evidence_available")))
-        ctx["cognition"] = cognitive.as_dict()
-        ctx["_cognitive_state"] = cognitive
+        ctx["cognition"] = cognitive.as_dict(); ctx["_cognitive_state"] = cognitive
         brain = self._brain.think(message, ctx)
-        ctx["bitey_brain"] = brain.as_dict()
-        ctx["_bitey_brain_state"] = brain
+        ctx["bitey_brain"] = brain.as_dict(); ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
-        if brain.freshness_required and brain.task_class == "weather":
-            requested = ["weather"]
-        elif brain.evidence_required and "search" not in requested:
-            requested.append("search")
-        available = set(self._tools)
-        selected = [name for name in dict.fromkeys(requested) if name in available]
+        if brain.freshness_required and brain.task_class == "weather": requested = ["weather"]
+        elif brain.evidence_required and "search" not in requested: requested.append("search")
+        selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
-            context["cognition"] = cognitive.as_dict()
-            context["_cognitive_state"] = cognitive
-            context["bitey_brain"] = brain.as_dict()
-            context["_bitey_brain_state"] = brain
-            context["selected_tools"] = selected
+            context.update({"cognition": cognitive.as_dict(), "_cognitive_state": cognitive, "bitey_brain": brain.as_dict(), "_bitey_brain_state": brain, "selected_tools": selected})
         return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected}
 
     @classmethod
     def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
-        """Compatibility helper; final selection is executive-cognition driven."""
         ctx = context or {}
-        if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
-            return True
+        if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")): return True
         return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message) or cls.WEB_FACT_RE.search(message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
         return self.cognitive_selection(message, context)["selected_tools"]
 
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
-        """Execute selected tools and normalize their evidence into one contract."""
         results: dict[str, Any] = {}
         for name in names:
             tool = self._tools.get(name)
-            if not tool:
-                continue
+            if not tool: continue
             try:
-                result = await tool.handler(**kwargs)
-                results[name] = result
+                result = await tool.handler(**kwargs); results[name] = result
                 if isinstance(result, dict) and result.get("evidence"):
                     existing = results.get("web_research")
                     if not existing or not existing.get("evidence"):
@@ -101,25 +86,35 @@ class ToolOrchestrator:
         evidence = "\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title', '')}\nSNIPPET: {item.get('snippet', '')}" for i, item in enumerate((result.get("results") or [])[:8], 1))
         return {"ok": bool(result.get("results")), **result, "evidence": evidence}
 
+    @staticmethod
+    def _weather_location(message: str) -> str:
+        text = re.sub(r"[?!.]+", " ", message).strip()
+        patterns = [
+            r"(?:en|in|em)\s+(.+?)(?:,\s*(?:brasil|brazil))?$",
+            r"(?:de|da|do)\s+(.+?)(?:,\s*(?:brasil|brazil))?$",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if match:
+                candidate = re.sub(r"^(?:qué|que|como|qual|what)\s+", "", match.group(1), flags=re.I).strip(" ,")
+                candidate = re.sub(r"\b(?:rio grande do sul|rs|estado de)\b", "", candidate, flags=re.I).strip(" ,")
+                if candidate: return candidate
+        known = re.search(r"\b(esteio|porto alegre)\b", text, re.I)
+        return known.group(1) if known else text
+
     async def _weather(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        query = message.strip()
-        if re.search(r"\b(esteio|porto alegre)\b", query, re.I) and not re.search(r"\b(brasil|brazil)\b", query, re.I):
-            query += ", Brasil"
+        location_query = self._weather_location(message)
         async with httpx.AsyncClient(timeout=12.0) as client:
-            geo = await client.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": query, "count": 5, "language": "pt", "format": "json"})
+            geo = await client.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": location_query, "count": 5, "language": "pt", "format": "json"})
             geo.raise_for_status()
             locations = geo.json().get("results") or []
-            if not locations:
-                return {"ok": False, "available": False, "error": "location_not_found", "query": query}
+            if not locations: return {"ok": False, "available": False, "error": "location_not_found", "query": location_query}
             location = next((x for x in locations if str(x.get("name", "")).lower() in {"esteio", "porto alegre"}), locations[0])
             lat, lon = location.get("latitude"), location.get("longitude")
             weather = await client.get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code", "timezone": "auto", "forecast_days": 1})
-            weather.raise_for_status()
-            payload = weather.json()
-            current = payload.get("current") or {}
-        units = {"temperature": "°C", "wind_speed": "km/h", "humidity": "%"}
+            weather.raise_for_status(); current = (weather.json().get("current") or {})
         evidence = (f"WEATHER SOURCE: Open-Meteo\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\nOBSERVATION TIME: {current.get('time', 'unknown')}\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\nAPPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\nHUMIDITY: {current.get('relative_humidity_2m', 'unknown')} %\nWIND: {current.get('wind_speed_10m', 'unknown')} km/h\nWEATHER CODE: {current.get('weather_code', 'unknown')}")
-        return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "units": units, "evidence": evidence}
+        return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "units": {"temperature": "°C", "wind_speed": "km/h", "humidity": "%"}, "evidence": evidence}
 
 
 def safe_calculate(expression: str) -> float:
