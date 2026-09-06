@@ -25,7 +25,7 @@ class BiteFixesContextBridge:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(
                     f"{self.base_url}/bitey-context/company/{company_id}",
-                    headers={"X-Bitey-Channel-Key": self.api_key},
+                    headers={"X-Bitey-Context-Key": self.api_key},
                 )
                 if response.status_code == 404:
                     return None
