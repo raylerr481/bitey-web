@@ -5,48 +5,34 @@ const RESEARCH_RE = /\b(busca|buscar|bÃºsqueda|investiga|investigar|investigaciÃ
 export default {
   async fetch(request, env, ctx) {
     const response = await biteyWorker.fetch(request, env, ctx);
-    if (request.method !== 'POST' || !new URL(request.url).pathname.includes('/conversations/') || !new URL(request.url).pathname.endsWith('/messages')) {
-      return response;
-    }
-
+    const url = new URL(request.url);
+    if (request.method !== 'POST' || !url.pathname.includes('/conversations/') || !url.pathname.endsWith('/messages')) return response;
     let payload;
     try { payload = await request.clone().json(); } catch (_) { return response; }
     const message = String(payload?.message || '').trim();
     if (!RESEARCH_RE.test(message) || !response.ok) return response;
-
     let body;
     try { body = await response.clone().json(); } catch (_) { return response; }
-    if (!body?.answer) return response;
-    if (Array.isArray(body.sources) && body.sources.length > 0) return response;
-
+    if (!body?.answer || (Array.isArray(body.sources) && body.sources.length > 0)) return response;
     const evidence = await searchEvidence(message);
     const headers = new Headers(response.headers);
     headers.set('Content-Type', 'application/json; charset=utf-8');
     headers.set('Cache-Control', 'no-store');
-
     if (!evidence.sources.length) {
-      headers.set('X-Bitey-Evidence', 'unavailable');
-      return new Response(JSON.stringify({ ...body, research_required: true, research_reasons: ['research_requested'], sources: [] }), {
-        status: response.status, statusText: response.statusText, headers
-      });
+      headers.set('X-Bitey-Evidence', 'unavailable-free-only');
+      return new Response(JSON.stringify({ ...body, research_required: true, research_reasons: ['research_requested'], sources: [] }), { status: response.status, statusText: response.statusText, headers });
     }
-
-    const enriched = {
-      ...body,
-      research_required: true,
-      research_reasons: Array.isArray(body.research_reasons) && body.research_reasons.length ? body.research_reasons : ['web_evidence'],
-      sources: evidence.sources
-    };
     headers.set('X-Bitey-Evidence', evidence.method);
-    return new Response(JSON.stringify(enriched), { status: response.status, statusText: response.statusText, headers });
+    return new Response(JSON.stringify({ ...body, research_required: true, research_reasons: Array.isArray(body.research_reasons) && body.research_reasons.length ? body.research_reasons : ['web_evidence'], sources: evidence.sources }), { status: response.status, statusText: response.statusText, headers });
   }
 };
 
 async function searchEvidence(query) {
+  // ZERO_COST_BY_DEFAULT: only free/public search endpoints are allowed here.
+  // Never silently fall back to a potentially billable search API.
   const endpoints = [
     `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
-    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
-    `https://www.google.com/search?q=${encodeURIComponent(query)}`
+    `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
   ];
   for (const endpoint of endpoints) {
     try {
@@ -54,22 +40,20 @@ async function searchEvidence(query) {
       if (!response.ok) continue;
       const html = await response.text();
       const sources = extractSources(html);
-      if (sources.length) return { sources, method: 'web-search' };
+      if (sources.length) return { sources, method: 'duckduckgo-free-search' };
     } catch (_) {}
   }
+  const verified = await verifyCanonicalSources(query);
+  return { sources: verified, method: verified.length ? 'verified-canonical-free' : 'unavailable' };
+}
 
-  // Resilient evidence fallback: verify canonical first-party documentation pages.
-  // This keeps research useful when public search engines throttle worker egress.
-  const candidates = canonicalSources(query);
-  const verified = [];
+async function verifyCanonicalSources(query) {
+  const candidates = canonicalSources(query); const verified = [];
   for (const candidate of candidates) {
-    try {
-      const response = await fetch(candidate.url, { method: 'GET', headers: { 'User-Agent': 'BiteyWeb/1.0', 'Accept': 'text/html' }, redirect: 'follow' });
-      if (response.ok) verified.push(candidate);
-    } catch (_) {}
+    try { const response = await fetch(candidate.url, { headers: { 'User-Agent': 'BiteyWeb/1.0', 'Accept': 'text/html' }, redirect: 'follow' }); if (response.ok) verified.push(candidate); } catch (_) {}
     if (verified.length >= 6) break;
   }
-  return { sources: verified, method: verified.length ? 'verified-canonical' : 'unavailable' };
+  return verified;
 }
 
 function canonicalSources(query) {
@@ -89,32 +73,16 @@ function canonicalSources(query) {
 }
 
 function extractSources(html) {
-  const sources = [];
-  const seen = new Set();
+  const sources = []; const seen = new Set();
   const anchorRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match;
   while ((match = anchorRe.exec(html)) && sources.length < 8) {
-    let url = decodeHtml(match[1]);
-    const title = cleanText(match[2]);
-    const redirect = url.match(/[?&](?:uddg|rut)=([^&]+)/i);
-    if (redirect) {
-      try { url = decodeURIComponent(redirect[1]); } catch (_) {}
-    }
-    if (!/^https?:\/\//i.test(url)) continue;
-    if (/duckduckgo\.com|google\.com/i.test(url)) continue;
-    if (!title || title.length < 3 || seen.has(url)) continue;
-    seen.add(url);
-    sources.push({ title, url, snippet: '' });
+    let url = decodeHtml(match[1]); const title = cleanText(match[2]);
+    const redirect = url.match(/[?&](?:uddg|rut)=([^&]+)/i); if (redirect) { try { url = decodeURIComponent(redirect[1]); } catch (_) {} }
+    if (!/^https?:\/\//i.test(url) || /duckduckgo\.com/i.test(url) || !title || title.length < 3 || seen.has(url)) continue;
+    seen.add(url); sources.push({ title, url, snippet: '' });
   }
   return sources;
 }
-
-function cleanText(value) {
-  return decodeHtml(String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
-}
-
-function decodeHtml(value) {
-  return String(value || '')
-    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-}
+function cleanText(value) { return decodeHtml(String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()); }
+function decodeHtml(value) { return String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
