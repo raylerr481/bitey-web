@@ -116,7 +116,7 @@ class ProviderGateway:
     async def generate(self, *, messages, context):
         await self._prepare_external_free_providers()
         context["provider_attempts"]=[]
-        providers=[p for p in self._providers.values() if not free_only_mode() or p.free_only]
+        providers=[p for p in self._providers.values() if (not free_only_mode() or p.free_only) and (p.name != "bitey-native-cognitive-v1" or env_true("BITEY_NATIVE_AS_GENERATOR",False))]
         if not providers: return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
         conversation_id=str(context.get("conversation_id") or "").strip(); brain=context.get("bitey_brain") or {}; role=str(brain.get("model_role") or context.get("model_role") or "synthesis")
         ordered=self._order_for_role(providers,role); sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None; sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
@@ -132,36 +132,18 @@ class ProviderGateway:
                     context["provider_selected"]=provider.name; context["provider_role"]=role; context["provider_attempt_count"]=attempt
                     executive=ExecutiveEvaluator()
                     evidence_signal = str(context.get("evidence") or "")
-                    if not evidence_signal and context.get("evidence_available"):
-                        evidence_signal = "[bitey_evidence_available]"
-                    executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"))
-                    context["executive_evaluation"] = executive_result.as_dict()
+                    if not evidence_signal and context.get("evidence_available"): evidence_signal = "[bitey_evidence_available]"
+                    executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
                     if executive_result.decision == "revise":
-                        revision_reasons=", ".join(executive_result.reasons)
-                        revision_messages=list(messages)+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Mantén la decisión de Bitey y no cambies sus límites. Produce una respuesta final corregida, sin mencionar este contrato."}]
-                        revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True})
-                        context["executive_revision_attempted"] = True
-                        context["generation_attempts"] = 2
+                        revision_reasons=", ".join(executive_result.reasons); revision_messages=list(messages)+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Mantén la decisión de Bitey y no cambies sus límites. Produce una respuesta final corregida, sin mencionar este contrato."}]
+                        revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True}); context["executive_revision_attempted"] = True; context["generation_attempts"] = 2
                         if revised:
-                            answer=revised
-                            executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"))
-                            context["executive_evaluation"] = executive_result.as_dict()
-                    else:
-                        context["generation_attempts"] = 1
-                    if executive_result.decision == "revise":
-                        logger.warning("executive_contract_not_satisfied provider=%s reasons=%s",provider.name,executive_result.reasons)
+                            answer=revised; executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
+                    else: context["generation_attempts"] = 1
+                    if executive_result.decision == "revise": logger.warning("executive_contract_not_satisfied provider=%s reasons=%s",provider.name,executive_result.reasons)
                     if conversation_id: self._conversation_provider[conversation_id]=provider.name
                     logger.info("provider_selected provider=%s role=%s attempt=%d executive=%s revision=%s",provider.name,role,attempt,executive_result.decision,context.get("executive_revision_attempted",False)); return answer
             except Exception as exc:
                 logger.warning("provider_failed provider=%s role=%s attempt=%d error=%s",provider.name,role,attempt,type(exc).__name__)
                 if conversation_id and self._conversation_provider.get(conversation_id)==provider.name: self._conversation_provider.pop(conversation_id,None)
-        native=self._providers.get("bitey-native-cognitive-v1")
-        if native and native.name not in attempted and (not free_only_mode() or native.free_only):
-            try:
-                context["provider_attempts"].append({"provider":native.name,"attempt":len(context["provider_attempts"])+1,"fallback":True})
-                answer=await native.generate(messages=messages,context={**context,"bitey_model_role":role})
-                if answer:
-                    context["provider_selected"]=native.name; context["provider_role"]=role; context["provider_attempt_count"]=len(context["provider_attempts"]); context["generation_attempts"]=1
-                    return answer
-            except Exception as exc: logger.warning("native_model_failed error=%s",type(exc).__name__)
         return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
