@@ -35,7 +35,7 @@ export default {
         });
 
         if (canUseAiFallback && env.AI) {
-          const fallback = await tryRealAiFallback(upstream, requestClone, env, requestId);
+          const fallback = await tryRealAiFallback(upstream, requestClone, env, requestId, origin);
           if (fallback) return fallback;
         }
 
@@ -47,7 +47,7 @@ export default {
       } catch (error) {
         console.error('Bitey upstream proxy error', { requestId, path: url.pathname, error: String(error) });
         if (canUseAiFallback && env.AI && requestClone) {
-          const fallback = await runRealAiFallback(requestClone, env, requestId, error);
+          const fallback = await runRealAiFallback(requestClone, env, requestId, error, origin);
           if (fallback) return fallback;
         }
         return jsonError('Bitey backend is temporarily unavailable', 502, requestId);
@@ -82,7 +82,7 @@ async function runEdgeAiDiagnostic(env, requestId) {
   }
 }
 
-async function tryRealAiFallback(upstream, request, env, requestId) {
+async function tryRealAiFallback(upstream, request, env, requestId, origin) {
   if (upstream.ok) {
     try {
       const body = await upstream.clone().json();
@@ -92,21 +92,25 @@ async function tryRealAiFallback(upstream, request, env, requestId) {
       return null;
     }
   }
-  return runRealAiFallback(request, env, requestId, new Error(`backend_status_${upstream.status}`));
+  return runRealAiFallback(request, env, requestId, new Error(`backend_status_${upstream.status}`), origin);
 }
 
-async function runRealAiFallback(request, env, requestId, cause) {
+async function runRealAiFallback(request, env, requestId, cause, origin) {
   try {
     const payload = await request.json();
     const message = String(payload?.message || '').trim();
     const conversationId = String(request.url).match(/conversations\/([^/]+)\/messages/)?.[1] || '';
     if (!message) return null;
 
+    const history = await loadConversationHistory(origin, conversationId, requestId);
+    const messages = [
+      { role: 'system', content: 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Usa el historial de esta conversación para mantener continuidad. Si la consulta requiere información actual, indica que debe investigarse con fuentes antes de afirmar hechos actuales.' },
+      ...history.map(item => ({ role: item.role, content: String(item.content || '') })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant')),
+      { role: 'user', content: message }
+    ];
+
     const response = await env.AI.run(AI_MODEL, {
-      messages: [
-        { role: 'system', content: 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Si la consulta requiere información actual, indica que debe investigarse con fuentes antes de afirmar hechos actuales.' },
-        { role: 'user', content: message }
-      ],
+      messages,
       max_tokens: 900,
       temperature: 0.2,
       chat_template_kwargs: { enable_thinking: false }
@@ -126,12 +130,34 @@ async function runRealAiFallback(request, env, requestId, cause) {
       providers: [AI_MODEL],
       selected_provider: 'cloudflare-workers-ai',
       elapsed_ms: null,
-      activity_events: ['Generación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],
+      activity_events: [history.length ? 'Generación realizada por un modelo de lenguaje real de Cloudflare Workers AI usando el historial de la conversación.' : 'Generación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],
       request_id: requestId
     }, 200, 'cloudflare-ai-fallback', requestId);
   } catch (error) {
     console.error('Bitey Workers AI fallback failed', { requestId, cause: String(cause), error: String(error) });
     return null;
+  }
+}
+
+async function loadConversationHistory(origin, conversationId, requestId) {
+  if (!origin || !conversationId) return [];
+  try {
+    const url = new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, origin);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'x-bitey-channel': 'web',
+        'x-bitey-origin': 'cloudflare',
+        'x-request-id': requestId
+      }
+    });
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body?.messages) ? body.messages.slice(-20) : [];
+  } catch (error) {
+    console.warn('Bitey edge could not load conversation history', { requestId, error: String(error) });
+    return [];
   }
 }
 
