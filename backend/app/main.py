@@ -115,6 +115,11 @@ async def create_conversation(payload: ConversationCreate) -> dict:
     conversation_id=str(uuid4()); await memory.create_conversation(conversation_id,payload.metadata); project_id=payload.metadata.get("project_id")
     if project_id: await workspace.attach_conversation(project_id,conversation_id)
     return {"conversation_id":conversation_id,"metadata":payload.metadata}
+@app.get("/api/v1/conversations/{conversation_id}/messages")
+async def get_conversation_messages(conversation_id: str) -> dict:
+    try: UUID(conversation_id)
+    except ValueError: return {"messages":[],"conversation_id":conversation_id}
+    return {"conversation_id":conversation_id,"messages":await memory.history(conversation_id)}
 @app.get("/api/v1/projects")
 async def list_projects() -> dict: return {"projects":await workspace.list_projects()}
 @app.post("/api/v1/projects")
