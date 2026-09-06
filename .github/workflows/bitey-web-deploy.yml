@@ -37,6 +37,8 @@ jobs:
             echo "Smoke test attempt ${attempt}/5"
             root_status=$(curl -L -sS -o /tmp/bitey-root.html -w '%{http_code}' --max-time 20 https://bitey-web.raylerr481.workers.dev/ || true)
             api_status=$(curl -L -sS -o /tmp/bitey-catalog.json -w '%{http_code}' --max-time 20 https://bitey-web.raylerr481.workers.dev/api/v1/workspace/catalog || true)
+            skills_status=$(curl -L -sS -o /tmp/bitey-skills.json -w '%{http_code}' --max-time 20 https://bitey-web.raylerr481.workers.dev/api/v1/skills || true)
+            skill_validation_status=$(curl -L -sS -o /tmp/bitey-skill-validation.json -w '%{http_code}' --max-time 20 -X POST https://bitey-web.raylerr481.workers.dev/api/v1/skills/validate -H 'Content-Type: application/json' --data '{"name":"ci-skill","version":"1.0.0","description":"CI validation skill","objective":"validate a Bitey capability","domain":"general","workflow":["understand","verify"],"success_criteria":["verified"],"constraints":["free_only"],"cost_class":"free"}' || true)
             ai_status=$(curl -L -sS -o /tmp/bitey-ai.json -w '%{http_code}' --max-time 30 https://bitey-web.raylerr481.workers.dev/api/diagnostics/edge-ai || true)
             conversation_status=$(curl -L -sS -o /tmp/bitey-conversation.json -w '%{http_code}' --max-time 30 -X POST https://bitey-web.raylerr481.workers.dev/api/v1/conversations -H 'Content-Type: application/json' --data '{"metadata":{"channel":"ci","interface":"smoke-test"}}' || true)
             conversation_id=$(jq -r '.conversation_id // empty' /tmp/bitey-conversation.json 2>/dev/null || true)
@@ -48,15 +50,17 @@ jobs:
               memory_status=$(curl -L -sS -o /tmp/bitey-message-2.json -w '%{http_code}' --max-time 45 -X POST "https://bitey-web.raylerr481.workers.dev/api/v1/conversations/${conversation_id}/messages" -H 'Content-Type: application/json' --data '{"message":"¿Qué nombre te acabo de decir?"}' || true)
               research_status=$(curl -L -sS -o /tmp/bitey-research.json -w '%{http_code}' --max-time 60 -X POST "https://bitey-web.raylerr481.workers.dev/api/v1/conversations/${conversation_id}/messages" -H 'Content-Type: application/json' --data '{"message":"Investiga en la web cuáles son las mejores alternativas gratuitas para crear una IA."}' || true)
             fi
-            echo "root=${root_status} api=${api_status} edge_ai=${ai_status} conversation=${conversation_status} first_message=${message_status} memory_message=${memory_status} research_message=${research_status}"
+            echo "root=${root_status} api=${api_status} skills=${skills_status} skill_validation=${skill_validation_status} edge_ai=${ai_status} conversation=${conversation_status} first_message=${message_status} memory_message=${memory_status} research_message=${research_status}"
             echo "--- research response ---"
             cat /tmp/bitey-research.json 2>/dev/null || true
             echo
             echo "--- research fields ---"
             jq -c '{answer_present:(.answer != null and (.answer|length)>0),research_required:.research_required,providers:.providers,selected_provider:.selected_provider,sources_type:(.sources|type),sources_count:(.sources|length),first_source:(.sources[0] // null)}' /tmp/bitey-research.json 2>/dev/null || true
             echo
-            if [ "$root_status" = "200" ] && [ "$api_status" = "200" ] && [ "$ai_status" = "200" ] && [ "$conversation_status" = "200" ] && [ "$message_status" = "200" ] && [ "$memory_status" = "200" ] && [ "$research_status" = "200" ]; then
+            if [ "$root_status" = "200" ] && [ "$api_status" = "200" ] && [ "$skills_status" = "200" ] && [ "$skill_validation_status" = "200" ] && [ "$ai_status" = "200" ] && [ "$conversation_status" = "200" ] && [ "$message_status" = "200" ] && [ "$memory_status" = "200" ] && [ "$research_status" = "200" ]; then
               if grep -q "Workspace de Bitey IA" /tmp/bitey-root.html && \
+                 jq -e '.skywork_dependency == false and (.skills | length) >= 1' /tmp/bitey-skills.json >/dev/null && \
+                 jq -e '.validation.valid == true' /tmp/bitey-skill-validation.json >/dev/null && \
                  grep -q '"ok":true' /tmp/bitey-ai.json && \
                  grep -q '"selected_provider":"cloudflare-workers-ai"' /tmp/bitey-ai.json && \
                  jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-1.json >/dev/null && \
@@ -66,7 +70,7 @@ jobs:
                  jq -e '.research_required == true' /tmp/bitey-research.json >/dev/null && \
                  jq -e '(.sources | type) == "array" and (.sources | length) > 0' /tmp/bitey-research.json >/dev/null && \
                  jq -e '.sources[0].url and (.sources[0].url | startswith("http"))' /tmp/bitey-research.json >/dev/null; then
-                echo "Public Worker, real LLM generation, conversation continuity, memory and research sources smoke tests passed."
+                echo "Public Worker, real LLM generation, Skills Engine, conversation continuity, memory and research sources smoke tests passed."
                 exit 0
               fi
             fi
