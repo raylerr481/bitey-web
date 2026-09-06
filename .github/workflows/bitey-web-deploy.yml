@@ -37,12 +37,16 @@ jobs:
             echo "Smoke test attempt ${attempt}/5"
             root_status=$(curl -L -sS -o /tmp/bitey-root.html -w '%{http_code}' --max-time 20 https://bitey-web.raylerr481.workers.dev/ || true)
             api_status=$(curl -L -sS -o /tmp/bitey-catalog.json -w '%{http_code}' --max-time 20 https://bitey-web.raylerr481.workers.dev/api/v1/workspace/catalog || true)
-            echo "root=${root_status} api=${api_status}"
-            if [ "$root_status" = "200" ] && [ "$api_status" = "200" ]; then
+            ai_status=$(curl -L -sS -o /tmp/bitey-ai.json -w '%{http_code}' --max-time 30 https://bitey-web.raylerr481.workers.dev/api/diagnostics/edge-ai || true)
+            echo "root=${root_status} api=${api_status} edge_ai=${ai_status}"
+            if [ "$root_status" = "200" ] && [ "$api_status" = "200" ] && [ "$ai_status" = "200" ]; then
               grep -q "Workspace de Bitey IA" /tmp/bitey-root.html
-              echo "Public Worker smoke test passed."
+              grep -q '"ok":true' /tmp/bitey-ai.json
+              grep -q '"selected_provider":"cloudflare-workers-ai"' /tmp/bitey-ai.json
+              echo "Public Worker and real Workers AI smoke tests passed."
               exit 0
             fi
+            cat /tmp/bitey-ai.json || true
             sleep 10
           done
           echo "Public Worker smoke test failed."
