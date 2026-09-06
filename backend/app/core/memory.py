@@ -9,10 +9,11 @@ import httpx
 
 @dataclass
 class MemoryStore:
-    """Conversation memory with Supabase persistence when configured.
+    """General Bitey conversation memory with durable Supabase persistence.
 
-    The in-process cache remains the fast path. Supabase is the durable store.
-    The service-role key must stay server-side and is never exposed to the web UI.
+    Bitey shares the physical Supabase infrastructure with BiteFixes, but its
+    conversation records are explicitly marked as general Bitey memory so the
+    enterprise context remains a separate responsibility.
     """
 
     conversations: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -25,11 +26,19 @@ class MemoryStore:
     def persistent(self) -> bool:
         return bool(self.supabase_url and self.supabase_key)
 
+    @staticmethod
+    def _metadata(metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {
+            **(metadata or {}),
+            "owner": "bitey_ia",
+            "memory_scope": "general",
+        }
+
     async def create_conversation(self, conversation_id: str, metadata: dict[str, Any] | None = None) -> None:
         self.conversations.setdefault(conversation_id, [])
         if not self.persistent:
             return
-        payload = {"id": conversation_id, "metadata": metadata or {}}
+        payload = {"id": conversation_id, "metadata": self._metadata(metadata)}
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
                 f"{self.supabase_url}/rest/v1/conversations",
@@ -46,7 +55,7 @@ class MemoryStore:
             "conversation_id": conversation_id,
             "role": message["role"],
             "content": message["content"],
-            "metadata": message.get("metadata", {}),
+            "metadata": self._metadata(message.get("metadata")),
         }
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
