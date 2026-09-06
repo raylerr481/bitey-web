@@ -7,6 +7,10 @@ export default {
     const url = new URL(request.url);
     const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
 
+    if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') {
+      return runEdgeAiDiagnostic(env, requestId);
+    }
+
     if (url.pathname.startsWith('/api/')) {
       const origin = env.BITEY_BACKEND_ORIGIN;
       if (!origin) {
@@ -60,6 +64,35 @@ export default {
     return env.ASSETS.fetch(request);
   }
 };
+
+async function runEdgeAiDiagnostic(env, requestId) {
+  if (!env.AI) return jsonError('Workers AI binding is unavailable', 503, requestId);
+  try {
+    const response = await env.AI.run(AI_MODEL, {
+      messages: [
+        { role: 'system', content: 'Responde únicamente con el resultado de la operación solicitada.' },
+        { role: 'user', content: '¿Cuánto es 2+2?' }
+      ],
+      max_tokens: 32,
+      temperature: 0
+    });
+    const answer = String(response?.response || response?.result || '').trim();
+    if (!answer) return jsonError('Workers AI returned an empty response', 502, requestId);
+    return new Response(JSON.stringify({
+      ok: true,
+      selected_provider: 'cloudflare-workers-ai',
+      model: AI_MODEL,
+      answer,
+      request_id: requestId
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': 'cloudflare-ai-diagnostic', 'X-Bitey-Request-Id': requestId }
+    });
+  } catch (error) {
+    console.error('Bitey Workers AI diagnostic failed', { requestId, error: String(error) });
+    return jsonError('Workers AI model execution failed', 502, requestId);
+  }
+}
 
 async function tryRealAiFallback(upstream, request, env, requestId) {
   if (upstream.ok) {
