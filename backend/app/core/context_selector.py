@@ -8,15 +8,37 @@ ESSENTIAL_KEYS = ("user_query", "current_message", "goals", "constraints")
 ORDER = ESSENTIAL_KEYS + ("conversation", "memory", "learned_cognitive_context", "evidence", "sources", "tools", "module_routing")
 
 
-def _string(value: Any) -> str:
+def _string(value: Any, _seen: set[int] | None = None, _depth: int = 0) -> str:
+    """Safely stringify context values without recursing forever on cyclic data."""
     if value is None:
         return ""
     if isinstance(value, str):
         return value.strip()
-    if isinstance(value, dict):
-        return " ".join(f"{k}: {_string(v)}" for k, v in value.items()).strip()
-    if isinstance(value, (list, tuple, set)):
-        return " | ".join(_string(v) for v in value if _string(v)).strip()
+    if _depth > 20:
+        return "[nested context truncated]"
+
+    if _seen is None:
+        _seen = set()
+
+    if isinstance(value, (dict, list, tuple, set)):
+        object_id = id(value)
+        if object_id in _seen:
+            return "[cyclic context omitted]"
+        _seen.add(object_id)
+        try:
+            if isinstance(value, dict):
+                return " ".join(
+                    f"{k}: {_string(v, _seen, _depth + 1)}"
+                    for k, v in value.items()
+                ).strip()
+            return " | ".join(
+                item
+                for item in (_string(v, _seen, _depth + 1) for v in value)
+                if item
+            ).strip()
+        finally:
+            _seen.remove(object_id)
+
     return str(value).strip()
 
 
@@ -28,7 +50,7 @@ def _items(value: Any) -> list[str]:
     if isinstance(value, dict):
         return [f"{k}: {_string(v)}" for k, v in value.items()]
     if isinstance(value, (list, tuple, set)):
-        return [_string(v) for v in value if _string(v)]
+        return [item for item in (_string(v) for v in value) if item]
     text = _string(value)
     return [text] if text else []
 
