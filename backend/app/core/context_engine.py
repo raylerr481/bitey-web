@@ -44,6 +44,18 @@ class ContextEngine:
             or os.getenv("BITEY_ENTERPRISE_PROFILE_JSON")
         )
         enterprise = self.enterprise_resolver.resolve(metadata) if has_enterprise_hint else None
+        company_id = metadata.get("company_id") or metadata.get("enterprise_company_id")
+        if company_id and self.bitefixes_bridge.configured:
+            remote = self.bitefixes_bridge.company_sync(str(company_id))
+            if remote:
+                enterprise = {
+                    "company_id": str(company_id),
+                    "company": remote.get("company") or {},
+                    "profile": remote.get("profile") or {},
+                    "source": "bitefixes_backend",
+                    "read_only": True,
+                    "authoritative": True,
+                }
         return ContextEnvelope(
             user=metadata.get("user", {}),
             conversation=metadata.get("conversation", {}),
