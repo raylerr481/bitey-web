@@ -7,7 +7,7 @@ def test_complex_research_uses_evidence_first():
     assert state.evidence_required is True
     assert state.verification_required is True
     assert state.reasoning_mode == "evidence_first"
-    assert "web_research" in state.tool_priority
+    assert "search" in state.tool_priority
 
 
 def test_trading_action_is_critical_and_closed():
