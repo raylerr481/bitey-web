@@ -13,9 +13,7 @@ export default {
 
     if (url.pathname.startsWith('/api/')) {
       const origin = env.BITEY_BACKEND_ORIGIN;
-      if (!origin) {
-        return jsonError('Bitey backend origin is not configured', 500, requestId);
-      }
+      if (!origin) return jsonError('Bitey backend origin is not configured', 500, requestId);
 
       const upstreamUrl = new URL(url.pathname + url.search, origin);
       const headers = new Headers(request.headers);
@@ -45,12 +43,7 @@ export default {
         responseHeaders.set('Cache-Control', 'no-store');
         responseHeaders.set('X-Bitey-Edge', 'cloudflare');
         responseHeaders.set('X-Bitey-Request-Id', requestId);
-
-        return new Response(upstream.body, {
-          status: upstream.status,
-          statusText: upstream.statusText,
-          headers: responseHeaders
-        });
+        return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers: responseHeaders });
       } catch (error) {
         console.error('Bitey upstream proxy error', { requestId, path: url.pathname, error: String(error) });
         if (canUseAiFallback && env.AI && requestClone) {
@@ -74,20 +67,15 @@ async function runEdgeAiDiagnostic(env, requestId) {
         { role: 'user', content: '¿Cuánto es 2+2?' }
       ],
       max_tokens: 32,
-      temperature: 0
+      temperature: 0,
+      chat_template_kwargs: { enable_thinking: false }
     });
-    const answer = String(response?.response || response?.result || '').trim();
-    if (!answer) return jsonError('Workers AI returned an empty response', 502, requestId);
-    return new Response(JSON.stringify({
-      ok: true,
-      selected_provider: 'cloudflare-workers-ai',
-      model: AI_MODEL,
-      answer,
-      request_id: requestId
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': 'cloudflare-ai-diagnostic', 'X-Bitey-Request-Id': requestId }
-    });
+    const answer = extractAiText(response);
+    if (!answer) {
+      console.error('Workers AI diagnostic returned no text', { requestId, response: safeAiShape(response) });
+      return jsonError('Workers AI returned an empty response', 502, requestId);
+    }
+    return jsonResponse({ ok: true, selected_provider: 'cloudflare-workers-ai', model: AI_MODEL, answer, request_id: requestId }, 200, 'cloudflare-ai-diagnostic', requestId);
   } catch (error) {
     console.error('Bitey Workers AI diagnostic failed', { requestId, error: String(error) });
     return jsonError('Workers AI model execution failed', 502, requestId);
@@ -116,20 +104,21 @@ async function runRealAiFallback(request, env, requestId, cause) {
 
     const response = await env.AI.run(AI_MODEL, {
       messages: [
-        {
-          role: 'system',
-          content: 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Si la consulta requiere información actual, indica que debe investigarse con fuentes antes de afirmar hechos actuales.'
-        },
+        { role: 'system', content: 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Si la consulta requiere información actual, indica que debe investigarse con fuentes antes de afirmar hechos actuales.' },
         { role: 'user', content: message }
       ],
       max_tokens: 900,
-      temperature: 0.2
+      temperature: 0.2,
+      chat_template_kwargs: { enable_thinking: false }
     });
 
-    const answer = String(response?.response || response?.result || '').trim();
-    if (!answer) return null;
+    const answer = extractAiText(response);
+    if (!answer) {
+      console.error('Bitey Workers AI fallback returned no text', { requestId, cause: String(cause), response: safeAiShape(response) });
+      return null;
+    }
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       conversation_id: conversationId,
       answer,
       research_required: false,
@@ -139,29 +128,36 @@ async function runRealAiFallback(request, env, requestId, cause) {
       elapsed_ms: null,
       activity_events: ['Generación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],
       request_id: requestId
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'X-Bitey-Edge': 'cloudflare-ai-fallback',
-        'X-Bitey-Request-Id': requestId
-      }
-    });
+    }, 200, 'cloudflare-ai-fallback', requestId);
   } catch (error) {
     console.error('Bitey Workers AI fallback failed', { requestId, cause: String(cause), error: String(error) });
     return null;
   }
 }
 
-function jsonError(message, status, requestId) {
-  return new Response(JSON.stringify({ error: message, request_id: requestId }), {
+function extractAiText(response) {
+  if (!response) return '';
+  const direct = response.response ?? response.result;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const choice = response.choices?.[0];
+  const content = choice?.message?.content ?? choice?.text;
+  if (typeof content === 'string' && content.trim()) return content.trim();
+  if (Array.isArray(content)) return content.map(part => typeof part === 'string' ? part : part?.text || '').join('').trim();
+  return '';
+}
+
+function safeAiShape(response) {
+  if (!response || typeof response !== 'object') return typeof response;
+  return { keys: Object.keys(response), has_choices: Array.isArray(response.choices), has_response: typeof response.response === 'string', has_result: typeof response.result === 'string' };
+}
+
+function jsonResponse(body, status, edgeHeader, requestId) {
+  return new Response(JSON.stringify(body), {
     status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'X-Bitey-Edge': 'cloudflare',
-      'X-Bitey-Request-Id': requestId
-    }
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': edgeHeader, 'X-Bitey-Request-Id': requestId }
   });
+}
+
+function jsonError(message, status, requestId) {
+  return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare', requestId);
 }
