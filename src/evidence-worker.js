@@ -52,8 +52,29 @@ async function searchEvidence(query) {
       if (sources.length) return { sources, method: 'duckduckgo-free-search' };
     } catch (_) {}
   }
+  const wiki = await wikipediaSources(query);
+  if (wiki.length) return { sources: wiki, method: 'wikipedia-free-search' };
   const verified = await verifyCanonicalSources(query);
   return { sources: verified, method: verified.length ? 'verified-canonical-free' : 'unavailable' };
+}
+
+async function wikipediaSources(query) {
+  // Wikimedia REST APIs are public and free; no key or paid search provider is used.
+  try {
+    const url = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=6&format=json&origin=*`;
+    const response = await fetch(url, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } });
+    if (!response.ok) return [];
+    const data = await response.json();
+    const pages = Array.isArray(data?.query?.search) ? data.query.search : [];
+    return pages.slice(0, 6).map((page) => ({
+      title: cleanText(page?.title),
+      url: `https://es.wikipedia.org/wiki/${encodeURIComponent(String(page?.title || '').replace(/ /g, '_'))}`,
+      snippet: cleanText(page?.snippet),
+      verified: true
+    })).filter((source) => source.title && source.url);
+  } catch (_) {
+    return [];
+  }
 }
 
 async function verifyCanonicalSources(query) {
