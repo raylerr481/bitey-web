@@ -1,5 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any
+import os
+
+from .enterprise_context import EnterpriseContextResolver
 
 
 @dataclass
@@ -25,15 +28,25 @@ class ContextEnvelope:
 
 
 class ContextEngine:
-    """Builds context without imposing a fixed business domain."""
+    """Build dynamic general context with optional tenant/company enrichment."""
+
+    def __init__(self) -> None:
+        self.enterprise_resolver = EnterpriseContextResolver()
 
     def assemble(self, *, message: str, metadata: dict[str, Any] | None = None) -> ContextEnvelope:
         metadata = metadata or {}
+        has_enterprise_hint = bool(
+            metadata.get("enterprise")
+            or metadata.get("company_id")
+            or metadata.get("enterprise_company_id")
+            or os.getenv("BITEY_ENTERPRISE_PROFILE_JSON")
+        )
+        enterprise = self.enterprise_resolver.resolve(metadata) if has_enterprise_hint else None
         return ContextEnvelope(
             user=metadata.get("user", {}),
             conversation=metadata.get("conversation", {}),
             task={"message": message, **metadata.get("task", {})},
             research=metadata.get("research", {}),
-            enterprise=metadata.get("enterprise"),
+            enterprise=enterprise,
             channel=metadata.get("channel", {}),
         )
