@@ -27,6 +27,15 @@ export default {
   }
 };
 
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'es-ES,es;q=0.9,en;q=0.7',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-Dest': 'document'
+};
+
 async function searchEvidence(query) {
   // ZERO_COST_BY_DEFAULT: only free/public search endpoints are allowed here.
   // Never silently fall back to a potentially billable search API.
@@ -36,7 +45,7 @@ async function searchEvidence(query) {
   ];
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint, { headers: { 'User-Agent': 'Mozilla/5.0 BiteyWeb/1.0', 'Accept': 'text/html,application/xhtml+xml' } });
+      const response = await fetch(endpoint, { headers: BROWSER_HEADERS });
       if (!response.ok) continue;
       const html = await response.text();
       const sources = extractSources(html);
@@ -50,7 +59,10 @@ async function searchEvidence(query) {
 async function verifyCanonicalSources(query) {
   const candidates = canonicalSources(query); const verified = [];
   for (const candidate of candidates) {
-    try { const response = await fetch(candidate.url, { headers: { 'User-Agent': 'BiteyWeb/1.0', 'Accept': 'text/html' }, redirect: 'follow' }); if (response.ok) verified.push(candidate); } catch (_) {}
+    try {
+      const response = await fetch(candidate.url, { headers: BROWSER_HEADERS, redirect: 'follow' });
+      if (response.ok) verified.push({ ...candidate, verified: true });
+    } catch (_) {}
     if (verified.length >= 6) break;
   }
   return verified;
