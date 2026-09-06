@@ -4,28 +4,42 @@ const RESEARCH_RE = /\b(busca|buscar|bÃºsqueda|investiga|investigar|investigaciÃ
 
 export default {
   async fetch(request, env, ctx) {
-    const response = await biteyWorker.fetch(request, env, ctx);
     const url = new URL(request.url);
-    if (request.method !== 'POST' || !url.pathname.includes('/conversations/') || !url.pathname.endsWith('/messages')) return response;
+    if (request.method !== 'POST' || !url.pathname.includes('/conversations/') || !url.pathname.endsWith('/messages')) {
+      return biteyWorker.fetch(request, env, ctx);
+    }
     let payload;
-    try { payload = await request.clone().json(); } catch (_) { return response; }
+    try { payload = await request.clone().json(); } catch (_) { return biteyWorker.fetch(request, env, ctx); }
     const message = String(payload?.message || '').trim();
-    if (!RESEARCH_RE.test(message) || !response.ok) return response;
+    const researchRequested = RESEARCH_RE.test(message);
+    const response = await biteyWorker.fetch(request, env, ctx);
+    if (!researchRequested || !response.ok) return response;
     let body;
     try { body = await response.clone().json(); } catch (_) { return response; }
-    if (!body?.answer || (Array.isArray(body.sources) && body.sources.length > 0)) return response;
-    const evidence = await searchEvidence(message);
-    const headers = new Headers(response.headers);
-    headers.set('Content-Type', 'application/json; charset=utf-8');
-    headers.set('Cache-Control', 'no-store');
-    if (!evidence.sources.length) {
-      headers.set('X-Bitey-Evidence', 'unavailable-free-only');
-      return new Response(JSON.stringify({ ...body, research_required: true, research_reasons: ['research_requested'], sources: [] }), { status: response.status, statusText: response.statusText, headers });
+    if (!body?.answer) return response;
+    // The edge owns this contract: explicit research requests must be marked as research.
+    if (Array.isArray(body.sources) && body.sources.length > 0) {
+      return withResearchContract(response, body, body.sources, 'backend-evidence');
     }
-    headers.set('X-Bitey-Evidence', evidence.method);
-    return new Response(JSON.stringify({ ...body, research_required: true, research_reasons: Array.isArray(body.research_reasons) && body.research_reasons.length ? body.research_reasons : ['web_evidence'], sources: evidence.sources }), { status: response.status, statusText: response.statusText, headers });
+    const evidence = await searchEvidence(message);
+    const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
+    return withResearchContract(response, body, sources, evidence?.method || 'unavailable-free-only');
   }
 };
+
+function withResearchContract(response, body, sources, method) {
+  const headers = new Headers(response.headers);
+  headers.set('Content-Type', 'application/json; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Bitey-Research', 'required');
+  headers.set('X-Bitey-Evidence', method);
+  return new Response(JSON.stringify({
+    ...body,
+    research_required: true,
+    research_reasons: Array.isArray(body.research_reasons) && body.research_reasons.length ? body.research_reasons : ['research_requested'],
+    sources
+  }), { status: response.status, statusText: response.statusText, headers });
+}
 
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36',
@@ -37,8 +51,6 @@ const BROWSER_HEADERS = {
 };
 
 async function searchEvidence(query) {
-  // ZERO_COST_BY_DEFAULT: only free/public search endpoints are allowed here.
-  // Never silently fall back to a potentially billable search API.
   const endpoints = [
     `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
     `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
@@ -55,11 +67,10 @@ async function searchEvidence(query) {
   const wiki = await wikipediaSources(query);
   if (wiki.length) return { sources: wiki, method: 'wikipedia-free-search' };
   const verified = await verifyCanonicalSources(query);
-  return { sources: verified, method: verified.length ? 'verified-canonical-free' : 'unavailable' };
+  return { sources: verified, method: verified.length ? 'verified-canonical-free' : 'unavailable-free-only' };
 }
 
 async function wikipediaSources(query) {
-  // Wikimedia REST APIs are public and free; no key or paid search provider is used.
   try {
     const url = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=6&format=json&origin=*`;
     const response = await fetch(url, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } });
@@ -72,9 +83,7 @@ async function wikipediaSources(query) {
       snippet: cleanText(page?.snippet),
       verified: true
     })).filter((source) => source.title && source.url);
-  } catch (_) {
-    return [];
-  }
+  } catch (_) { return []; }
 }
 
 async function verifyCanonicalSources(query) {
