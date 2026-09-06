@@ -1,10 +1,11 @@
 name = "bitey-web"
-main = "src/skills-worker.js"
+main = "src/zero-cost-worker.js"
 compatibility_date = "2026-08-23"
 account_id = "67f3a67f93f8a8c315d2c266248fdc1a"
 
 [vars]
 BITEY_BACKEND_ORIGIN = "https://bitey-ia-suprabrain.onrender.com"
+BITEY_DAILY_NEURON_LIMIT = "10000"
 
 [ai]
 binding = "AI"
