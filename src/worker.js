@@ -44,31 +44,56 @@ async function runEdgeAiDiagnostic(env, requestId) {
 
 async function tryRealAiFallback(upstream, request, env, requestId, origin) {
   if (!request) return null;
+  let degraded = !upstream.ok;
   try {
-    const body=await upstream.clone().json();
+    const raw = await upstream.clone().text();
+    let body = null;
+    try { body = JSON.parse(raw); } catch (_) {}
     const answer=String(body?.answer||'').trim();
-    const degraded = !upstream.ok || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
+    const providers=Array.isArray(body?.providers) ? body.providers : [];
+    degraded = degraded || !answer || !providers.length || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
     if (!degraded) return null;
   } catch (_) {
-    if (upstream.ok) return null;
+    degraded = true;
   }
   return runRealAiFallback(request,env,requestId,new Error(`backend_status_${upstream.status}`),origin);
 }
 
 async function runRealAiFallback(request, env, requestId, cause, origin) {
-  try {
-    const payload=await request.json(); const message=String(payload?.message||'').trim(); const conversationId=String(request.url).match(/conversations\/([^/]+)\/messages/)?.[1]||''; if(!message)return null;
-    const history=await loadConversationHistory(origin,conversationId,requestId);
-    const messages=[{role:'system',content:'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Usa el historial de esta conversación para mantener continuidad. Si la consulta requiere información actual, no inventes datos actuales y declara que requiere una herramienta de evidencia.'},...history.map(item=>({role:item.role,content:String(item.content||'')})).filter(item=>item.content&&(item.role==='user'||item.role==='assistant')),{role:'user',content:message}];
-    const response=await env.AI.run(AI_MODEL,{messages,max_tokens:900,temperature:0.2,chat_template_kwargs:{enable_thinking:false}}); const answer=extractAiText(response); if(!answer){console.error('Bitey Workers AI fallback returned no text',{requestId,cause:String(cause),response:safeAiShape(response)});return null;}
-    return jsonResponse({conversation_id:conversationId,answer,research_required:false,research_reasons:[],providers:[AI_MODEL],selected_provider:'cloudflare-workers-ai',elapsed_ms:null,activity_events:[history.length?'Generación realizada por un modelo de lenguaje real de Cloudflare Workers AI usando el historial de la conversación.':'Generación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],request_id:requestId},200,'cloudflare-ai-fallback',requestId);
-  } catch(error){console.error('Bitey Workers AI fallback failed',{requestId,cause:String(cause),error:String(error)});return null;}
+  if (!env.AI) return null;
+  let payload;
+  try { payload=await request.clone().json(); } catch (error) { console.error('Bitey edge fallback could not parse request',{requestId,error:String(error)}); return null; }
+  const message=String(payload?.message||'').trim();
+  const conversationId=String(request.url).match(/conversations\/([^/]+)\/messages/)?.[1]||'';
+  if(!message)return null;
+
+  let history=[];
+  if (conversationId) history=await loadConversationHistory(origin,conversationId,requestId);
+  const compactHistory=history.slice(-8).map(item=>({role:item.role,content:String(item.content||'').slice(-800)})).filter(item=>item.content&&(item.role==='user'||item.role==='assistant'));
+  const system='Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y honesta. No inventes datos. Mantén continuidad con el historial disponible. Si la consulta requiere información actual o evidencia externa y no tienes esa evidencia, dilo claramente.';
+  const messages=[{role:'system',content:system},...compactHistory,{role:'user',content:message}];
+
+  const attempts=[
+    {messages,max_tokens:512},
+    {messages:[{role:'system',content:system},{role:'user',content:message}],max_tokens:512}
+  ];
+  for (let index=0; index<attempts.length; index++) {
+    try {
+      const response=await env.AI.run(AI_MODEL,{messages:attempts[index].messages,max_tokens:attempts[index].max_tokens,temperature:0.2,chat_template_kwargs:{enable_thinking:false}});
+      const answer=extractAiText(response);
+      if(!answer) throw new Error('empty_response');
+      return jsonResponse({conversation_id:conversationId,answer,research_required:false,research_reasons:[],providers:[AI_MODEL],selected_provider:'cloudflare-workers-ai',elapsed_ms:null,activity_events:[index===0 && compactHistory.length?'Generación de recuperación realizada por un modelo de lenguaje real de Cloudflare Workers AI con contexto compacto.':'Generación de recuperación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'],request_id:requestId},200,'cloudflare-ai-fallback',requestId);
+    } catch(error) {
+      console.error('Bitey Workers AI fallback attempt failed',{requestId,attempt:index+1,cause:String(cause),error:String(error)});
+    }
+  }
+  return null;
 }
 
 async function loadConversationHistory(origin, conversationId, requestId) {
   if(!origin||!conversationId)return [];
-  try { const url=new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`,origin); const response=await fetch(url,{method:'GET',headers:{'Accept':'application/json','x-bitey-channel':'web','x-bitey-origin':'cloudflare','x-request-id':requestId}}); if(!response.ok)return []; const body=await response.json(); return Array.isArray(body?.messages)?body.messages.slice(-20):[]; }
-  catch(error){console.warn('Bitey edge could not load conversation history',{requestId,error:String(error)});return [];}
+  try { const url=new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`,origin); const response=await fetch(url,{method:'GET',headers:{'Accept':'application/json','x-bitey-channel':'web','x-bitey-origin':'cloudflare','x-request-id':requestId}}); if(!response.ok)return []; const body=await response.json(); return Array.isArray(body?.messages)?body.messages.slice(-8):[]; }
+  catch(error){console.warn('Bitey edge could not load conversation history',{requestId,error:String(error)});return [];} 
 }
 
 function extractAiText(response){ if(!response)return ''; const direct=response.response??response.result; if(typeof direct==='string'&&direct.trim())return direct.trim(); const choice=response.choices?.[0]; const content=choice?.message?.content??choice?.text; if(typeof content==='string'&&content.trim())return content.trim(); if(Array.isArray(content))return content.map(part=>typeof part==='string'?part:part?.text||'').join('').trim(); return ''; }
