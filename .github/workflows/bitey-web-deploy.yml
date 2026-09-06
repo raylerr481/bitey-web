@@ -32,7 +32,7 @@ jobs:
       - name: Smoke test public Worker and real conversation circuit
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           for attempt in 1 2 3 4 5; do
             echo "Smoke test attempt ${attempt}/5"
             root_status=$(curl -L -sS -o /tmp/bitey-root.html -w '%{http_code}' --max-time 20 https://bitey-web.raylerr481.workers.dev/ || true)
@@ -49,26 +49,29 @@ jobs:
               research_status=$(curl -L -sS -o /tmp/bitey-research.json -w '%{http_code}' --max-time 60 -X POST "https://bitey-web.raylerr481.workers.dev/api/v1/conversations/${conversation_id}/messages" -H 'Content-Type: application/json' --data '{"message":"Investiga en la web cuáles son las mejores alternativas gratuitas para crear una IA."}' || true)
             fi
             echo "root=${root_status} api=${api_status} edge_ai=${ai_status} conversation=${conversation_status} first_message=${message_status} memory_message=${memory_status} research_message=${research_status}"
+            echo "--- research response ---"
+            cat /tmp/bitey-research.json 2>/dev/null || true
+            echo
+            echo "--- research fields ---"
+            jq -c '{answer_present:(.answer != null and (.answer|length)>0),research_required:.research_required,providers:.providers,selected_provider:.selected_provider,sources_type:(.sources|type),sources_count:(.sources|length),first_source:(.sources[0] // null)}' /tmp/bitey-research.json 2>/dev/null || true
+            echo
             if [ "$root_status" = "200" ] && [ "$api_status" = "200" ] && [ "$ai_status" = "200" ] && [ "$conversation_status" = "200" ] && [ "$message_status" = "200" ] && [ "$memory_status" = "200" ] && [ "$research_status" = "200" ]; then
-              grep -q "Workspace de Bitey IA" /tmp/bitey-root.html
-              grep -q '"ok":true' /tmp/bitey-ai.json
-              grep -q '"selected_provider":"cloudflare-workers-ai"' /tmp/bitey-ai.json
-              jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-1.json >/dev/null
-              jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-2.json >/dev/null
-              grep -qi 'Rayler' /tmp/bitey-message-2.json
-              jq -e '.answer and (.answer | length > 0)' /tmp/bitey-research.json >/dev/null
-              jq -e '.research_required == true' /tmp/bitey-research.json >/dev/null
-              jq -e '(.sources | type) == "array" and (.sources | length) > 0' /tmp/bitey-research.json >/dev/null
-              jq -e '.sources[0].url and (.sources[0].url | startswith("http"))' /tmp/bitey-research.json >/dev/null
-              echo "Public Worker, real LLM generation, conversation continuity, memory and research sources smoke tests passed."
-              exit 0
+              if grep -q "Workspace de Bitey IA" /tmp/bitey-root.html && \
+                 grep -q '"ok":true' /tmp/bitey-ai.json && \
+                 grep -q '"selected_provider":"cloudflare-workers-ai"' /tmp/bitey-ai.json && \
+                 jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-1.json >/dev/null && \
+                 jq -e '.answer and (.answer | length > 0)' /tmp/bitey-message-2.json >/dev/null && \
+                 grep -qi 'Rayler' /tmp/bitey-message-2.json && \
+                 jq -e '.answer and (.answer | length > 0)' /tmp/bitey-research.json >/dev/null && \
+                 jq -e '.research_required == true' /tmp/bitey-research.json >/dev/null && \
+                 jq -e '(.sources | type) == "array" and (.sources | length) > 0' /tmp/bitey-research.json >/dev/null && \
+                 jq -e '.sources[0].url and (.sources[0].url | startswith("http"))' /tmp/bitey-research.json >/dev/null; then
+                echo "Public Worker, real LLM generation, conversation continuity, memory and research sources smoke tests passed."
+                exit 0
+              fi
             fi
-            cat /tmp/bitey-conversation.json || true
-            cat /tmp/bitey-message-1.json || true
-            cat /tmp/bitey-message-2.json || true
-            cat /tmp/bitey-research.json || true
-            cat /tmp/bitey-ai.json || true
+            echo "Smoke assertions did not pass; retrying."
             sleep 10
           done
-          echo "Public Worker conversation smoke test failed."
+          echo "Public Worker conversation smoke test failed after 5 attempts."
           exit 1
