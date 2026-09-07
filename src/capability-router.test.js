@@ -9,6 +9,11 @@ describe('Bitey capability router', () => {
     expect(classifyCapability('Analiza EUR/USD y diseña una estrategia de trading').capability).toBe('sbt');
   });
 
+  test('routes real gold quote requests to SBT', () => {
+    expect(classifyCapability('Hola, ¿me puedes mostrar cómo está cotizado el oro?').capability).toBe('sbt');
+    expect(classifyCapability('¿Cuál es el precio actual de XAUUSD?').capability).toBe('sbt');
+  });
+
   test('keeps general conversation in Bitey Core', () => {
     expect(classifyCapability('Hola, ¿cómo estás?').capability).toBe('general');
   });
