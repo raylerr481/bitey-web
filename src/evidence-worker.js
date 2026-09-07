@@ -2,6 +2,16 @@ import biteyWorker from './worker.js';
 
 const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|mejores|recomendaciones|recomienda|gratuita|gratuito|gratuitas|gratuitos|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
 
+function isResearchRequest(message) {
+  const normalized = String(message || '').toLowerCase();
+  return RESEARCH_RE.test(normalized) || [
+    'investiga', 'investigar', 'investigación', 'busca', 'buscar', 'búsqueda',
+    'alternativas', 'opciones', 'mejores', 'fuentes', 'compara', 'comparar',
+    'recomendaciones', 'recomienda', 'search', 'research', 'latest', 'actual',
+    'hoy', 'noticias', 'news', 'precio', 'precios'
+  ].some(term => normalized.includes(term));
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -11,13 +21,12 @@ export default {
     let payload;
     try { payload = await request.clone().json(); } catch (_) { return biteyWorker.fetch(request, env, ctx); }
     const message = String(payload?.message || '').trim();
-    const researchRequested = RESEARCH_RE.test(message);
+    const researchRequested = isResearchRequest(message);
     const response = await biteyWorker.fetch(request, env, ctx);
     if (!researchRequested || !response.ok) return response;
     let body;
     try { body = await response.clone().json(); } catch (_) { return response; }
     if (!body?.answer) return response;
-    // The edge owns this contract: explicit research requests must be marked as research.
     if (Array.isArray(body.sources) && body.sources.length > 0) {
       return withResearchContract(response, body, body.sources, 'backend-evidence');
     }
