@@ -1,0 +1,33 @@
+name: Deploy Bitey Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deploy Bitey IA Web Worker
+        run: npx wrangler deploy --config wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Smoke test public web
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://bitey-web.raylerr481.workers.dev"
+          body=$(curl -L -fsS --retry 5 --retry-delay 3 --max-time 30 "$BASE/")
+          printf '%s' "$body" | grep -q "Bitey IA"
+          printf '%s' "$body" | grep -q "Hola, soy Bitey."
+          printf '%s' "$body" | grep -q "workspace-entry"
+          printf '%s' "$body" | grep -q "app.js"
