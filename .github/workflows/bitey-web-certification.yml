@@ -48,6 +48,10 @@ jobs:
           test "$(curl -L -sS -o /tmp/zero -w '%{http_code}' --max-time 20 "$BASE/api/diagnostics/zero-cost")" = "200"
           jq -e '.mode == "ZERO_COST_BY_DEFAULT" and .daily_neuron_limit == 10000 and .blocked == false' /tmp/zero >/dev/null
 
+          echo "== Warm specialized services =="
+          test "$(curl -L -sS -o /tmp/jobia_health -w '%{http_code}' --max-time 60 https://jobia-api.onrender.com/health)" = "200"
+          test "$(curl -L -sS -o /tmp/sbt_system -w '%{http_code}' --max-time 60 https://bitey-system-bots-trading-api.onrender.com/api/v1/system)" = "200"
+
           echo "== Real capability routing =="
           post_message() {
             local outfile="$1"
