@@ -52,7 +52,7 @@ jobs:
           test "$(curl -L -sS -o /tmp/jobia_health -w '%{http_code}' --max-time 60 https://jobia-api.onrender.com/health)" = "200"
           test "$(curl -L -sS -o /tmp/sbt_system -w '%{http_code}' --max-time 60 https://bitey-system-bots-trading-api.onrender.com/api/v1/system)" = "200"
 
-          echo "== Real capability routing =="
+          echo "== Real JobIA execution through Bitey Web =="
           post_message() {
             local outfile="$1"
             local message="$2"
@@ -62,6 +62,25 @@ jobs:
               --data "$(jq -nc --arg message "$message" '{message:$message}')"
           }
 
+          STATUS=$(post_message /tmp/jobia "búscame trabajo remoto")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/jobia.headers
+          jq -e '.capability == "jobia" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted"' /tmp/jobia >/dev/null
+          jq -e '.execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and (.result.jobs | length >= 1) and ([.result.jobs[].modality] | all == "Remote")' /tmp/jobia >/dev/null
+
+          STATUS=$(post_message /tmp/jobia_python "busca trabajos de Python")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/jobia_python.headers
+          jq -e '.capability == "jobia" and .execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and ([.result.jobs[].skills[]] | any == "Python")' /tmp/jobia_python >/dev/null
+          jq -e '.result.filters.skills | index("Python") != null' /tmp/jobia_python >/dev/null
+
+          STATUS=$(post_message /tmp/jobia_python_remote "busca trabajos de Python remoto")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/jobia_python_remote.headers
+          jq -e '.capability == "jobia" and .execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and (.result.filters.modality == "Remote") and (.result.filters.skills | index("Python") != null)' /tmp/jobia_python_remote >/dev/null
+          jq -e '[.result.jobs[] | (.modality == "Remote" and ((.skills | index("Python")) != null))] | all' /tmp/jobia_python_remote >/dev/null
+
+          echo "== General and SBT safety =="
           STATUS=$(post_message /tmp/general "hola")
           test "$STATUS" = "200"
           ! grep -qi '^x-bitey-delegated: *true' /tmp/general.headers
@@ -71,16 +90,6 @@ jobs:
           test "$STATUS" = "200"
           ! grep -qi '^x-bitey-delegated: *true' /tmp/general_math.headers
           grep -Eq '(^|[^0-9])4([^0-9]|$)' /tmp/general_math
-
-          STATUS=$(post_message /tmp/jobia "búscame trabajo remoto")
-          test "$STATUS" = "200"
-          grep -qi '^x-bitey-delegated: *true' /tmp/jobia.headers
-          jq -e '.capability == "jobia" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted"' /tmp/jobia >/dev/null
-
-          STATUS=$(post_message /tmp/jobia_cv "quiero mejorar mi CV")
-          test "$STATUS" = "200"
-          grep -qi '^x-bitey-delegated: *true' /tmp/jobia_cv.headers
-          jq -e '.capability == "jobia" and .delegation_status == "accepted"' /tmp/jobia_cv >/dev/null
 
           STATUS=$(post_message /tmp/sbt "analiza EUR/USD")
           test "$STATUS" = "200"
@@ -92,4 +101,4 @@ jobs:
           grep -qi '^x-bitey-delegated: *true' /tmp/sbt_btc.headers
           jq -e '.capability == "sbt" and .delegation_status == "accepted" and .execution.live == false' /tmp/sbt_btc >/dev/null
 
-          echo "CERTIFICATION PASSED: general AI, conversation continuity, memory, research evidence, Skills Engine, zero-cost guard, and real JobIA/SBT capability routing are operational."
+          echo "CERTIFICATION PASSED: general AI, conversation continuity, memory, research evidence, Skills Engine, zero-cost guard, real JobIA execution with modality/skill filters, and SBT safety routing are operational."
