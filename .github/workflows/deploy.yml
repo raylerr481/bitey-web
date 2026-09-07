@@ -31,3 +31,4 @@ jobs:
           printf '%s' "$body" | grep -q "Hola, soy Bitey."
           printf '%s' "$body" | grep -q "workspace-entry"
           printf '%s' "$body" | grep -q "app.js"
+# deployment trigger after research timeout fix
