@@ -59,6 +59,16 @@ const BROWSER_HEADERS = {
   'Sec-Fetch-Dest': 'document'
 };
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort('research_timeout'), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function searchEvidence(query) {
   const endpoints = [
     `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`,
@@ -66,7 +76,7 @@ async function searchEvidence(query) {
   ];
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint, { headers: BROWSER_HEADERS });
+      const response = await fetchWithTimeout(endpoint, { headers: BROWSER_HEADERS }, 7000);
       if (!response.ok) continue;
       const html = await response.text();
       const sources = extractSources(html);
@@ -82,7 +92,7 @@ async function searchEvidence(query) {
 async function wikipediaSources(query) {
   try {
     const url = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=6&format=json&origin=*`;
-    const response = await fetch(url, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } });
+    const response = await fetchWithTimeout(url, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } }, 7000);
     if (!response.ok) return [];
     const data = await response.json();
     const pages = Array.isArray(data?.query?.search) ? data.query.search : [];
@@ -99,7 +109,7 @@ async function verifyCanonicalSources(query) {
   const candidates = canonicalSources(query); const verified = [];
   for (const candidate of candidates) {
     try {
-      const response = await fetch(candidate.url, { headers: BROWSER_HEADERS, redirect: 'follow' });
+      const response = await fetchWithTimeout(candidate.url, { headers: BROWSER_HEADERS, redirect: 'follow' }, 5000);
       if (response.ok) verified.push({ ...candidate, verified: true });
     } catch (_) {}
     if (verified.length >= 6) break;
