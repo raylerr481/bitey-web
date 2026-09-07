@@ -46,4 +46,44 @@ jobs:
           test "$(curl -L -sS -o /tmp/zero -w '%{http_code}' --max-time 20 "$BASE/api/diagnostics/zero-cost")" = "200"
           jq -e '.mode == "ZERO_COST_BY_DEFAULT" and .daily_neuron_limit == 10000 and .blocked == false' /tmp/zero >/dev/null
 
-          echo "CERTIFICATION PASSED: public Worker, real Cloudflare Workers AI, arithmetic, conversation continuity, memory, research evidence, Skills Engine and zero-cost guard are operational."
+          echo "== Real capability routing =="
+          post_message() {
+            local outfile="$1"
+            local message="$2"
+            curl -L -sS -D "${outfile}.headers" -o "$outfile" -w '%{http_code}' --max-time 60 \
+              -X POST "$BASE/api/v1/conversations/$CID/messages" \
+              -H 'Content-Type: application/json' \
+              --data "$(jq -nc --arg message "$message" '{message:$message}')"
+          }
+
+          STATUS=$(post_message /tmp/general "hola")
+          test "$STATUS" = "200"
+          ! grep -qi '^x-bitey-delegated: *true' /tmp/general.headers
+          jq -e '.answer and (.answer | length) > 0' /tmp/general >/dev/null
+
+          STATUS=$(post_message /tmp/general_math "2+2")
+          test "$STATUS" = "200"
+          ! grep -qi '^x-bitey-delegated: *true' /tmp/general_math.headers
+          grep -Eq '(^|[^0-9])4([^0-9]|$)' /tmp/general_math
+
+          STATUS=$(post_message /tmp/jobia "búscame trabajo remoto")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/jobia.headers
+          jq -e '.capability == "jobia" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted"' /tmp/jobia >/dev/null
+
+          STATUS=$(post_message /tmp/jobia_cv "quiero mejorar mi CV")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/jobia_cv.headers
+          jq -e '.capability == "jobia" and .delegation_status == "accepted"' /tmp/jobia_cv >/dev/null
+
+          STATUS=$(post_message /tmp/sbt "analiza EUR/USD")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/sbt.headers
+          jq -e '.capability == "sbt" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted" and .execution.live == false' /tmp/sbt >/dev/null
+
+          STATUS=$(post_message /tmp/sbt_btc "haz un análisis de trading de BTC")
+          test "$STATUS" = "200"
+          grep -qi '^x-bitey-delegated: *true' /tmp/sbt_btc.headers
+          jq -e '.capability == "sbt" and .delegation_status == "accepted" and .execution.live == false' /tmp/sbt_btc >/dev/null
+
+          echo "CERTIFICATION PASSED: general AI, conversation continuity, memory, research evidence, Skills Engine, zero-cost guard, and real JobIA/SBT capability routing are operational."
