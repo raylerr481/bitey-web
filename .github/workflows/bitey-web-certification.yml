@@ -1,8 +1,9 @@
 name: Bitey Web Certification
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Deploy Bitey Web"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -10,6 +11,7 @@ permissions:
 
 jobs:
   certify:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Certify public Bitey IA Web
