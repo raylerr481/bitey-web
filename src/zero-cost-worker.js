@@ -2,7 +2,7 @@ import biteyWorker from './capability-worker.js';
 import { providerStatus, createProviderAi } from './provider-gateway.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
-const PROVIDER_POLICY = 'groq-primary-free-only';
+const PROVIDER_POLICY = 'backend-authoritative-groq-openrouter-free';
 
 export default {
   async fetch(request, env, ctx) {
@@ -21,7 +21,12 @@ export default {
     };
 
     if (url.pathname === '/api/diagnostics/providers' && request.method === 'GET') {
-      return new Response(JSON.stringify({ ok: true, ...providerStatus(env) }), { status: 200, headers: JSON_HEADERS });
+      return new Response(JSON.stringify({
+        ok: true,
+        ...providerStatus(env),
+        authority: 'bitefixes-backend',
+        policy: PROVIDER_POLICY,
+      }), { status: 200, headers: JSON_HEADERS });
     }
 
     if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') {
@@ -40,6 +45,7 @@ export default {
           model: response?.model || lastModel,
           answer: response?.response || '',
           policy: PROVIDER_POLICY,
+          note: 'Diagnostic endpoint only; public conversations remain backend-authoritative.',
         }), { status: 200, headers: JSON_HEADERS });
       } catch (error) {
         if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
@@ -51,10 +57,11 @@ export default {
 
     const providerEnv = { ...env, AI: providerAi };
     try {
+      // The Worker is a channel and capability gateway. It MUST NOT generate a
+      // second public-chat answer after the backend has answered. This preserves
+      // BiteFixes business context, conversation state, provider routing and the
+      // backend's final answer as the single source of truth.
       const response = await biteyWorker.fetch(request, providerEnv, ctx);
-      if (isPublicConversationMessage(request, response)) {
-        return await generatePublicAnswerWithProvider(response, request, providerAi);
-      }
       return await normalizeLegacyProviderMetadata(response, lastProvider, lastModel);
     } catch (error) {
       if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
@@ -69,74 +76,6 @@ export default {
     }
   }
 };
-
-function isPublicConversationMessage(request, response) {
-  const url = new URL(request.url);
-  if (request.method !== 'POST' || !url.pathname.includes('/conversations/') || !url.pathname.endsWith('/messages')) return false;
-  if (response?.headers.get('X-Bitey-Delegated') === 'true') return false;
-  return true;
-}
-
-async function generatePublicAnswerWithProvider(upstream, request, providerAi) {
-  let payload;
-  try { payload = await request.clone().json(); } catch (_) { return upstream; }
-  const userMessage = String(payload?.message || '').trim();
-  if (!userMessage) return upstream;
-
-  let backendBody = {};
-  try { backendBody = await upstream.clone().json(); } catch (_) {}
-  const backendAnswer = String(backendBody?.answer || '').trim();
-  const sources = Array.isArray(backendBody?.sources) ? backendBody.sources : [];
-  const evidence = String(backendBody?.evidence_context || '').trim();
-  const context = [
-    backendAnswer ? `CONTEXTO PREVIO DEL CEREBRO BITEY:\n${backendAnswer}` : '',
-    evidence ? `EVIDENCIA DEL CEREBRO BITEY:\n${evidence}` : '',
-    sources.length ? `FUENTES DEL CEREBRO BITEY:\n${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('\n')}` : '',
-  ].filter(Boolean).join('\n\n').slice(0, 12000);
-
-  const messages = [
-    { role: 'system', content: 'Eres Bitey IA, una inteligencia general pública. Responde en el idioma del usuario. Sé útil, clara y directa. Usa el contexto y evidencia proporcionados cuando sean relevantes. No inventes datos. No expongas nombres de proveedores, capas internas, contratos ni diagnósticos.' },
-    ...(context ? [{ role: 'system', content: context }] : []),
-    { role: 'user', content: userMessage },
-  ];
-
-  let generated;
-  try {
-    generated = await providerAi.run('public-chat', { messages, max_tokens: 768, temperature: 0.2 });
-  } catch (error) {
-    if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
-      return new Response(JSON.stringify({
-        ...backendBody,
-        answer: 'Ahora mismo no puedo completar esta consulta porque no hay un proveedor de IA gratuito disponible. Inténtalo nuevamente en unos momentos.',
-        error: 'ai_provider_unavailable',
-        provider_policy: PROVIDER_POLICY,
-        providers: error.providers || [],
-        selected_provider: null,
-      }), { status: 503, headers: { ...JSON_HEADERS, 'X-Bitey-Provider': 'unavailable' } });
-    }
-    throw error;
-  }
-
-  const merged = {
-    ...backendBody,
-    answer: generated?.response || backendAnswer,
-    providers: generated?.provider ? [generated.provider] : [],
-    selected_provider: generated?.provider || null,
-    model: generated?.model || null,
-    provider_policy: PROVIDER_POLICY,
-    activity_events: [
-      ...(Array.isArray(backendBody?.activity_events) ? backendBody.activity_events : []),
-      `Respuesta generada por el proveedor seleccionado: ${generated?.provider || 'unknown'}.`,
-    ],
-  };
-  const headers = new Headers(upstream.headers);
-  headers.set('content-type', 'application/json; charset=utf-8');
-  headers.set('cache-control', 'no-store');
-  headers.set('X-Bitey-Provider', generated?.provider || 'unknown');
-  if (generated?.model) headers.set('X-Bitey-Model', generated.model);
-  headers.set('X-Bitey-Provider-Policy', PROVIDER_POLICY);
-  return new Response(JSON.stringify(merged), { status: 200, headers });
-}
 
 async function normalizeLegacyProviderMetadata(response, provider, model) {
   if (!response || !provider || !response.headers.get('content-type')?.includes('application/json')) return response;
@@ -156,6 +95,7 @@ async function normalizeLegacyProviderMetadata(response, provider, model) {
     headers.set('cache-control', 'no-store');
     headers.set('X-Bitey-Provider', provider);
     if (model) headers.set('X-Bitey-Model', model);
+    headers.set('X-Bitey-Provider-Policy', PROVIDER_POLICY);
     return new Response(JSON.stringify(payload), { status: response.status, statusText: response.statusText, headers });
   } catch (_) {
     return response;
