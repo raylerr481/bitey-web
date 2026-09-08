@@ -1,4 +1,5 @@
 const DEFAULT_QWEN_MODEL = 'qwen-plus';
+const DEFAULT_QWEN_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 const DEFAULT_GROQ_MODEL = 'qwen/qwen3.6-27b';
 const DEFAULT_GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 
@@ -13,7 +14,7 @@ export function createProviderAi(env) {
       const qwen = await callOpenAiCompatible({
         provider: 'qwen',
         apiKey: env.QWEN_API_KEY || env.DASHSCOPE_API_KEY,
-        baseUrl: env.QWEN_BASE_URL,
+        baseUrl: env.QWEN_BASE_URL || DEFAULT_QWEN_BASE_URL,
         model: env.QWEN_MODEL || DEFAULT_QWEN_MODEL,
         messages,
         maxTokens,
@@ -47,8 +48,18 @@ export function createProviderAi(env) {
 
 export function providerStatus(env) {
   return {
-    qwen: { configured: Boolean(env.QWEN_API_KEY || env.DASHSCOPE_API_KEY), model: env.QWEN_MODEL || DEFAULT_QWEN_MODEL, base_url_configured: Boolean(env.QWEN_BASE_URL) },
-    groq: { configured: Boolean(env.GROQ_API_KEY), enabled: String(env.GROQ_ENABLED || 'true').toLowerCase() !== 'false', model: env.GROQ_MODEL || DEFAULT_GROQ_MODEL },
+    qwen: {
+      configured: Boolean(env.QWEN_API_KEY || env.DASHSCOPE_API_KEY),
+      model: env.QWEN_MODEL || DEFAULT_QWEN_MODEL,
+      base_url: env.QWEN_BASE_URL || DEFAULT_QWEN_BASE_URL,
+      base_url_configured: true,
+    },
+    groq: {
+      configured: Boolean(env.GROQ_API_KEY),
+      enabled: String(env.GROQ_ENABLED || 'true').toLowerCase() !== 'false',
+      model: env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
+      base_url: env.GROQ_BASE_URL || DEFAULT_GROQ_BASE_URL,
+    },
     policy: 'qwen-primary-groq-fallback',
   };
 }
