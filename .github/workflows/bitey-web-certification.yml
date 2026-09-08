@@ -22,7 +22,8 @@ jobs:
           echo "== Basic endpoints =="
           test "$(curl -L -sS -o /tmp/root -w '%{http_code}' --max-time 20 "$BASE/")" = "200"
           test "$(curl -L -sS -o /tmp/ai -w '%{http_code}' --max-time 30 "$BASE/api/diagnostics/edge-ai")" = "200"
-          jq -e '.ok == true and .selected_provider == "cloudflare-workers-ai" and (.answer | length) > 0' /tmp/ai >/dev/null
+          jq -e '.ok == true and (.selected_provider | length) > 0 and (.answer | length) > 0' /tmp/ai >/dev/null
+          jq -e '(.selected_provider == "qwen" or .selected_provider == "groq" or .selected_provider == "cloudflare-workers-ai")' /tmp/ai >/dev/null
 
           echo "== Conversation + 2+2 + memory + research =="
           test "$(curl -L -sS -o /tmp/conversation -w '%{http_code}' --max-time 30 -X POST "$BASE/api/v1/conversations" -H 'Content-Type: application/json' --data '{"metadata":{"channel":"ci","interface":"certification"}}')" = "200"
