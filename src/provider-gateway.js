@@ -70,7 +70,7 @@ async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages
     if (!response.ok) return { ok: false, error: { provider, status: response.status, message: String(body?.error?.message || body?.message || 'provider_error') } };
     const text = String(body?.choices?.[0]?.message?.content || body?.output?.[0]?.content?.[0]?.text || '').trim();
     if (!text) return { ok: false, error: { provider, status: response.status, message: 'empty_response' } };
-    return { ok: true, response: { response: { provider, model, choices: [{ message: { role: 'assistant', content: text } }] } } };
+    return { ok: true, response: { response: text, provider, model } };
   } catch (error) {
     return { ok: false, error: { provider, status: 0, message: error?.name === 'AbortError' ? 'timeout' : String(error) } };
   } finally {
