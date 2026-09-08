@@ -21,13 +21,10 @@ jobs:
         with:
           node-version: 22
 
-      - name: Sync Bitey provider secrets
+      - name: Sync Groq provider secret
         shell: bash
         env:
-          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          QWEN_MODEL: ${{ secrets.QWEN_MODEL }}
           GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
         run: |
           set -euo pipefail
@@ -38,13 +35,10 @@ jobs:
               printf '%s' "$value" | npx wrangler secret put "$name" --config wrangler.toml >/tmp/wrangler-secret.log 2>&1
               echo "Synced Cloudflare secret: $name"
             else
-              echo "Provider secret not supplied by GitHub Actions: $name"
+              echo "Groq secret not supplied by GitHub Actions: $name"
             fi
           }
-          put_secret QWEN_API_KEY "$QWEN_API_KEY"
-          put_secret DASHSCOPE_API_KEY "$DASHSCOPE_API_KEY"
           put_secret GROQ_API_KEY "$GROQ_API_KEY"
-          put_secret QWEN_MODEL "$QWEN_MODEL"
           put_secret GROQ_MODEL "$GROQ_MODEL"
 
       - name: Deploy Bitey IA Web Worker
