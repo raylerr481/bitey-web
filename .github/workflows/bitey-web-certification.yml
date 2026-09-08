@@ -52,18 +52,43 @@ jobs:
           echo "== Real JobIA execution through Bitey Web =="
           post_message() {
             local outfile="$1"; local message="$2"
+            : > "${outfile}.curl-error"
             curl -L -sS -D "${outfile}.headers" -o "$outfile" -w '%{http_code}' --max-time 60 \
               -X POST "$BASE/api/v1/conversations/$CID/messages" -H 'Content-Type: application/json' \
-              --data "$(jq -nc --arg message "$message" '{message:$message}')"
+              --data "$(jq -nc --arg message "$message" '{message:$message}')" 2>"${outfile}.curl-error"
           }
+          set +e
           STATUS=$(post_message /tmp/jobia "búscame trabajo remoto")
-          test "$STATUS" = "200"
+          CURL_EXIT=$?
+          set -e
+          echo "JobIA remote: curl_exit=$CURL_EXIT http_status=$STATUS"
+          if [ "$CURL_EXIT" != "0" ] || [ "$STATUS" != "200" ]; then
+            echo "--- JobIA response headers ---"
+            cat /tmp/jobia.headers 2>/dev/null || true
+            echo "--- JobIA response body ---"
+            cat /tmp/jobia 2>/dev/null || true
+            echo "--- JobIA curl error ---"
+            cat /tmp/jobia.curl-error 2>/dev/null || true
+            exit 1
+          fi
           grep -qi '^x-bitey-delegated: *true' /tmp/jobia.headers
           jq -e '.capability == "jobia" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted"' /tmp/jobia >/dev/null
           jq -e '.execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and (.result.jobs | length >= 1) and ([.result.jobs[].modality] | all == "Remote")' /tmp/jobia >/dev/null
 
+          set +e
           STATUS=$(post_message /tmp/jobia_python "busca trabajos de Python")
-          test "$STATUS" = "200"
+          CURL_EXIT=$?
+          set -e
+          echo "JobIA Python: curl_exit=$CURL_EXIT http_status=$STATUS"
+          if [ "$CURL_EXIT" != "0" ] || [ "$STATUS" != "200" ]; then
+            echo "--- JobIA Python response headers ---"
+            cat /tmp/jobia_python.headers 2>/dev/null || true
+            echo "--- JobIA Python response body ---"
+            cat /tmp/jobia_python 2>/dev/null || true
+            echo "--- JobIA Python curl error ---"
+            cat /tmp/jobia_python.curl-error 2>/dev/null || true
+            exit 1
+          fi
           grep -qi '^x-bitey-delegated: *true' /tmp/jobia_python.headers
           jq -e '.capability == "jobia" and .execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and ([.result.jobs[].skills[]] | any == "Python")' /tmp/jobia_python >/dev/null
           jq -e '.result.filters.skills | index("Python") != null' /tmp/jobia_python >/dev/null
