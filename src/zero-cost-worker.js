@@ -2,6 +2,7 @@ import biteyWorker from './capability-worker.js';
 import { providerStatus, createProviderAi } from './provider-gateway.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+const PROVIDER_POLICY = 'groq-primary-free-only';
 
 export default {
   async fetch(request, env, ctx) {
@@ -38,11 +39,11 @@ export default {
           selected_provider: response?.provider || lastProvider,
           model: response?.model || lastModel,
           answer: response?.response || '',
-          policy: 'qwen-primary-groq-fallback',
+          policy: PROVIDER_POLICY,
         }), { status: 200, headers: JSON_HEADERS });
       } catch (error) {
         if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
-          return new Response(JSON.stringify({ ok: false, error: 'ai_provider_unavailable', policy: 'qwen-primary-groq-fallback', providers: error.providers || [] }), { status: 503, headers: JSON_HEADERS });
+          return new Response(JSON.stringify({ ok: false, error: 'ai_provider_unavailable', policy: PROVIDER_POLICY, providers: error.providers || [] }), { status: 503, headers: JSON_HEADERS });
         }
         throw error;
       }
@@ -59,8 +60,8 @@ export default {
       if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
         return new Response(JSON.stringify({
           error: 'ai_provider_unavailable',
-          message: 'Bitey no tiene un proveedor de IA disponible en este momento.',
-          provider_policy: 'qwen-primary-groq-fallback',
+          message: 'Bitey no tiene un proveedor de IA gratuito disponible en este momento.',
+          provider_policy: PROVIDER_POLICY,
           providers: error.providers || [],
         }), { status: 503, headers: { ...JSON_HEADERS, 'X-Bitey-Provider': 'unavailable' } });
       }
@@ -106,9 +107,9 @@ async function generatePublicAnswerWithProvider(upstream, request, providerAi) {
     if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
       return new Response(JSON.stringify({
         ...backendBody,
-        answer: 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.',
+        answer: 'Ahora mismo no puedo completar esta consulta porque no hay un proveedor de IA gratuito disponible. Inténtalo nuevamente en unos momentos.',
         error: 'ai_provider_unavailable',
-        provider_policy: 'qwen-primary-groq-fallback',
+        provider_policy: PROVIDER_POLICY,
         providers: error.providers || [],
         selected_provider: null,
       }), { status: 503, headers: { ...JSON_HEADERS, 'X-Bitey-Provider': 'unavailable' } });
@@ -122,7 +123,7 @@ async function generatePublicAnswerWithProvider(upstream, request, providerAi) {
     providers: generated?.provider ? [generated.provider] : [],
     selected_provider: generated?.provider || null,
     model: generated?.model || null,
-    provider_policy: 'qwen-primary-groq-fallback',
+    provider_policy: PROVIDER_POLICY,
     activity_events: [
       ...(Array.isArray(backendBody?.activity_events) ? backendBody.activity_events : []),
       `Respuesta generada por el proveedor seleccionado: ${generated?.provider || 'unknown'}.`,
@@ -133,7 +134,7 @@ async function generatePublicAnswerWithProvider(upstream, request, providerAi) {
   headers.set('cache-control', 'no-store');
   headers.set('X-Bitey-Provider', generated?.provider || 'unknown');
   if (generated?.model) headers.set('X-Bitey-Model', generated.model);
-  headers.set('X-Bitey-Provider-Policy', 'qwen-primary-groq-fallback');
+  headers.set('X-Bitey-Provider-Policy', PROVIDER_POLICY);
   return new Response(JSON.stringify(merged), { status: 200, headers });
 }
 
