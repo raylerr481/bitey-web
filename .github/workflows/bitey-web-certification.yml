@@ -19,24 +19,27 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://bitey-web.raylerr481.workers.dev"
-          echo "== Basic endpoints =="
+          echo "== Basic endpoints and Groq free-only provider =="
           test "$(curl -L -sS -o /tmp/root -w '%{http_code}' --max-time 20 "$BASE/")" = "200"
-          test "$(curl -L -sS -o /tmp/ai -w '%{http_code}' --max-time 30 "$BASE/api/diagnostics/edge-ai")" = "200"
-          jq -e '.ok == true and (.selected_provider | length) > 0 and (.answer | length) > 0' /tmp/ai >/dev/null
-          jq -e '(.selected_provider == "qwen" or .selected_provider == "groq" or .selected_provider == "cloudflare-workers-ai")' /tmp/ai >/dev/null
+          test "$(curl -L -sS -o /tmp/providers -w '%{http_code}' --max-time 20 "$BASE/api/diagnostics/providers")" = "200"
+          jq -e '.ok == true and .policy == "groq-primary-free-only" and .groq.configured == true and .groq.enabled == true' /tmp/providers >/dev/null
+          test "$(curl -L -sS -o /tmp/ai -w '%{http_code}' --max-time 45 "$BASE/api/diagnostics/edge-ai")" = "200"
+          jq -e '.ok == true and .selected_provider == "groq" and (.answer | length) > 0 and .policy == "groq-primary-free-only"' /tmp/ai >/dev/null
 
           echo "== Conversation + 2+2 + memory + research =="
           test "$(curl -L -sS -o /tmp/conversation -w '%{http_code}' --max-time 30 -X POST "$BASE/api/v1/conversations" -H 'Content-Type: application/json' --data '{"metadata":{"channel":"ci","interface":"certification"}}')" = "200"
           CID=$(jq -r '.conversation_id // empty' /tmp/conversation)
           test -n "$CID"
           test "$(curl -L -sS -o /tmp/math -w '%{http_code}' --max-time 45 -X POST "$BASE/api/v1/conversations/$CID/messages" -H 'Content-Type: application/json' --data '{"message":"2+2"}')" = "200"
-          jq -e '.answer and (.answer | length > 0)' /tmp/math >/dev/null
+          jq -e '.answer and (.answer | length > 0) and .selected_provider == "groq" and (.providers | index("groq")) != null' /tmp/math >/dev/null
           grep -Eq '(^|[^0-9])4([^0-9]|$)' /tmp/math
           test "$(curl -L -sS -o /tmp/memory1 -w '%{http_code}' --max-time 45 -X POST "$BASE/api/v1/conversations/$CID/messages" -H 'Content-Type: application/json' --data '{"message":"Mi nombre es Rayler."}')" = "200"
+          jq -e '.selected_provider == "groq"' /tmp/memory1 >/dev/null
           test "$(curl -L -sS -o /tmp/memory2 -w '%{http_code}' --max-time 45 -X POST "$BASE/api/v1/conversations/$CID/messages" -H 'Content-Type: application/json' --data '{"message":"¿Cómo me llamo?"}')" = "200"
+          jq -e '.selected_provider == "groq"' /tmp/memory2 >/dev/null
           grep -qi 'Rayler' /tmp/memory2
           test "$(curl -L -sS -o /tmp/research -w '%{http_code}' --max-time 60 -X POST "$BASE/api/v1/conversations/$CID/messages" -H 'Content-Type: application/json' --data '{"message":"Investiga en la web alternativas gratuitas para crear una IA y dame fuentes."}')" = "200"
-          jq -e '.answer and (.answer | length > 0)' /tmp/research >/dev/null
+          jq -e '.answer and (.answer | length > 0) and .selected_provider == "groq" and (.providers | index("groq")) != null' /tmp/research >/dev/null
           jq -e '.research_required == true and (.sources | type) == "array" and (.sources | length) > 0' /tmp/research >/dev/null
           jq -e '.sources[0].url and (.sources[0].url | startswith("http"))' /tmp/research >/dev/null
 
@@ -62,34 +65,16 @@ jobs:
           STATUS=$(post_message /tmp/jobia "búscame trabajo remoto")
           CURL_EXIT=$?
           set -e
-          echo "JobIA remote: curl_exit=$CURL_EXIT http_status=$STATUS"
-          if [ "$CURL_EXIT" != "0" ] || [ "$STATUS" != "200" ]; then
-            echo "--- JobIA response headers ---"
-            cat /tmp/jobia.headers 2>/dev/null || true
-            echo "--- JobIA response body ---"
-            cat /tmp/jobia 2>/dev/null || true
-            echo "--- JobIA curl error ---"
-            cat /tmp/jobia.curl-error 2>/dev/null || true
-            exit 1
-          fi
+          test "$CURL_EXIT" = "0" && test "$STATUS" = "200"
           grep -qi '^x-bitey-delegated: *true' /tmp/jobia.headers
-          jq -e '.capability == "jobia" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted"' /tmp/jobia >/dev/null
-          jq -e '.execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and (.result.jobs | length >= 1) and ([.result.jobs[].modality] | all == "Remote")' /tmp/jobia >/dev/null
+          jq -e '.capability == "jobia" and .routed_by == "bitey-capability-router" and .delegation_status == "accepted" and .execution_status == "completed"' /tmp/jobia >/dev/null
+          jq -e '(.result.count >= 1) and (.result.jobs | length >= 1) and ([.result.jobs[].modality] | all == "Remote")' /tmp/jobia >/dev/null
 
           set +e
           STATUS=$(post_message /tmp/jobia_python "busca trabajos de Python")
           CURL_EXIT=$?
           set -e
-          echo "JobIA Python: curl_exit=$CURL_EXIT http_status=$STATUS"
-          if [ "$CURL_EXIT" != "0" ] || [ "$STATUS" != "200" ]; then
-            echo "--- JobIA Python response headers ---"
-            cat /tmp/jobia_python.headers 2>/dev/null || true
-            echo "--- JobIA Python response body ---"
-            cat /tmp/jobia_python 2>/dev/null || true
-            echo "--- JobIA Python curl error ---"
-            cat /tmp/jobia_python.curl-error 2>/dev/null || true
-            exit 1
-          fi
+          test "$CURL_EXIT" = "0" && test "$STATUS" = "200"
           grep -qi '^x-bitey-delegated: *true' /tmp/jobia_python.headers
           jq -e '.capability == "jobia" and .execution_status == "completed" and .result_type == "opportunities" and (.result.count >= 1) and ([.result.jobs[].skills[]] | any == "Python")' /tmp/jobia_python >/dev/null
           jq -e '.result.filters.skills | index("Python") != null' /tmp/jobia_python >/dev/null
@@ -98,10 +83,11 @@ jobs:
           STATUS=$(post_message /tmp/general "hola")
           test "$STATUS" = "200"
           ! grep -qi '^x-bitey-delegated: *true' /tmp/general.headers
-          jq -e '.answer and (.answer | length) > 0' /tmp/general >/dev/null
+          jq -e '.answer and (.answer | length) > 0 and .selected_provider == "groq"' /tmp/general >/dev/null
           STATUS=$(post_message /tmp/general_math "2+2")
           test "$STATUS" = "200"
           ! grep -qi '^x-bitey-delegated: *true' /tmp/general_math.headers
+          jq -e '.selected_provider == "groq"' /tmp/general_math >/dev/null
           grep -Eq '(^|[^0-9])4([^0-9]|$)' /tmp/general_math
           STATUS=$(post_message /tmp/sbt "analiza EUR/USD")
           test "$STATUS" = "200"
@@ -111,4 +97,4 @@ jobs:
           test "$STATUS" = "200"
           grep -qi '^x-bitey-delegated: *true' /tmp/sbt_btc.headers
           jq -e '.capability == "sbt" and .delegation_status == "accepted" and .execution.live == false' /tmp/sbt_btc >/dev/null
-          echo "CERTIFICATION PASSED: general AI, memory, research evidence, Skills Engine, zero-cost guard, real JobIA delegation with remote and Python filters, and SBT safety routing are operational."
+          echo "CERTIFICATION PASSED: Groq free-only public AI, real conversation, memory, research evidence, Skills Engine, zero-cost guard, JobIA delegation, and SBT safety routing are operational."
