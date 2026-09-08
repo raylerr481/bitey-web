@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 9000;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 function originFromEnv(env, key) {
   const value = String(env?.[key] || '').trim();
