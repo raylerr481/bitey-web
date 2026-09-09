@@ -6,15 +6,12 @@ from typing import Any
 
 import httpx
 
+from .execution_context import ExecutionContext
+
 
 @dataclass
 class MemoryStore:
-    """General Bitey conversation memory with durable Supabase persistence.
-
-    Bitey shares the physical Supabase infrastructure with BiteFixes, but its
-    conversation records are explicitly marked as general Bitey memory so the
-    enterprise context remains a separate responsibility.
-    """
+    """General Bitey conversation memory with explicit execution-scope metadata."""
 
     conversations: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
@@ -27,68 +24,56 @@ class MemoryStore:
         return bool(self.supabase_url and self.supabase_key)
 
     @staticmethod
-    def _metadata(metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-        return {
-            **(metadata or {}),
-            "owner": "bitey_ia",
-            "memory_scope": "general",
-        }
+    def _metadata(metadata: dict[str, Any] | None = None, execution_context: ExecutionContext | None = None) -> dict[str, Any]:
+        result = {**(metadata or {}), "owner": "bitey_ia"}
+        if execution_context is None:
+            result.setdefault("memory_scope", "general")
+            return result
+        result.update({"memory_scope": execution_context.memory_scope, "execution_scope": execution_context.as_dict()})
+        return result
 
-    async def create_conversation(self, conversation_id: str, metadata: dict[str, Any] | None = None) -> None:
+    async def create_conversation(self, conversation_id: str, metadata: dict[str, Any] | None = None, execution_context: ExecutionContext | None = None) -> None:
         self.conversations.setdefault(conversation_id, [])
         if not self.persistent:
             return
-        payload = {"id": conversation_id, "metadata": self._metadata(metadata)}
+        payload = {"id": conversation_id, "metadata": self._metadata(metadata, execution_context)}
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{self.supabase_url}/rest/v1/conversations",
-                headers=self._headers(),
-                json=payload,
-            )
+            response = await client.post(f"{self.supabase_url}/rest/v1/conversations", headers=self._headers(), json=payload)
             response.raise_for_status()
 
-    async def append(self, conversation_id: str, message: dict[str, Any]) -> None:
+    async def append(self, conversation_id: str, message: dict[str, Any], execution_context: ExecutionContext | None = None) -> None:
         self.conversations.setdefault(conversation_id, []).append(message)
         if not self.persistent:
             return
-        payload = {
-            "conversation_id": conversation_id,
-            "role": message["role"],
-            "content": message["content"],
-            "metadata": self._metadata(message.get("metadata")),
-        }
+        payload = {"conversation_id": conversation_id, "role": message["role"], "content": message["content"], "metadata": self._metadata(message.get("metadata"), execution_context)}
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                f"{self.supabase_url}/rest/v1/messages",
-                headers=self._headers(),
-                json=payload,
-            )
+            response = await client.post(f"{self.supabase_url}/rest/v1/messages", headers=self._headers(), json=payload)
             response.raise_for_status()
 
-    async def history(self, conversation_id: str) -> list[dict[str, Any]]:
+    async def history(self, conversation_id: str, execution_context: ExecutionContext | None = None) -> list[dict[str, Any]]:
         if self.persistent:
             async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(
-                    f"{self.supabase_url}/rest/v1/messages",
-                    headers=self._headers(),
-                    params={
-                        "conversation_id": f"eq.{conversation_id}",
-                        "select": "role,content,created_at",
-                        "order": "created_at.asc",
-                    },
-                )
+                params: dict[str, str] = {"conversation_id": f"eq.{conversation_id}", "select": "role,content,created_at,metadata", "order": "created_at.asc"}
+                if execution_context is not None:
+                    params["metadata->>memory_scope"] = f"eq.{execution_context.memory_scope}"
+                response = await client.get(f"{self.supabase_url}/rest/v1/messages", headers=self._headers(), params=params)
                 response.raise_for_status()
                 rows = response.json()
                 if rows:
-                    self.conversations[conversation_id] = [
-                        {"role": row["role"], "content": row["content"]} for row in rows
-                    ]
+                    self.conversations[conversation_id] = [{"role": row["role"], "content": row["content"]} for row in rows]
         return list(self.conversations.get(conversation_id, []))
 
+    async def conversation_metadata(self, conversation_id: str) -> dict[str, Any] | None:
+        if not self.persistent:
+            return None
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"{self.supabase_url}/rest/v1/conversations", headers=self._headers(), params={"id": f"eq.{conversation_id}", "select": "metadata", "limit": "1"})
+            response.raise_for_status()
+            rows = response.json()
+            if not rows:
+                return None
+            metadata = rows[0].get("metadata")
+            return metadata if isinstance(metadata, dict) else {}
+
     def _headers(self) -> dict[str, str]:
-        return {
-            "apikey": self.supabase_key,
-            "Authorization": f"Bearer {self.supabase_key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=minimal",
-        }
+        return {"apikey": self.supabase_key, "Authorization": f"Bearer {self.supabase_key}", "Content-Type": "application/json", "Prefer": "return=minimal"}
