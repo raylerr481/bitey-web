@@ -4,7 +4,7 @@ import os
 
 from .enterprise_context import EnterpriseContextResolver
 from .bitefixes_context_bridge import BiteFixesContextBridge
-from .execution_context import ExecutionContext
+from .execution_context import ExecutionContext, server_execution_context
 
 
 @dataclass
@@ -44,13 +44,18 @@ class ContextEngine:
         message: str,
         metadata: dict[str, Any] | None = None,
         execution_context: ExecutionContext | None = None,
+        conversation_id: str | None = None,
     ) -> ContextEnvelope:
         metadata = metadata or {}
         enterprise = None
 
-        # Client metadata is never allowed to select a company. BiteFixes context
-        # is available only when the server has established the BiteFixes tenant
-        # and the company identifier is configured server-side.
+        # Every normal execution receives a server-derived scope. Client metadata
+        # can enrich context, but cannot select tenant, identity, module or company.
+        if execution_context is None and conversation_id:
+            execution_context = server_execution_context(conversation_id)
+
+        # BiteFixes context is available only when the server has established the
+        # BiteFixes tenant and the company identifier is configured server-side.
         if execution_context is not None and execution_context.tenant_id == "bitefixes":
             company_id = os.getenv("BITEFIXES_COMPANY_ID", "").strip()
             if company_id and self.bitefixes_bridge.configured:
@@ -65,8 +70,8 @@ class ContextEngine:
                         "authoritative": True,
                     }
         elif execution_context is None and os.getenv("BITEY_ENTERPRISE_PROFILE_JSON"):
-            # Preserve the existing static enterprise profile behavior for
-            # server-configured deployments that do not use tenant execution yet.
+            # Preserve the existing static enterprise profile behavior only for
+            # callers that do not provide a conversation scope.
             enterprise = self.enterprise_resolver.resolve({})
 
         return ContextEnvelope(
@@ -86,6 +91,10 @@ class ContextEngine:
         execution_context: ExecutionContext | None = None,
     ) -> ContextEnvelope:
         """Fetch BiteFixes context only for a server-established BiteFixes tenant."""
+        if execution_context is None:
+            conversation_id = str(context.execution.get("session", {}).get("conversation_id") or "").strip()
+            if conversation_id:
+                execution_context = server_execution_context(conversation_id)
         if execution_context is None or execution_context.tenant_id != "bitefixes":
             return context
         company_id = os.getenv("BITEFIXES_COMPANY_ID", "").strip()
@@ -101,4 +110,5 @@ class ContextEngine:
                 "read_only": True,
                 "authoritative": True,
             }
+        context.execution = execution_context.as_dict()
         return context
