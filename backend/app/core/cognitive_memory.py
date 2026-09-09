@@ -13,6 +13,10 @@ class CognitiveMemoryAdapter:
     The adapter is intentionally schema-tolerant: it reads rows with select=* and
     extracts only generic fields. If Supabase or a table is unavailable, cognition
     continues normally with an empty learned context.
+
+    When an execution scope is present, cognitive rows are accepted only when they
+    carry the same ``memory_scope``. This prevents learned context from one tenant,
+    user, module, or conversation being reused in another scope.
     """
 
     TABLES = (
@@ -60,11 +64,65 @@ class CognitiveMemoryAdapter:
         row_tokens = self._tokens(haystack)
         return len(query_tokens & row_tokens)
 
+    @staticmethod
+    def _extract_memory_scope(context: dict[str, Any] | None) -> str | None:
+        """Read only a server-produced scope from the assembled context."""
+        if not isinstance(context, dict):
+            return None
+
+        candidates: list[Any] = [context.get("memory_scope")]
+        for key in ("execution", "memory"):
+            nested = context.get(key)
+            if isinstance(nested, dict):
+                candidates.append(nested.get("memory_scope"))
+
+        execution_context = context.get("execution_context")
+        if isinstance(execution_context, dict):
+            candidates.append(execution_context.get("memory_scope"))
+            memory = execution_context.get("memory")
+            if isinstance(memory, dict):
+                candidates.append(memory.get("memory_scope"))
+
+        for value in candidates:
+            scope = str(value).strip() if value is not None else ""
+            if scope:
+                return scope
+        return None
+
+    @staticmethod
+    def _row_memory_scope(row: dict[str, Any]) -> str | None:
+        """Extract the persisted scope without trusting arbitrary row content as scope."""
+        for key in ("memory_scope", "execution_scope"):
+            value = row.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        metadata = row.get("metadata")
+        if isinstance(metadata, dict):
+            value = metadata.get("memory_scope")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            execution_scope = metadata.get("execution_scope")
+            if isinstance(execution_scope, dict):
+                value = execution_scope.get("memory_scope")
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+        return None
+
+    @classmethod
+    def _filter_scope(cls, rows: list[dict[str, Any]], memory_scope: str | None) -> list[dict[str, Any]]:
+        """Apply fail-closed isolation whenever a scope is available."""
+        if not memory_scope:
+            return rows
+        return [row for row in rows if cls._row_memory_scope(row) == memory_scope]
+
     async def retrieve(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         if not self.persistent:
             return {"enabled": False, "available": False, "records": {}, "summary": "Supabase cognitive memory is not configured."}
 
         query_tokens = self._tokens(message)
+        memory_scope = self._extract_memory_scope(context)
         records: dict[str, list[dict[str, Any]]] = {}
         errors: dict[str, str] = {}
         try:
@@ -72,6 +130,7 @@ class CognitiveMemoryAdapter:
                 for table in self.TABLES:
                     try:
                         rows = await self._read_table(client, table)
+                        rows = self._filter_scope(rows, memory_scope)
                         ranked = sorted(rows, key=lambda row: self._score(row, query_tokens), reverse=True)
                         relevant = [row for row in ranked if self._score(row, query_tokens) > 0][: min(5, self.limit)]
                         records[table] = relevant or rows[: min(2, self.limit)]
@@ -88,6 +147,7 @@ class CognitiveMemoryAdapter:
             "records": records,
             "counts": counts,
             "errors": errors,
+            "memory_scope": memory_scope,
             "summary": "Learned cognitive context retrieved." if available else "No learned cognitive context available yet.",
         }
 
