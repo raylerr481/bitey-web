@@ -4,6 +4,7 @@ import os
 
 from .enterprise_context import EnterpriseContextResolver
 from .bitefixes_context_bridge import BiteFixesContextBridge
+from .execution_context import ExecutionContext
 
 
 @dataclass
@@ -16,6 +17,7 @@ class ContextEnvelope:
     research: dict[str, Any] = field(default_factory=dict)
     enterprise: dict[str, Any] | None = None
     channel: dict[str, Any] = field(default_factory=dict)
+    execution: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -25,56 +27,74 @@ class ContextEnvelope:
             "research": self.research,
             "enterprise": self.enterprise,
             "channel": self.channel,
+            "execution": self.execution,
         }
 
 
 class ContextEngine:
-    """Build general context first; enterprise context is opt-in and read-only."""
+    """Build general context first; enterprise context is opt-in and server-scoped."""
 
     def __init__(self) -> None:
         self.enterprise_resolver = EnterpriseContextResolver()
         self.bitefixes_bridge = BiteFixesContextBridge()
 
-    def assemble(self, *, message: str, metadata: dict[str, Any] | None = None) -> ContextEnvelope:
+    def assemble(
+        self,
+        *,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
+    ) -> ContextEnvelope:
         metadata = metadata or {}
-        has_enterprise_hint = bool(
-            metadata.get("enterprise")
-            or metadata.get("company_id")
-            or metadata.get("enterprise_company_id")
-            or os.getenv("BITEY_ENTERPRISE_PROFILE_JSON")
-        )
-        enterprise = self.enterprise_resolver.resolve(metadata) if has_enterprise_hint else None
-        company_id = metadata.get("company_id") or metadata.get("enterprise_company_id")
-        if company_id and self.bitefixes_bridge.configured:
-            remote = self.bitefixes_bridge.company_sync(str(company_id))
-            if remote:
-                enterprise = {
-                    "company_id": str(company_id),
-                    "company": remote.get("company") or {},
-                    "profile": remote.get("profile") or {},
-                    "source": "bitefixes_backend",
-                    "read_only": True,
-                    "authoritative": True,
-                }
+        enterprise = None
+
+        # Client metadata is never allowed to select a company. BiteFixes context
+        # is available only when the server has established the BiteFixes tenant
+        # and the company identifier is configured server-side.
+        if execution_context is not None and execution_context.tenant_id == "bitefixes":
+            company_id = os.getenv("BITEFIXES_COMPANY_ID", "").strip()
+            if company_id and self.bitefixes_bridge.configured:
+                remote = self.bitefixes_bridge.company_sync(company_id)
+                if remote:
+                    enterprise = {
+                        "company_id": company_id,
+                        "company": remote.get("company") or {},
+                        "profile": remote.get("profile") or {},
+                        "source": "bitefixes_backend",
+                        "read_only": True,
+                        "authoritative": True,
+                    }
+        elif execution_context is None and os.getenv("BITEY_ENTERPRISE_PROFILE_JSON"):
+            # Preserve the existing static enterprise profile behavior for
+            # server-configured deployments that do not use tenant execution yet.
+            enterprise = self.enterprise_resolver.resolve({})
+
         return ContextEnvelope(
-            user=metadata.get("user", {}),
-            conversation=metadata.get("conversation", {}),
-            task={"message": message, **metadata.get("task", {})},
-            research=metadata.get("research", {}),
+            user=metadata.get("user", {}) if isinstance(metadata.get("user", {}), dict) else {},
+            conversation=metadata.get("conversation", {}) if isinstance(metadata.get("conversation", {}), dict) else {},
+            task={"message": message, **(metadata.get("task", {}) if isinstance(metadata.get("task", {}), dict) else {})},
+            research=metadata.get("research", {}) if isinstance(metadata.get("research", {}), dict) else {},
             enterprise=enterprise,
-            channel=metadata.get("channel", {}),
+            channel=metadata.get("channel", {}) if isinstance(metadata.get("channel", {}), dict) else {},
+            execution=execution_context.as_dict() if execution_context is not None else {},
         )
 
-    async def enrich_from_bitefixes(self, context: ContextEnvelope, metadata: dict[str, Any] | None = None) -> ContextEnvelope:
-        """Fetch enterprise context only when a company is explicitly identified."""
-        metadata = metadata or {}
-        company_id = metadata.get("company_id") or metadata.get("enterprise_company_id")
+    async def enrich_from_bitefixes(
+        self,
+        context: ContextEnvelope,
+        metadata: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
+    ) -> ContextEnvelope:
+        """Fetch BiteFixes context only for a server-established BiteFixes tenant."""
+        if execution_context is None or execution_context.tenant_id != "bitefixes":
+            return context
+        company_id = os.getenv("BITEFIXES_COMPANY_ID", "").strip()
         if not company_id or not self.bitefixes_bridge.configured:
             return context
-        remote = await self.bitefixes_bridge.company(str(company_id))
+        remote = await self.bitefixes_bridge.company(company_id)
         if remote:
             context.enterprise = {
-                "company_id": str(company_id),
+                "company_id": company_id,
                 "company": remote.get("company") or {},
                 "profile": remote.get("profile") or {},
                 "source": "bitefixes_backend",
