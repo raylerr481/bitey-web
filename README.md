@@ -98,13 +98,15 @@ Neo4j and MongoDB are not architectural dependencies.
 
 ## Cost policy
 
-The architecture is free-first:
+The architecture is **free-first and no-surprise-cost**:
 
-- no silent paid fallback;
-- local/open-weight models where practical;
-- verified free providers where appropriate;
-- deterministic tools for tasks that do not require an LLM;
-- controlled degradation when a provider is unavailable.
+- Prefer free services, open-source software, or free tiers without automatic billing risk.
+- Never add a provider that requires a payment card just to start or that can silently create charges for entry/egress, API requests, traffic, storage, or execution.
+- **Railway is explicitly excluded** from BiteFixes/Bitey infrastructure.
+- Cloudflare is allowed when its free usage is sufficient and any later cost occurs only after a clearly defined usage threshold; paid plans and automatic billing must never be enabled without explicit approval.
+- Before incorporating a new service, verify pricing, billing behavior, limits, card requirements, and overage behavior.
+- If a service can generate costs without an explicit decision first, use a safer alternative.
+- This README policy is documentation-only and must not alter existing working runtime integrations.
 
 Gemini API is not required.
 
