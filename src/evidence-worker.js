@@ -1,6 +1,6 @@
 import biteyWorker from './worker.js';
 
-const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|mejores|recomendaciones|recomienda|gratuita|gratuito|gratuitas|gratuitos|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
+const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|mejores|recomendaciones|recomienda|gratuita|gratuito|gratuitas|gratuitos|search|research|latest|actual|actualidad|hoy|este\s+año|este\s+mes|esta\s+semana|ahora|actualmente|programado|programada|programados|programadas|calendario|fecha|fechas|vuelo|vuelos|lanzamiento|lanzamientos|misión|misiones|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
 
 function isResearchRequest(message) {
   const normalized = String(message || '').toLowerCase();
@@ -8,7 +8,10 @@ function isResearchRequest(message) {
     'investiga', 'investigar', 'investigación', 'busca', 'buscar', 'búsqueda',
     'alternativas', 'opciones', 'mejores', 'fuentes', 'compara', 'comparar',
     'recomendaciones', 'recomienda', 'search', 'research', 'latest', 'actual',
-    'hoy', 'noticias', 'news', 'precio', 'precios'
+    'actualidad', 'hoy', 'este año', 'este mes', 'esta semana', 'ahora',
+    'actualmente', 'programado', 'programada', 'programados', 'programadas',
+    'calendario', 'fecha', 'fechas', 'vuelo', 'vuelos', 'lanzamiento',
+    'lanzamientos', 'misión', 'misiones', 'noticias', 'news', 'precio', 'precios'
   ].some(term => normalized.includes(term));
 }
 
@@ -22,7 +25,32 @@ export default {
     try { payload = await request.clone().json(); } catch (_) { return biteyWorker.fetch(request, env, ctx); }
     const message = String(payload?.message || '').trim();
     const researchRequested = isResearchRequest(message);
-    const response = await biteyWorker.fetch(request, env, ctx);
+
+    // For freshness-sensitive questions, collect evidence BEFORE the authoritative
+    // backend generation and pass the evidence plus the current date into the request.
+    // This prevents phrases such as "este año" from being answered from stale model memory.
+    let preloadedEvidence = null;
+    let backendRequest = request;
+    if (researchRequested) {
+      preloadedEvidence = await searchEvidence(message);
+      const sources = Array.isArray(preloadedEvidence?.sources) ? preloadedEvidence.sources : [];
+      const evidenceText = sources.slice(0, 8).map((source, index) =>
+        `[${index + 1}] ${source.title || source.url || 'Fuente'} — ${source.url || ''}${source.snippet ? ` — ${source.snippet}` : ''}`
+      ).join('\n');
+      const enrichedPayload = {
+        ...payload,
+        research_required: true,
+        research_reasons: ['freshness_sensitive_query'],
+        current_date: new Date().toISOString(),
+        current_year: new Date().getUTCFullYear(),
+        evidence_context: evidenceText ? `FUENTES ACTUALES RECUPERADAS POR BITEY:\n${evidenceText}\n\nUsa estas fuentes para responder. El año actual es ${new Date().getUTCFullYear()}. Distingue fechas confirmadas, "no antes de", ventanas aproximadas y elementos bajo revisión. No inventes datos.` : `La consulta requiere información actual. La fecha actual es ${new Date().toISOString()}. Si no hay evidencia suficiente, dilo claramente y no inventes datos.`
+      };
+      const headers = new Headers(request.headers);
+      headers.set('content-type', 'application/json; charset=utf-8');
+      backendRequest = new Request(request, { body: JSON.stringify(enrichedPayload), headers });
+    }
+
+    const response = await biteyWorker.fetch(backendRequest, env, ctx);
     if (!researchRequested || !response.ok) return response;
     let body;
     try { body = await response.clone().json(); } catch (_) { return response; }
@@ -30,7 +58,7 @@ export default {
     if (Array.isArray(body.sources) && body.sources.length > 0) {
       return withResearchContract(response, body, body.sources, 'backend-evidence');
     }
-    const evidence = await searchEvidence(message);
+    const evidence = preloadedEvidence || await searchEvidence(message);
     const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
     return withResearchContract(response, body, sources, evidence?.method || 'unavailable-free-only');
   }
