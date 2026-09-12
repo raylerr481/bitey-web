@@ -21,29 +21,66 @@ PUBLIC_OUTPUT_CONTRACT = (
     "about hidden reasoning. Return only the useful final answer in the user's language. "
     "Do not add headings such as 'thinking process', 'chain of thought', 'internal reasoning', "
     "or 'razonamiento interno'. If the request is ordinary, answer it normally. If current "
-    "information is supplied in context, use it and distinguish confirmed facts from uncertain dates."
+    "information is supplied in context, use it and distinguish confirmed facts from uncertain dates. "
+    "IMPORTANT: do not narrate your analysis before answering."
 )
 
+
 def sanitize_public_answer(text: str) -> str:
-    """Remove model-internal reasoning before any answer reaches a public client."""
+    """Remove model-internal reasoning and recover a useful draft/final when possible."""
     value = str(text or "").strip()
     if not value:
         return value
+
+    # Remove explicit hidden-reasoning blocks first.
     value = re.sub(r"<think>.*?</think>", "", value, flags=re.I | re.S)
     value = re.sub(r"<analysis>.*?</analysis>", "", value, flags=re.I | re.S)
     value = re.sub(r"<reasoning>.*?</reasoning>", "", value, flags=re.I | re.S)
-    value = re.sub(r"&lt;(?:think|analysis|reasoning)&gt;.*?&lt;/(?:think|analysis|reasoning)&gt;", "", value, flags=re.I | re.S)
+    value = re.sub(
+        r"&lt;(?:think|analysis|reasoning)&gt;.*?&lt;/(?:think|analysis|reasoning)&gt;",
+        "",
+        value,
+        flags=re.I | re.S,
+    )
     value = re.sub(r"</?(?:think|analysis|reasoning)>|&lt;/?(?:think|analysis|reasoning)&gt;", "", value, flags=re.I)
-    marker = re.search(r"(?:^|\n)\s*(?:final\s+answer|respuesta\s+final|respuesta)\s*:\s*", value, flags=re.I)
-    if re.search(r"(?:here(?:'s| is)\s+(?:a\s+)?thinking\s+process|thinking\s+process|chain\s+of\s+thought|proceso\s+de\s+pensamiento|razonamiento\s+interno)", value, flags=re.I):
-        if marker:
+
+    # Some reasoning models emit prose planning instead of XML tags. If a usable
+    # final/draft section follows, keep that section and discard the hidden plan.
+    marker = re.search(
+        r"(?:^|\n)\s*(?:final\s+answer|respuesta\s+final|respuesta|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*",
+        value,
+        flags=re.I,
+    )
+    thinking_marker = re.search(
+        r"(?:here(?:'s| is)\s+(?:a\s+)?thinking\s+process|thinking\s+process|chain\s+of\s+thought|proceso\s+de\s+pensamiento|razonamiento\s+interno)",
+        value,
+        flags=re.I,
+    )
+    if thinking_marker:
+        if marker and marker.end() > thinking_marker.start():
             value = value[marker.end():]
         else:
-            return ""
+            # Last-resort recovery for providers that expose a useful draft after
+            # their internal plan but omit an explicit "final answer" label.
+            draft = re.search(
+                r"(?:^|\n)\s*draft(?:\s*\(\s*mental\s*\))?\s*:\s*(.+)",
+                value,
+                flags=re.I | re.S,
+            )
+            if draft:
+                value = draft.group(1).strip()
+            else:
+                return ""
+
+    # Never return the old generic refusal as the public answer.
     if re.fullmatch(r"\s*No puedo mostrar el razonamiento interno.*?(?:fuentes\.)?\s*", value, flags=re.I | re.S):
         return ""
+
+    # Remove residual planning labels and excessive blank lines.
+    value = re.sub(r"^\s*(?:final\s+answer|respuesta\s+final|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*", "", value, flags=re.I)
     value = re.sub(r"\n{3,}", "\n\n", value).strip()
     return value
+
 
 class AIProvider(Protocol):
     name: str
@@ -51,6 +88,7 @@ class AIProvider(Protocol):
     free_only: bool
     async def health(self) -> bool: ...
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str: ...
+
 
 class OpenAICompatibleProvider:
     def __init__(self, name: str, endpoint: str, model: str, api_key: str, priority: int, free_only: bool = True) -> None:
@@ -67,6 +105,7 @@ class OpenAICompatibleProvider:
         if not choices or not choices[0].get("message",{}).get("content"): raise RuntimeError("empty_response")
         return str(choices[0]["message"]["content"]).strip()
 
+
 class CloudflareAIProvider:
     def __init__(self, model: str, account_id: str, api_token: str, priority: int) -> None:
         self.name="cloudflare-paid-or-plan-dependent"; self.model=model; self.account_id=account_id.strip(); self.api_token=api_token.strip(); self.priority=priority; self.free_only=False
@@ -79,6 +118,7 @@ class CloudflareAIProvider:
         async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT","45"))) as client:
             response=await client.post(url,headers=headers,json={"messages":messages,"prompt":prompt}); response.raise_for_status(); data=response.json()
         result=data.get("result") or {}; return str(result.get("response") or result.get("text") or "").strip()
+
 
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
@@ -152,16 +192,16 @@ class ProviderGateway:
         conversation_id=str(context.get("conversation_id") or "").strip(); brain=context.get("bitey_brain") or {}; role=str(brain.get("model_role") or context.get("model_role") or "synthesis")
         ordered=self._order_for_role(providers,role); sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None; sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
         if sticky: ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
-        attempted=set(); max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","3")))
+        max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","3")))
         for attempt,provider in enumerate(ordered[:max_providers],1):
-            attempted.add(provider.name); context["provider_attempts"].append({"provider":provider.name,"attempt":attempt})
+            context["provider_attempts"].append({"provider":provider.name,"attempt":attempt})
             try:
                 if not await provider.health(): continue
                 generation_context={**context,"bitey_model_role":role}
                 public_messages=list(messages)+[{"role":"system","content":PUBLIC_OUTPUT_CONTRACT}]
                 answer=await provider.generate(messages=public_messages,context=generation_context)
                 if answer and re.search(r"(?:<think>|<analysis>|<reasoning>|&lt;(?:think|analysis|reasoning)&gt;|here(?:'s| is)\s+(?:a\s+)?thinking\s+process|thinking\s+process|chain\s+of\s+thought|proceso\s+de\s+pensamiento|razonamiento\s+interno)", answer, re.I):
-                    revised_messages=public_messages+[{"role":"system","content":PUBLIC_OUTPUT_CONTRACT+" Previous output violated the contract. Rewrite it now as a clean final answer only."}]
+                    revised_messages=public_messages+[{"role":"system","content":PUBLIC_OUTPUT_CONTRACT+" Previous output violated the contract. Rewrite it now as a clean final answer only. Do not describe the rewrite."}]
                     revised=await provider.generate(messages=revised_messages,context={**generation_context,"public_output_revision":True})
                     if revised: answer=revised
                 answer=sanitize_public_answer(answer)
@@ -177,10 +217,10 @@ class ProviderGateway:
                     if revised:
                         answer=sanitize_public_answer(revised); executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
                 else: context["generation_attempts"] = 1
-                if executive_result.decision == "revise": logger.warning("executive_contract_not_satisfied provider=%s reasons=%s",provider.name,executive_result.reasons)
+                if executive_result.decision == "revise": logger.warning("executive_revision_not_fully_resolved reasons=%s", executive_result.reasons)
                 if conversation_id: self._conversation_provider[conversation_id]=provider.name
-                logger.info("provider_selected provider=%s role=%s attempt=%d executive=%s revision=%s",provider.name,role,attempt,executive_result.decision,context.get("executive_revision_attempted",False)); return answer
+                return answer
             except Exception as exc:
-                logger.warning("provider_failed provider=%s role=%s attempt=%d error=%s",provider.name,role,attempt,type(exc).__name__)
-                if conversation_id and self._conversation_provider.get(conversation_id)==provider.name: self._conversation_provider.pop(conversation_id,None)
-        return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos."
+                logger.warning("provider_generation_failed provider=%s attempt=%s error=%s",provider.name,attempt,type(exc).__name__)
+                continue
+        return "Ahora mismo no puedo completar esta consulta de forma segura. Inténtalo nuevamente en unos momentos."
