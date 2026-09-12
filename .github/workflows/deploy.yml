@@ -55,3 +55,5 @@ jobs:
           printf '%s' "$body" | grep -q "workspace-entry"
           printf '%s' "$body" | grep -q "app.js"
           echo "DEPLOYMENT SMOKE TEST PASSED"
+
+# Keep the deployment workflow active for every main-branch application change.
