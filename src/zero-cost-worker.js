@@ -2,7 +2,7 @@ import biteyWorker from './capability-worker.js';
 import { providerStatus, createProviderAi } from './provider-gateway.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
-const PROVIDER_POLICY = 'backend-authoritative-groq-openrouter-free';
+const PROVIDER_POLICY = 'groq-primary-free-only';
 
 export default {
   async fetch(request, env, ctx) {
@@ -24,7 +24,7 @@ export default {
       return new Response(JSON.stringify({
         ok: true,
         ...providerStatus(env),
-        authority: 'bitefixes-backend',
+        authority: 'bitey-ia-backend',
         policy: PROVIDER_POLICY,
       }), { status: 200, headers: JSON_HEADERS });
     }
@@ -59,8 +59,8 @@ export default {
     try {
       // The Worker is a channel and capability gateway. It MUST NOT generate a
       // second public-chat answer after the backend has answered. This preserves
-      // BiteFixes business context, conversation state, provider routing and the
-      // backend's final answer as the single source of truth.
+      // Bitey IA conversation state, provider routing and the backend's final answer
+      // as the single source of truth.
       const response = await biteyWorker.fetch(request, providerEnv, ctx);
       return await normalizeLegacyProviderMetadata(response, lastProvider, lastModel);
     } catch (error) {
