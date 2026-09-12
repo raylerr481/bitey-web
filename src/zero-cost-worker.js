@@ -57,10 +57,6 @@ export default {
 
     const providerEnv = { ...env, AI: providerAi };
     try {
-      // The Worker is a channel and capability gateway. It MUST NOT generate a
-      // second public-chat answer after the backend has answered. This preserves
-      // Bitey IA conversation state, provider routing and the backend's final answer
-      // as the single source of truth.
       const response = await biteyWorker.fetch(request, providerEnv, ctx);
       return await normalizeLegacyProviderMetadata(response, lastProvider, lastModel);
     } catch (error) {
@@ -81,19 +77,26 @@ async function normalizeLegacyProviderMetadata(response, provider, model) {
   if (!response || !provider || !response.headers.get('content-type')?.includes('application/json')) return response;
   try {
     const payload = await response.clone().json();
-    if (payload?.selected_provider !== 'cloudflare-workers-ai' && payload?.providers?.[0] !== '@cf/google/gemma-4-26b-a4b-it') return response;
-    payload.selected_provider = provider;
-    if (model) payload.model = model;
-    if (Array.isArray(payload.providers)) payload.providers = [provider];
-    if (Array.isArray(payload.activity_events)) {
-      payload.activity_events = payload.activity_events.map(event => String(event)
-        .replace(/Cloudflare Workers AI/gi, provider)
-        .replace(/Cloudflare/gi, provider));
+    const legacyCloudflare = payload?.selected_provider === 'cloudflare-workers-ai' || payload?.providers?.[0] === '@cf/google/gemma-4-26b-a4b-it';
+    const backendGroqAlias = payload?.selected_provider === 'groq-free' || (Array.isArray(payload?.providers) && payload.providers.includes('groq-free'));
+    if (!legacyCloudflare && !backendGroqAlias) return response;
+    if (legacyCloudflare) {
+      payload.selected_provider = provider;
+      if (model) payload.model = model;
+      if (Array.isArray(payload.providers)) payload.providers = [provider];
+      if (Array.isArray(payload.activity_events)) {
+        payload.activity_events = payload.activity_events.map(event => String(event)
+          .replace(/Cloudflare Workers AI/gi, provider)
+          .replace(/Cloudflare/gi, provider));
+      }
+    } else {
+      payload.selected_provider = 'groq';
+      if (Array.isArray(payload.providers)) payload.providers = payload.providers.map(name => name === 'groq-free' ? 'groq' : name);
     }
     const headers = new Headers(response.headers);
     headers.set('content-type', 'application/json; charset=utf-8');
     headers.set('cache-control', 'no-store');
-    headers.set('X-Bitey-Provider', provider);
+    headers.set('X-Bitey-Provider', payload.selected_provider || provider);
     if (model) headers.set('X-Bitey-Model', model);
     headers.set('X-Bitey-Provider-Policy', PROVIDER_POLICY);
     return new Response(JSON.stringify(payload), { status: response.status, statusText: response.statusText, headers });
