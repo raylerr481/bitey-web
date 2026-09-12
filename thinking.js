@@ -7,7 +7,6 @@
 
   const sanitize = value => {
     let s = String(value ?? '');
-    // Normalize escaped HTML/tag variants sometimes emitted by reasoning models.
     s = s.replace(/\\?&lt;\s*(think|analysis|reasoning|internal)\s*&gt;/gi, '<$1>')
       .replace(/\\?&lt;\s*\/(think|analysis|reasoning|internal)\s*&gt;/gi, '</$1>')
       .replace(/\\?&lt;\|\s*(thinking|analysis|reasoning)\s*\|&gt;/gi, '<|$1|>')
@@ -17,14 +16,24 @@
       .replace(/\\?\s*<reasoning>[\s\S]*?<\/reasoning>/gi, '')
       .replace(/\\?\s*<internal>[\s\S]*?<\/internal>/gi, '')
       .replace(/\\?\s*<\|(thinking|analysis|reasoning)\|>[\s\S]*?<\|end\1\|>/gi, '');
-    // Defense in depth for an unterminated reasoning block.
     s = s.replace(/\\?\s*<(?:think|analysis|reasoning|internal)>[\s\S]*$/i, '')
       .replace(/\\?\s*<\|(?:thinking|analysis|reasoning)\|>[\s\S]*$/i, '');
-    return s.trim();
+
+    const prose = /(?:here(?:'s| is)\s+(?:a\s+)?thinking\s+process|thinking\s+process|chain\s+of\s+thought|proceso\s+de\s+pensamiento|razonamiento\s+interno|analyze\s+user\s+input|identify\s+(?:core\s+)?(?:question|topic|requirements)|retrieve\s+knowledge|formulate\s+response|check\s+constraints|refine\s+response)/i;
+    const finalMarker = /(?:^|\n)\s*(?:final\s+answer|respuesta\s+final|respuesta|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*/i;
+    if (prose.test(s)) {
+      const marker = s.match(finalMarker);
+      const draft = s.match(/(?:^|\n)\s*draft(?:\s*\(\s*mental\s*\))?\s*:\s*(.+)$/is);
+      if (marker) s = s.slice(marker.index + marker[0].length);
+      else if (draft) s = draft[1];
+      else return '';
+    }
+    if (/^\s*No puedo mostrar el razonamiento interno/i.test(s)) return '';
+    return s.replace(/\n{3,}/g, '\n\n').trim();
   };
 
-  // app.js already sanitizes before rendering. This second boundary sanitizes
-  // the API response itself, including responses cached by older frontend code.
+  // Second public-output boundary: sanitize both new API responses and
+  // responses loaded from conversation history.
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async (...args) => {
     const response = await nativeFetch(...args);
@@ -38,15 +47,17 @@
         ['answer', 'response', 'message', 'reply', 'content'].forEach(key => {
           if (typeof data[key] === 'string') data[key] = sanitize(data[key]);
         });
+        if (Array.isArray(data.messages)) data.messages = data.messages.map(item => {
+          if (item && typeof item.content === 'string') item.content = sanitize(item.content);
+          return item;
+        });
         return new Response(JSON.stringify(data), {
           status: response.status,
           statusText: response.statusText,
           headers: new Headers(response.headers)
         });
       }
-    } catch (_) {
-      // Preserve the original response if it is not JSON or cannot be cloned.
-    }
+    } catch (_) {}
     return response;
   };
 
@@ -55,7 +66,6 @@
   const normalStages = [
     'Bitey está analizando tu solicitud…',
     'Bitey está organizando la información…',
-    'Bitey está razonando sobre la mejor respuesta…',
     'Bitey está preparando una respuesta útil…'
   ];
   const attachmentStages = [
@@ -69,7 +79,6 @@
   let startedAt = 0;
   let index = 0;
   let lastVisible = false;
-
   const formatSeconds = ms => `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
   const stop = () => { if (timer) clearInterval(timer); timer = null; };
   const resetEvents = () => {
@@ -98,7 +107,6 @@
     });
     if (toggle) toggle.hidden = false;
   };
-
   window.BiteyThinking = { renderEvents };
   const start = () => {
     stop();
