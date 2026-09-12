@@ -21,25 +21,15 @@ jobs:
         with:
           node-version: 22
 
-      - name: Sync Groq provider secret
+      # Provider secrets are already configured on the Cloudflare Worker.
+      # Deployment must not fail solely because the token cannot rewrite secrets.
+      - name: Verify deployment configuration
         shell: bash
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
         run: |
           set -euo pipefail
-          put_secret() {
-            local name="$1"
-            local value="${2:-}"
-            if [ -n "$value" ]; then
-              printf '%s' "$value" | npx wrangler secret put "$name" --config wrangler.toml >/tmp/wrangler-secret.log 2>&1
-              echo "Synced Cloudflare secret: $name"
-            else
-              echo "Groq secret not supplied by GitHub Actions: $name"
-            fi
-          }
-          put_secret GROQ_API_KEY "$GROQ_API_KEY"
-          put_secret GROQ_MODEL "$GROQ_MODEL"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          echo "Cloudflare deployment credentials are available"
 
       - name: Deploy Bitey IA Web Worker
         run: npx wrangler deploy --config wrangler.toml
