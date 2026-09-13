@@ -31,7 +31,8 @@ class DeepResearchEngine:
     """General public-web research, free-first and evidence-first."""
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
+    RESULT_RE = re.compile(r'<a[^>]+class=["\']result__a["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
+    BING_RESULT_RE = re.compile(r'<li[^>]+class=["\']b_algo["\'][^>]*>.*?<h2[^>]*>\s*<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
     YEAR_RE = re.compile(r"\b20\d{2}\b")
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
@@ -50,20 +51,52 @@ class DeepResearchEngine:
             reasons.append("scheduled_fact")
         return DeepResearchPlan(query=query, reasons=list(dict.fromkeys(reasons)), mode=str(context.get("research_mode") or "deep"))
 
-    async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
+    @staticmethod
+    def _clean_result_url(href: str) -> str:
+        href = unescape(href).strip()
+        if href.startswith("//"):
+            href = "https:" + href
+        return href
+
+    async def _search_duckduckgo(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
         try:
             r = await client.get(f"https://html.duckduckgo.com/html/?q={quote_plus(query)}")
             r.raise_for_status()
             urls: list[str] = []
             for href, _title in self.RESULT_RE.findall(r.text):
-                href = unescape(href)
-                if href.startswith("http") and href not in urls:
+                href = self._clean_result_url(href)
+                if href.startswith("http") and "duckduckgo.com" not in href and href not in urls:
                     urls.append(href)
                 if len(urls) >= limit:
                     break
             return urls
         except Exception:
             return []
+
+    async def _search_bing(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
+        try:
+            r = await client.get(f"https://www.bing.com/search?q={quote_plus(query)}")
+            r.raise_for_status()
+            urls: list[str] = []
+            for href, _title in self.BING_RESULT_RE.findall(r.text):
+                href = self._clean_result_url(href)
+                if href.startswith("http") and "bing.com" not in href and href not in urls:
+                    urls.append(href)
+                if len(urls) >= limit:
+                    break
+            return urls
+        except Exception:
+            return []
+
+    async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
+        urls = await self._search_duckduckgo(client, query, limit=limit)
+        if len(urls) < limit:
+            for url in await self._search_bing(client, query, limit=limit):
+                if url not in urls:
+                    urls.append(url)
+                if len(urls) >= limit:
+                    break
+        return urls[:limit]
 
     async def fetch(self, plan: DeepResearchPlan) -> DeepResearchPlan:
         timeout = 15.0
