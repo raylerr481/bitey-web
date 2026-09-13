@@ -14,10 +14,25 @@ export default {
     const providerAi = {
       ...baseAi,
       async run(...args) {
-        const response = await baseAi.run(...args);
-        lastProvider = response?.provider || null;
-        lastModel = response?.model || null;
-        return response;
+        try {
+          const response = await baseAi.run(...args);
+          lastProvider = response?.provider || null;
+          lastModel = response?.model || null;
+          return response;
+        } catch (error) {
+          if (!rawEdgeAi || error?.code !== 'BITEY_PROVIDER_UNAVAILABLE') throw error;
+          const [model, input = {}] = args;
+          const edgeResponse = await rawEdgeAi.run(model || '@cf/google/gemma-4-26b-a4b-it', input);
+          const response = {
+            response: edgeResponse?.response ?? edgeResponse?.result ?? edgeResponse?.choices?.[0]?.message?.content ?? '',
+            provider: 'cloudflare-workers-ai',
+            model: model || '@cf/google/gemma-4-26b-a4b-it',
+          };
+          if (!String(response.response || '').trim()) throw error;
+          lastProvider = response.provider;
+          lastModel = response.model;
+          return response;
+        }
       },
     };
 
