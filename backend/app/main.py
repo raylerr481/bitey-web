@@ -42,8 +42,7 @@
         # The first classification is authoritative for this user message. Do not allow
         # evidence, tool output, or accumulated context to reclassify a standalone question.
         # Evidence can update confidence, but never the domain or module boundary.
-        cognitive=initial_cognitive
-        cognitive=evaluate_cognitive_with_evidence(cognition,cognitive,bool(evidence))
+        cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence))
         ctx["cognition"]=cognitive.as_dict()
         ctx["current_intent_domain"]=initial_domain
         activity_events.append("Construyendo el razonamiento contextual…")
