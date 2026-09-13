@@ -55,14 +55,42 @@ class OllamaProvider:
                 ordered.append(candidate)
         return ordered
 
+    @staticmethod
+    def _generation_messages(messages: list[dict[str, str]], context: dict[str, Any]) -> list[dict[str, str]]:
+        """Prevent specialized conversation history from leaking into general requests.
+
+        The cognitive router classifies the current message before history is loaded.
+        When that domain is general, prior turns may belong to SBT or another module.
+        Sending those turns to the inference model can override the executive boundary,
+        even when no specialized module was selected. Keep the authoritative system
+        contract and the current user request, while preserving the existing history
+        behavior for specialized domains and other contextual workflows.
+        """
+        brain = context.get("bitey_brain") or {}
+        domain = str(brain.get("task_class") or context.get("current_intent_domain") or "general").strip().lower()
+        if domain != "general":
+            return messages
+
+        current_user = next(
+            (message for message in reversed(messages) if message.get("role") == "user" and str(message.get("content") or "").strip()),
+            None,
+        )
+        if current_user is None:
+            return messages
+
+        system_messages = [message for message in messages if message.get("role") == "system"]
+        return system_messages + [current_user]
+
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
         pool = await self._model_pool()
+        generation_messages = self._generation_messages(messages, context)
+        context["history_isolation"] = "general_current_turn_only" if generation_messages != messages else "domain_scoped_history"
         last_error: Exception | None = None
         for model in pool:
             try:
                 payload = {
                     "model": model,
-                    "messages": messages,
+                    "messages": generation_messages,
                     "stream": False,
                     "options": {"temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))},
                 }
