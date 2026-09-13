@@ -7,6 +7,7 @@ const PROVIDER_POLICY = 'groq-primary-free-only';
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const rawEdgeAi = env.AI;
     const baseAi = createProviderAi(env);
     let lastProvider = null;
     let lastModel = null;
@@ -26,6 +27,7 @@ export default {
         ...providerStatus(env),
         authority: 'bitey-ia-backend',
         policy: PROVIDER_POLICY,
+        edge_fallback_configured: Boolean(rawEdgeAi),
       }), { status: 200, headers: JSON_HEADERS });
     }
 
@@ -49,13 +51,13 @@ export default {
         })), { status: 200, headers: JSON_HEADERS });
       } catch (error) {
         if (error?.code === 'BITEY_PROVIDER_UNAVAILABLE') {
-          return new Response(JSON.stringify({ ok: false, error: 'ai_provider_unavailable', policy: PROVIDER_POLICY, providers: error.providers || [] }), { status: 503, headers: JSON_HEADERS });
+          return new Response(JSON.stringify({ ok: false, error: 'ai_provider_unavailable', policy: PROVIDER_POLICY, providers: error.providers || [], edge_fallback_configured: Boolean(rawEdgeAi) }), { status: 503, headers: JSON_HEADERS });
         }
         throw error;
       }
     }
 
-    const providerEnv = { ...env, AI: providerAi };
+    const providerEnv = { ...env, AI: providerAi, BITEY_EDGE_FALLBACK_AI: rawEdgeAi };
     try {
       const response = await biteyWorker.fetch(request, providerEnv, ctx);
       return await normalizePublicResponse(response, lastProvider, lastModel);
