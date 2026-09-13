@@ -58,13 +58,19 @@ class BiteyCognitiveArchitecture:
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar", "github"),
         "marketing": ("marketing", "ventas", "campaña", "publicidad", "seo", "cliente"),
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio", "analiza"),
+        "health": (
+            "salud", "health", "enfermedad", "enfermedades", "disease", "síntoma", "síntomas", "sintoma", "sintomas",
+            "symptom", "sida", "vih", "hiv", "tratamiento", "tratamientos", "treatment", "medicina", "medical",
+            "médico", "médica", "diagnóstico", "diagnostico", "diagnosis", "infección", "infecciones", "infection",
+            "cáncer", "cancer", "virus", "bacteria", "vacuna", "vacunación", "hospital", "medicación", "medicamento",
+        ),
     }
 
     def perceive(self, text: str, context: dict[str, Any]) -> CognitiveFrame:
         message = text.strip()
         language = self._language(message, context)
         domain, domain_score = self._domain(message)
-        evidence_required = bool(context.get("research")) or domain == "research"
+        evidence_required = bool(context.get("research")) or domain in {"research", "health"}
         risk_flags: list[str] = []
         lowered = message.lower()
         if domain == "trading" and any(token in lowered for token in ("comprar", "vender", "ejecuta", "orden", "live", "real")):
@@ -114,15 +120,32 @@ class BiteyCognitiveArchitecture:
     @staticmethod
     def _language(text: str, context: dict[str, Any]) -> str:
         explicit = str(context.get("language") or "").lower()
+        lowered = f" {text.lower()} "
+
+        # Prefer strong textual evidence over an ambient/browser language hint.
+        spanish = {
+            "qué", "cómo", "quiero", "puede", "necesito", "enfermedad", "afecta", "afectan", "síntoma",
+            "síntomas", "tratamiento", "médico", "médica", "diagnóstico", "infección", "cáncer", "los", "las", "del", "una",
+        }
+        portuguese = {
+            "que", "como", "quero", "pode", "preciso", "doença", "afeta", "sintoma", "sintomas", "tratamento",
+            "médico", "médica", "diagnóstico", "infecção", "câncer", "os", "as", "dos", "uma", "não",
+        }
+        english = {"what", "how", "want", "can", "please", "disease", "symptom", "treatment", "diagnosis", "the"}
+
+        tokens = set(re.findall(r"[\wÀ-ÿ]+", text.lower()))
+        es_score = sum(token in spanish for token in tokens)
+        pt_score = sum(token in portuguese for token in tokens)
+        en_score = sum(token in english for token in tokens)
+
+        if es_score >= 2 and es_score > pt_score:
+            return "es"
+        if pt_score >= 2 and pt_score > es_score:
+            return "pt"
+        if en_score >= 2 and en_score > max(es_score, pt_score):
+            return "en"
         if explicit in {"es", "pt", "en"}:
             return explicit
-        lowered = f" {text.lower()} "
-        if any(token in lowered for token in (" qué ", " cómo ", " quiero ", " para ", " puede ", " necesito ")):
-            return "es"
-        if any(token in lowered for token in (" que ", " como ", " quero ", " para ", " pode ", " preciso ")):
-            return "pt"
-        if any(token in lowered for token in (" what ", " how ", " want ", " can ", " please ")):
-            return "en"
         return "unknown"
 
     @staticmethod
@@ -137,4 +160,11 @@ class BiteyCognitiveArchitecture:
 
     @staticmethod
     def _module_for(domain: str) -> str | None:
-        return {"trading": "sbt", "support": "bitefixes", "programming": "code_reasoning", "marketing": "marketing", "research": "research"}.get(domain)
+        return {
+            "trading": "sbt",
+            "support": "bitefixes",
+            "programming": "code_reasoning",
+            "marketing": "marketing",
+            "research": "research",
+            "health": "health_reasoning",
+        }.get(domain)
