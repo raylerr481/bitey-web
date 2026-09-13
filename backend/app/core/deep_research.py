@@ -32,6 +32,7 @@ class DeepResearchEngine:
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
     RESULT_RE = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
+    YEAR_RE = re.compile(r"\b20\d{2}\b")
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -43,7 +44,11 @@ class DeepResearchEngine:
             reasons.append("research_intent")
         if any(x in q for x in ("último", "ultima", "última", "actual", "hoy", "latest", "current", "precio")):
             reasons.append("freshness")
-        return DeepResearchPlan(query=query, reasons=reasons, mode=str(context.get("research_mode") or "deep"))
+        if self.YEAR_RE.search(query):
+            reasons.append("year_specific")
+        if any(x in q for x in ("programado", "programada", "previsto", "prevista", "calendario", "schedule", "scheduled")):
+            reasons.append("scheduled_fact")
+        return DeepResearchPlan(query=query, reasons=list(dict.fromkeys(reasons)), mode=str(context.get("research_mode") or "deep"))
 
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
         try:
