@@ -62,8 +62,17 @@ class ModuleRegistry:
         ]
 
     def resolve_for_domain(self, domain: str) -> list[ModuleSpec]:
-        """Resolve the specialized capability owner for a cognitive domain."""
+        """Resolve a specialized capability owner for a non-general domain.
+
+        ``general`` is an explicit isolation boundary: no specialized module
+        may be selected for it, even if a future module advertises a generic
+        capability. This prevents topic mentions or stale context from
+        activating SBT or another specialized module.
+        """
         domain = domain.strip().lower()
+        if not domain or domain == "general":
+            return []
+
         aliases = {
             "trading": ("trading", "market_intelligence", "strategy", "risk"),
             "support": ("business_support", "crm", "tickets", "customer_context"),
