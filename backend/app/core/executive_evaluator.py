@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
 
+
 @dataclass(frozen=True)
 class ExecutiveEvaluation:
     decision: str
@@ -13,38 +14,102 @@ class ExecutiveEvaluation:
     verification_compliant: bool
     provider_independent: bool
     reasons: list[str]
-    def as_dict(self) -> dict[str, Any]: return asdict(self)
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
 
 class ExecutiveEvaluator:
     """Validate generated output against Bitey's already-issued decision."""
+
+    _SPECIALIZED_DRIFT_MARKERS = (
+        "sbt",
+        "smart money concepts",
+        "bos/choch",
+        "bos",
+        "choch",
+        "fvg",
+        "order blocks",
+        "order block",
+        "backtest determinista",
+        "backtest determinístico",
+        "señal técnica",
+        "señal de trading",
+        "no se enviaron órdenes",
+        "no se enviaron ordenes",
+    )
+
     @staticmethod
     def _get(state: Any, key: str, default: Any = None) -> Any:
-        if isinstance(state, dict): return state.get(key, default)
+        if isinstance(state, dict):
+            return state.get(key, default)
         return getattr(state, key, default)
 
-    def evaluate(self, *, state: Any, answer: str, evidence: str = "", selected_tools: list[str] | None = None) -> ExecutiveEvaluation:
+    def evaluate(
+        self,
+        *,
+        state: Any,
+        answer: str,
+        evidence: str = "",
+        selected_tools: list[str] | None = None,
+    ) -> ExecutiveEvaluation:
         tools_known = selected_tools is not None
         tools = list(selected_tools or [])
         reasons: list[str] = []
         text = (answer or "").strip()
+        lower_text = text.lower()
+        task_class = str(self._get(state, "task_class", "general") or "general").lower()
         evidence_required = bool(self._get(state, "evidence_required", False))
         evidence_ok = bool(evidence) if evidence_required else True
-        if evidence_required and not evidence_ok: reasons.append("required_evidence_missing")
+        if evidence_required and not evidence_ok:
+            reasons.append("required_evidence_missing")
+
         required_tools = list(self._get(state, "tool_priority", []) or [])
         tool_ok = True if not tools_known else all(tool in tools for tool in required_tools)
-        if tools_known and required_tools and not tool_ok: reasons.append("required_tool_not_executed")
+        if tools_known and required_tools and not tool_ok:
+            reasons.append("required_tool_not_executed")
+
         risk = str(self._get(state, "risk_level", "low"))
         execution_allowed = bool(self._get(state, "execution_allowed", False))
         risk_ok = not (risk == "critical" and execution_allowed)
-        if not risk_ok: reasons.append("critical_risk_execution_policy_violation")
+        if not risk_ok:
+            reasons.append("critical_risk_execution_policy_violation")
+
         verification_required = bool(self._get(state, "verification_required", False))
-        # A critical-risk request is satisfied by a safe refusal; evidence is not
-        # required merely to prove that a prohibited real-world action was blocked.
-        safe_risk_refusal = risk == "critical" and not execution_allowed and any(term in text.lower() for term in ("no se ejecut", "no ejecutar", "bloquead", "no puedo ejecutar", "cannot execute"))
+        safe_risk_refusal = (
+            risk == "critical"
+            and not execution_allowed
+            and any(
+                term in lower_text
+                for term in ("no se ejecut", "no ejecutar", "bloquead", "no puedo ejecutar", "cannot execute")
+            )
+        )
         verification_ok = safe_risk_refusal or (not verification_required or bool(evidence))
-        if verification_required and not verification_ok: reasons.append("verification_requirement_not_satisfied")
+        if verification_required and not verification_ok:
+            reasons.append("verification_requirement_not_satisfied")
+
+        # A general question must not be allowed to masquerade as an SBT/trading
+        # execution. Provider models are untrusted workers and can drift into a
+        # specialized answer even when the cognitive router correctly selected
+        # the general domain. Detect strong SBT fingerprints here so the gateway
+        # can deterministically request a clean rewrite before public output.
+        if task_class == "general":
+            drift_markers = [marker for marker in self._SPECIALIZED_DRIFT_MARKERS if marker in lower_text]
+            if drift_markers:
+                reasons.append("general_domain_specialized_module_drift")
+
         provider_independent = True
-        if not text: reasons.append("empty_generation")
-        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok
+        if not text:
+            reasons.append("empty_generation")
+        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok and "general_domain_specialized_module_drift" not in reasons
         decision = "accept" if passed else "revise"
-        return ExecutiveEvaluation(decision=decision, passed=passed, evidence_compliant=evidence_ok, tool_compliant=tool_ok, risk_compliant=risk_ok, verification_compliant=verification_ok, provider_independent=provider_independent, reasons=reasons or ["executive_contract_satisfied"])
+        return ExecutiveEvaluation(
+            decision=decision,
+            passed=passed,
+            evidence_compliant=evidence_ok,
+            tool_compliant=tool_ok,
+            risk_compliant=risk_ok,
+            verification_compliant=verification_ok,
+            provider_independent=provider_independent,
+            reasons=reasons or ["executive_contract_satisfied"],
+        )
