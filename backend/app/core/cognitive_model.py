@@ -1,8 +1,3 @@
-"""General-purpose Bitey cognitive state and intent model.
-
-This layer creates structured task state. It is not the language-generation
-model and does not select a provider. The executive Brain consumes its state.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -36,13 +31,13 @@ class CognitiveModel:
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
     }
 
-    # High-signal expressions disambiguate common lexical ties. They are
-    # intent features, not provider/model selection rules.
+    # Strong intent requires market/trading context. Generic concepts such as
+    # Bitcoin and generic "bot" requests must not activate SBT by themselves.
     _STRONG_INTENT = {
         "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
-        "trading": ("eurusd", "gbpusd", "xauusd", "bitcoin", "btc", "forex", "acciones", "compra eurusd", "vende eurusd"),
+        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mercado", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading"),
         "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather"),
-        "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest"),
+        "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
     }
 
     def perceive(self, message: str) -> dict[str, Any]:
@@ -67,10 +62,12 @@ class CognitiveModel:
             if len(strong_domains) == 1:
                 scores[strong_domains[0]] += 2
 
-        # Prefer explicit domain context when supplied by an upstream caller.
+        # Explicit context is only allowed to resolve an otherwise ambiguous
+        # request. A clear current-message intent must win over stale context.
         explicit_domain = str(context.get("domain") or "").strip().lower()
-        if explicit_domain in scores:
-            scores[explicit_domain] += 2
+        current_signal = max(scores.values(), default=0)
+        if explicit_domain in scores and current_signal == 0:
+            scores[explicit_domain] += 1
 
         order = list(self._DOMAIN_HINTS)
         ranked = sorted(scores.items(), key=lambda item: (-item[1], order.index(item[0])))
