@@ -47,17 +47,12 @@ app = FastAPI(title="Bitey IA — Cognitive Core", version="0.15.0", description
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 app.include_router(workspace_router)
 
-# Bitey's native cognitive model is an internal fallback, not a paid provider.
-# Keep it available as a generator so external free-provider outages do not
-# turn a completed research/evidence cycle into a generic failure response.
-os.environ.setdefault("BITEY_NATIVE_AS_GENERATOR", "true")
-
 context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_trace = CognitiveTraceStore(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
 modules.register(ModuleSpec("sbt", "Bitey IA integrated trading module for market intelligence, strategy and risk-aware workflows.", os.getenv("SBT_MODULE_URL"), ("trading", "market_intelligence", "strategy", "risk"), enabled=os.getenv("SBT_MODULE_ENABLED", "true").lower() != "false", metadata={"integration_type":"bitey_integrated","role":"integrated_specialized_module","owner":"bitey_ia","domain":"trading","execution_boundary":"sbt_risk_gate","live_trading":False}))
 
 if os.getenv("BITEFIXES_MODULE_ENABLED", "false").lower() == "true":
-    modules.register(ModuleSpec("bitefixes", "Specialized business/support module exposed through an external API contract.", os.getenv("BITEFIXES_MODULE_URL"), ("business_support", "crm", "tickets", "customer_context"), metadata={"integration_type":"external_specialized","role":"external_specialized","owner":"bitefixes","domain":"business_support"}))
+    modules.register(ModuleSpec("bitefixes", "Specialized business/support module exposed through an external API contract.", os.getenv("BITEFIXES_MODULE_URL"), ("business_support", "crm", "tickets", "customer_context"), metadata={"integration_type":"external_specialized","role":"external_specialized_module","owner":"bitefixes","domain":"business_support"}))
 
 async def web_research_tool(message: str, context: dict | None = None) -> dict:
     plan = await deep_research.fetch(deep_research.plan(message, context or {}))
@@ -95,7 +90,7 @@ async def capabilities() -> dict:
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
-    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","native_model_as_generator":os.getenv("BITEY_NATIVE_AS_GENERATOR","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names(),"cognitive_trace":True}
+    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names(),"cognitive_trace":True}
 
 @app.get("/api/v1/cognitive/brain")
 async def cognitive_brain() -> dict: return brain.status()
@@ -156,8 +151,6 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         if not evidence and (plan.required or deep_plan.reasons): activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
         trace.evidence={"available":bool(evidence),"required":bool(plan.required or deep_plan.reasons),"source_count":len(search_results),"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
         ctx["evidence_available"]=bool(evidence)
-        # Preserve the actual evidence in the provider context. This is essential for
-        # native reasoning and failover: research must survive external-provider failure.
         ctx["evidence"]=evidence
         ctx["evidence_source_count"]=len(search_results)
         cognitive=cognition.process(payload.message,ctx,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict(); activity_events.append("Construyendo el razonamiento contextual…")
@@ -172,7 +165,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         if evidence: system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence)
         elif plan.required or deep_plan.reasons: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
         for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
-        activity_events.append("Seleccionando la mejor IA disponible…"); provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"}; answer=await providers.generate(messages=messages,context=provider_context)
+        activity_events.append("Seleccionando la mejor IA disponible…"); provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(search_results),"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"cost_mode":"free_only"}; answer=await providers.generate(messages=messages,context=provider_context)
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
         evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; activity_events.append(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
         if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
