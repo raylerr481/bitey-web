@@ -43,6 +43,14 @@ class DeepResearchEngine:
         r"disease|symptom|treatment|diagnosis)\b",
         re.I,
     )
+    MEDICAL_AUTHORITY_QUERIES = (
+        "site:who.int OR site:paho.org",
+        "site:cdc.gov OR site:nih.gov",
+        "site:gov.br/saude OR site:fiocruz.br",
+    )
+    MEDICAL_AUTHORITY_DOMAINS = (
+        "who.int", "paho.org", "cdc.gov", "nih.gov", "gov.br", "fiocruz.br", "unaids.org"
+    )
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -121,20 +129,41 @@ class DeepResearchEngine:
         except Exception:
             return []
 
-    async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
-        urls = await self._search_duckduckgo(client, query, limit=limit)
-        if len(urls) < limit:
+    @classmethod
+    def _is_medical_authority(cls, url: str) -> bool:
+        host = re.sub(r"^www\.", "", (httpx.URL(url).host or "").lower())
+        return any(host == domain or host.endswith("." + domain) for domain in cls.MEDICAL_AUTHORITY_DOMAINS)
+
+    async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5, medical: bool = False) -> list[str]:
+        urls: list[str] = []
+        if medical:
+            for hint in self.MEDICAL_AUTHORITY_QUERIES:
+                targeted = await self._search_duckduckgo(client, f"{query} {hint}", limit=2)
+                if not targeted:
+                    targeted = await self._search_bing(client, f"{query} {hint}", limit=2)
+                for url in targeted:
+                    if url not in urls:
+                        urls.append(url)
+                    if len(urls) >= limit:
+                        return urls[:limit]
+        generic = await self._search_duckduckgo(client, query, limit=limit)
+        if len(generic) < limit:
             for url in await self._search_bing(client, query, limit=limit):
-                if url not in urls:
-                    urls.append(url)
-                if len(urls) >= limit:
+                if url not in generic:
+                    generic.append(url)
+                if len(generic) >= limit:
                     break
-        if len(urls) < limit:
+        if len(generic) < limit:
             for url in await self._search_bing_rss(client, query, limit=limit):
-                if url not in urls:
-                    urls.append(url)
-                if len(urls) >= limit:
+                if url not in generic:
+                    generic.append(url)
+                if len(generic) >= limit:
                     break
+        for url in generic:
+            if url not in urls:
+                urls.append(url)
+        if medical:
+            urls.sort(key=lambda url: (not self._is_medical_authority(url), urls.index(url)))
         return urls[:limit]
 
     async def fetch(self, plan: DeepResearchPlan) -> DeepResearchPlan:
@@ -145,7 +174,7 @@ class DeepResearchEngine:
             urls = [u.rstrip(".,);]}") for u in self.URL_RE.findall(plan.query)[:5]]
             urls = [u if u.lower().startswith(("http://", "https://")) else "https://" + u for u in urls]
             if not urls and plan.reasons:
-                urls = await self._search(client, plan.query, limit=5)
+                urls = await self._search(client, plan.query, limit=5, medical="medical_domain" in plan.reasons)
             plan.urls = list(dict.fromkeys(urls))[:5]
             for url in plan.urls:
                 try:
