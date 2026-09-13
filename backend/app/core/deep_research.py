@@ -5,6 +5,7 @@ from html import unescape
 import re
 from typing import Any
 from urllib.parse import quote_plus
+import xml.etree.ElementTree as ET
 
 import httpx
 
@@ -88,10 +89,36 @@ class DeepResearchEngine:
         except Exception:
             return []
 
+    async def _search_bing_rss(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
+        """Fallback to Bing RSS when HTML result markup changes or is blocked."""
+        try:
+            r = await client.get(f"https://www.bing.com/search?format=rss&q={quote_plus(query)}")
+            r.raise_for_status()
+            root = ET.fromstring(r.text)
+            urls: list[str] = []
+            for item in root.findall(".//item"):
+                link = item.findtext("link")
+                if not link:
+                    continue
+                href = self._clean_result_url(link)
+                if href.startswith("http") and "bing.com" not in href and href not in urls:
+                    urls.append(href)
+                if len(urls) >= limit:
+                    break
+            return urls
+        except Exception:
+            return []
+
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
         urls = await self._search_duckduckgo(client, query, limit=limit)
         if len(urls) < limit:
             for url in await self._search_bing(client, query, limit=limit):
+                if url not in urls:
+                    urls.append(url)
+                if len(urls) >= limit:
+                    break
+        if len(urls) < limit:
+            for url in await self._search_bing_rss(client, query, limit=limit):
                 if url not in urls:
                     urls.append(url)
                 if len(urls) >= limit:
