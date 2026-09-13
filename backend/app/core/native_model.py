@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import re
 
 from .cognitive_architecture import BiteyCognitiveArchitecture
 
 
 @dataclass
 class NativeReasoningModel:
-    """Bitey's provider-independent deterministic cognitive model."""
+    """Bitey's provider-independent evidence-grounded reasoning model."""
 
     name: str = "bitey-native-cognitive-v1"
     priority: int = 1000
@@ -29,48 +30,91 @@ class NativeReasoningModel:
                     break
 
         cognition = self.architecture.run(user_message, context)
+        context["native_cognition"] = cognition
         frame = cognition["frame"]
         decision = cognition["decision"]
-        # Keep the canonical cognitive state available to downstream learning.
-        context["native_cognition"] = cognition
-        domain = frame["domain"]
-        confidence = float(frame["confidence"])
-        language = frame["language"]
-        evidence = bool(frame["evidence_available"])
+        evidence = str(context.get("evidence") or "").strip()
 
-        if language == "pt":
-            return self._portuguese(domain, confidence, evidence, decision)
+        if evidence:
+            answer = self._reason_from_evidence(user_message, evidence, frame, decision)
+            if answer:
+                return answer
+
+        return self._guarded_answer(frame, decision)
+
+    @classmethod
+    def _reason_from_evidence(cls, question: str, evidence: str, frame: dict[str, Any], decision: dict[str, Any]) -> str:
+        """Produce a deterministic synthesis from retrieved evidence when no LLM is available.
+
+        This is deliberately not a fake LLM: it extracts factual claims from the
+        research payload, removes source metadata, deduplicates them, and states
+        the evidentiary limit explicitly instead of inventing missing facts.
+        """
+        claims = cls._extract_claims(evidence)
+        if not claims:
+            return ""
+
+        language = frame.get("language") or "es"
+        confidence = float(frame.get("confidence") or 0.0)
+        risk = bool(decision.get("risk_flags"))
         if language == "en":
-            return self._english(domain, confidence, evidence, decision)
-        return self._spanish(domain, confidence, evidence, decision)
+            lead = "Based on the evidence retrieved by Bitey, the supported conclusion is:"
+            limit = "The available evidence is not sufficient to establish facts beyond these points."
+            risk_line = " Because this involves a potentially sensitive action, verify the critical details before acting." if risk else ""
+        elif language == "pt":
+            lead = "Com base nas evidências recuperadas pelo Bitey, a conclusão sustentada é:"
+            limit = "As evidências disponíveis não são suficientes para afirmar fatos além destes pontos."
+            risk_line = " Como isso pode envolver uma ação sensível, confirme os detalhes críticos antes de agir." if risk else ""
+        else:
+            lead = "Con base en la evidencia recuperada por Bitey, la conclusión que sí está respaldada es:"
+            limit = "La evidencia disponible no permite afirmar hechos más allá de estos puntos."
+            risk_line = " Como puede implicar una acción sensible, verifica los datos críticos antes de actuar." if risk else ""
+
+        bullets = "\n".join(f"- {claim}" for claim in claims[:6])
+        if language == "en":
+            confidence_line = f"Evidence-grounded confidence: {confidence:.0%}."
+        elif language == "pt":
+            confidence_line = f"Confiança baseada em evidências: {confidence:.0%}."
+        else:
+            confidence_line = f"Confianza basada en evidencia: {confidence:.0%}."
+        return f"{lead}\n\n{bullets}\n\n{limit}{risk_line}\n\n{confidence_line}"
 
     @staticmethod
-    def _spanish(domain: str, confidence: float, evidence: bool, decision: dict[str, Any]) -> str:
-        evidence_line = "Hay evidencia disponible y debe guiar la respuesta." if evidence else "No hay evidencia externa disponible; no voy a inventarla."
-        guard = " Se aplican controles antes de cualquier acción sensible." if decision["risk_flags"] else ""
-        module = decision.get("module")
-        module_line = f" Módulo candidato: **{module}**." if module else ""
-        return (
-            "Bitey Native Cognitive v1 está activo como modelo cognitivo independiente.\n\n"
-            f"Dominio identificado: **{domain}** · confianza: **{confidence:.0%}**.{module_line}\n\n"
-            f"{evidence_line}{guard}\n\n"
-            "Bitey puede usar un LLM externo gratuito para mejorar la generación lingüística, pero la percepción, planificación, evaluación de riesgo y decisión pertenecen al núcleo cognitivo de Bitey."
-        )
+    def _extract_claims(evidence: str) -> list[str]:
+        chunks = re.split(r"\n\s*\n+", evidence)
+        claims: list[str] = []
+        seen: set[str] = set()
+        for chunk in chunks:
+            lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+            useful: list[str] = []
+            for line in lines:
+                if re.match(r"^(?:SOURCE|TITLE|URL|SNIPPET|LINK|FUENTE|TÍTULO)\b", line, re.I):
+                    continue
+                if line.startswith(("http://", "https://")):
+                    continue
+                clean = re.sub(r"\s+", " ", line).strip(" -•")
+                if len(clean) >= 24:
+                    useful.append(clean)
+            sentence = " ".join(useful)
+            if len(sentence) < 24:
+                continue
+            key = re.sub(r"\W+", " ", sentence.lower()).strip()
+            if key in seen:
+                continue
+            seen.add(key)
+            claims.append(sentence)
+        return claims
 
     @staticmethod
-    def _portuguese(domain: str, confidence: float, evidence: bool, decision: dict[str, Any]) -> str:
-        evidence_line = "Há evidência disponível e ela deve orientar a resposta." if evidence else "Não há evidência externa disponível; não vou inventá-la."
-        return (
-            "Bitey Native Cognitive v1 está ativo como modelo cognitivo independente.\n\n"
-            f"Domínio identificado: **{domain}** · confiança: **{confidence:.0%}**. {evidence_line}\n\n"
-            "Modelos externos gratuitos podem melhorar a geração de linguagem, mas a percepção, o planejamento, a avaliação de risco e a decisão pertencem ao núcleo cognitivo do Bitey."
-        )
-
-    @staticmethod
-    def _english(domain: str, confidence: float, evidence: bool, decision: dict[str, Any]) -> str:
-        evidence_line = "Evidence is available and should guide the answer." if evidence else "No external evidence is available; I will not invent it."
-        return (
-            "Bitey Native Cognitive v1 is active as an independent cognitive model.\n\n"
-            f"Detected domain: **{domain}** · confidence: **{confidence:.0%}**. {evidence_line}\n\n"
-            "Free external models may improve language generation, but perception, planning, risk evaluation and decision-making belong to Bitey's cognitive core."
-        )
+    def _guarded_answer(frame: dict[str, Any], decision: dict[str, Any]) -> str:
+        language = frame.get("language") or "es"
+        domain = frame.get("domain") or "general"
+        confidence = float(frame.get("confidence") or 0.0)
+        if language == "en":
+            return (f"I can reason about this request, but I do not have sufficient verified evidence to state a factual conclusion. "
+                    f"Detected domain: {domain}; cognitive confidence: {confidence:.0%}. I will not invent the missing information.")
+        if language == "pt":
+            return (f"Posso raciocinar sobre esta solicitação, mas não tenho evidências verificadas suficientes para afirmar uma conclusão factual. "
+                    f"Domínio identificado: {domain}; confiança cognitiva: {confidence:.0%}. Não vou inventar a informação ausente.")
+        return (f"Puedo razonar sobre esta solicitud, pero no tengo evidencia verificada suficiente para afirmar una conclusión factual. "
+                f"Dominio identificado: {domain}; confianza cognitiva: {confidence:.0%}. No voy a inventar la información que falta.")
