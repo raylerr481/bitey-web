@@ -73,6 +73,14 @@ class ContextEngine:
             # Preserve the existing static enterprise profile behavior only for
             # callers that do not provide a conversation scope.
             enterprise = self.enterprise_resolver.resolve({})
+        else:
+            # Client-provided enterprise metadata is advisory context only.
+            # It must never become authoritative or establish tenant scope.
+            candidate = metadata.get("enterprise")
+            if isinstance(candidate, dict) and candidate:
+                enterprise = dict(candidate)
+                enterprise["authoritative"] = False
+                enterprise["source"] = "client_metadata"
 
         return ContextEnvelope(
             user=metadata.get("user", {}) if isinstance(metadata.get("user", {}), dict) else {},
