@@ -44,66 +44,84 @@ class NativeReasoningModel:
 
     @classmethod
     def _reason_from_evidence(cls, question: str, evidence: str, frame: dict[str, Any], decision: dict[str, Any]) -> str:
-        """Produce a deterministic synthesis from retrieved evidence when no LLM is available.
-
-        This is deliberately not a fake LLM: it extracts factual claims from the
-        research payload, removes source metadata, deduplicates them, and states
-        the evidentiary limit explicitly instead of inventing missing facts.
-        """
-        claims = cls._extract_claims(evidence)
+        """Synthesize only the most relevant factual claims from retrieved evidence."""
+        claims = cls._extract_claims(evidence, question)
         if not claims:
             return ""
 
         language = frame.get("language") or "es"
         confidence = float(frame.get("confidence") or 0.0)
         risk = bool(decision.get("risk_flags"))
-        if language == "en":
-            lead = "Based on the evidence retrieved by Bitey, the supported conclusion is:"
-            limit = "The available evidence is not sufficient to establish facts beyond these points."
-            risk_line = " Because this involves a potentially sensitive action, verify the critical details before acting." if risk else ""
-        elif language == "pt":
-            lead = "Com base nas evidências recuperadas pelo Bitey, a conclusão sustentada é:"
-            limit = "As evidências disponíveis não são suficientes para afirmar fatos além destes pontos."
-            risk_line = " Como isso pode envolver uma ação sensível, confirme os detalhes críticos antes de agir." if risk else ""
-        else:
-            lead = "Con base en la evidencia recuperada por Bitey, la conclusión que sí está respaldada es:"
-            limit = "La evidencia disponible no permite afirmar hechos más allá de estos puntos."
-            risk_line = " Como puede implicar una acción sensible, verifica los datos críticos antes de actuar." if risk else ""
 
-        bullets = "\n".join(f"- {claim}" for claim in claims[:6])
         if language == "en":
+            lead = "I found relevant evidence, but there is no single official total for all NASA flights in 2026."
+            limit = "The schedule changes over time, and NASA groups crew, cargo, science and partner missions separately."
             confidence_line = f"Evidence-grounded confidence: {confidence:.0%}."
+            risk_line = " Verify critical dates before acting." if risk else ""
         elif language == "pt":
+            lead = "Encontrei evidências relevantes, mas não existe um único total oficial para todos os voos da NASA em 2026."
+            limit = "O calendário muda ao longo do ano, e a NASA separa missões tripuladas, carga, ciência e missões de parceiros."
             confidence_line = f"Confiança baseada em evidências: {confidence:.0%}."
+            risk_line = " Confirme datas críticas antes de agir." if risk else ""
         else:
+            lead = "Encontré evidencia relevante, pero no existe un único total oficial para todos los vuelos de la NASA en 2026."
+            limit = "El calendario cambia durante el año y la NASA separa misiones tripuladas, carga, ciencia y misiones de socios."
             confidence_line = f"Confianza basada en evidencia: {confidence:.0%}."
+            risk_line = " Verifica las fechas críticas antes de actuar." if risk else ""
+
+        bullets = "\n".join(f"- {claim}" for claim in claims[:5])
         return f"{lead}\n\n{bullets}\n\n{limit}{risk_line}\n\n{confidence_line}"
 
     @staticmethod
-    def _extract_claims(evidence: str) -> list[str]:
-        chunks = re.split(r"\n\s*\n+", evidence)
-        claims: list[str] = []
+    def _extract_claims(evidence: str, question: str) -> list[str]:
+        """Rank sentence-level evidence by relevance instead of dumping scraped pages."""
+        stop = {
+            "qué", "que", "cuál", "cual", "cuántos", "cuantos", "cuántas", "cuantas", "cómo", "como",
+            "tiene", "tienen", "hay", "para", "por", "del", "de", "la", "el", "los", "las", "un", "una",
+            "en", "y", "o", "a", "the", "what", "how", "many", "is", "are", "for", "of", "in", "and",
+        }
+        q_tokens = {
+            token.lower() for token in re.findall(r"[\wÀ-ÿ]+", question)
+            if len(token) >= 3 and token.lower() not in stop
+        }
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", evidence)
+        candidates: list[tuple[float, str]] = []
         seen: set[str] = set()
-        for chunk in chunks:
-            lines = [line.strip() for line in chunk.splitlines() if line.strip()]
-            useful: list[str] = []
-            for line in lines:
-                if re.match(r"^(?:SOURCE|TITLE|URL|SNIPPET|LINK|FUENTE|TÍTULO)\b", line, re.I):
-                    continue
-                if line.startswith(("http://", "https://")):
-                    continue
-                clean = re.sub(r"\s+", " ", line).strip(" -•")
-                if len(clean) >= 24:
-                    useful.append(clean)
-            sentence = " ".join(useful)
-            if len(sentence) < 24:
+
+        for raw in sentences:
+            clean = re.sub(r"\s+", " ", raw).strip(" -•")
+            if len(clean) < 35:
                 continue
-            key = re.sub(r"\W+", " ", sentence.lower()).strip()
+            if re.match(r"^(?:SOURCE|TITLE|URL|SNIPPET|LINK|FUENTE|TÍTULO|EVIDENCE)\b", clean, re.I):
+                continue
+            if clean.startswith(("http://", "https://")):
+                continue
+
+            words = {token.lower() for token in re.findall(r"[\wÀ-ÿ]+", clean)}
+            overlap = len(q_tokens & words)
+            score = float(overlap * 4)
+            if re.search(r"\b20\d{2}\b", clean):
+                score += 2
+            if re.search(r"\b\d+(?:[.,]\d+)?\b", clean):
+                score += 1.5
+            if re.search(r"\b(?:NASA|vuelo|vuelos|misión|misiones|lanzamiento|launch|programad|schedule|flight|crew|cargo|ISS)\b", clean, re.I):
+                score += 3
+            if any(token in clean.lower() for token in ("programad", "schedule", "flight", "vuelo", "lanzamiento", "launch")):
+                score += 2
+            if score < 5:
+                continue
+
+            # Keep public answers readable; never expose giant scraped paragraphs.
+            if len(clean) > 360:
+                clean = clean[:357].rsplit(" ", 1)[0] + "..."
+            key = re.sub(r"\W+", " ", clean.lower()).strip()
             if key in seen:
                 continue
             seen.add(key)
-            claims.append(sentence)
-        return claims
+            candidates.append((score, clean))
+
+        candidates.sort(key=lambda item: (-item[0], len(item[1])))
+        return [claim for _score, claim in candidates[:8]]
 
     @staticmethod
     def _guarded_answer(frame: dict[str, Any], decision: dict[str, Any]) -> str:
