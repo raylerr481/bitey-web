@@ -27,58 +27,36 @@ PUBLIC_OUTPUT_CONTRACT = (
 
 
 def sanitize_public_answer(text: str) -> str:
-    """Remove model-internal reasoning and recover a useful draft/final when possible."""
+    """Remove hidden reasoning and reject unusable fragments before public output."""
     value = str(text or "").strip()
     if not value:
         return value
-
-    # Remove explicit hidden-reasoning blocks first.
     value = re.sub(r"<think>.*?</think>", "", value, flags=re.I | re.S)
     value = re.sub(r"<analysis>.*?</analysis>", "", value, flags=re.I | re.S)
     value = re.sub(r"<reasoning>.*?</reasoning>", "", value, flags=re.I | re.S)
-    value = re.sub(
-        r"&lt;(?:think|analysis|reasoning)&gt;.*?&lt;/(?:think|analysis|reasoning)&gt;",
-        "",
-        value,
-        flags=re.I | re.S,
-    )
+    value = re.sub(r"&lt;(?:think|analysis|reasoning)&gt;.*?&lt;/(?:think|analysis|reasoning)&gt;", "", value, flags=re.I | re.S)
     value = re.sub(r"</?(?:think|analysis|reasoning)>|&lt;/?(?:think|analysis|reasoning)&gt;", "", value, flags=re.I)
-
-    # Some reasoning models emit prose planning instead of XML tags. If a usable
-    # final/draft section follows, keep that section and discard the hidden plan.
-    marker = re.search(
-        r"(?:^|\n)\s*(?:final\s+answer|respuesta\s+final|respuesta|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*",
-        value,
-        flags=re.I,
-    )
-    thinking_marker = re.search(
-        r"(?:here(?:'s| is)\s+(?:a\s+)?thinking\s+process|thinking\s+process|chain\s+of\s+thought|proceso\s+de\s+pensamiento|razonamiento\s+interno)",
-        value,
-        flags=re.I,
-    )
+    marker = re.search(r"(?:^|\n)\s*(?:final\s+answer|respuesta\s+final|respuesta|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*", value, flags=re.I)
+    thinking_marker = re.search(r"(?:here(?:'s| is)\s+(?:a\s+)?thinking\s+process|thinking\s+process|chain\s+of\s+thought|proceso\s+de\s+pensamiento|razonamiento\s+interno)", value, flags=re.I)
     if thinking_marker:
         if marker and marker.end() > thinking_marker.start():
             value = value[marker.end():]
         else:
-            # Last-resort recovery for providers that expose a useful draft after
-            # their internal plan but omit an explicit "final answer" label.
-            draft = re.search(
-                r"(?:^|\n)\s*draft(?:\s*\(\s*mental\s*\))?\s*:\s*(.+)",
-                value,
-                flags=re.I | re.S,
-            )
+            draft = re.search(r"(?:^|\n)\s*draft(?:\s*\(\s*mental\s*\))?\s*:\s*(.+)", value, flags=re.I | re.S)
             if draft:
                 value = draft.group(1).strip()
             else:
                 return ""
-
-    # Never return the old generic refusal as the public answer.
     if re.fullmatch(r"\s*No puedo mostrar el razonamiento interno.*?(?:fuentes\.)?\s*", value, flags=re.I | re.S):
         return ""
-
-    # Remove residual planning labels and excessive blank lines.
     value = re.sub(r"^\s*(?:final\s+answer|respuesta\s+final|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*", "", value, flags=re.I)
     value = re.sub(r"\n{3,}", "\n\n", value).strip()
+    # A single character, token, or tiny fragment is not a valid public answer.
+    # This specifically prevents UI artifacts such as the lone "B" avatar marker
+    # from becoming the assistant response when a provider truncates generation.
+    words = re.findall(r"\S+", value)
+    if len(value) < 24 or len(words) < 4:
+        return ""
     return value
 
 
