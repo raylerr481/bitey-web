@@ -35,6 +35,14 @@ class DeepResearchEngine:
     RESULT_RE = re.compile(r'<a[^>]+class=["\']result__a["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
     BING_RESULT_RE = re.compile(r'<li[^>]+class=["\']b_algo["\'][^>]*>.*?<h2[^>]*>\s*<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
     YEAR_RE = re.compile(r"\b20\d{2}\b")
+    MEDICAL_RE = re.compile(
+        r"\b(?:salud|health|enfermedad|enfermedades|síntoma|síntomas|sintoma|sintomas|"
+        r"sida|vih|hiv|tratamiento|tratamientos|medicina|médico|médica|medical|"
+        r"diagnóstico|diagnostico|infection|infección|infecciones|cáncer|cancer|"
+        r"virus|bacteria|vacuna|vacunación|hospital|medicación|medicamento|"
+        r"disease|symptom|treatment|diagnosis)\b",
+        re.I,
+    )
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -50,6 +58,10 @@ class DeepResearchEngine:
             reasons.append("year_specific")
         if any(x in q for x in ("programado", "programada", "previsto", "prevista", "calendario", "schedule", "scheduled")):
             reasons.append("scheduled_fact")
+        if self.MEDICAL_RE.search(q):
+            reasons.append("medical_domain")
+        if context.get("research_required"):
+            reasons.append("required_research")
         return DeepResearchPlan(query=query, reasons=list(dict.fromkeys(reasons)), mode=str(context.get("research_mode") or "deep"))
 
     @staticmethod
