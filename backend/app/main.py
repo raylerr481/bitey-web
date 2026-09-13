@@ -139,8 +139,27 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     ctx={}
     try:
         context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
-        learned_memory=await cognitive_memory.retrieve(payload.message,ctx); ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}; learned_prompt=cognitive_memory.compact_for_prompt(learned_memory)
-        if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos desde Supabase…")
+
+        # Classify the current message before memory, tools, research, or module routing.
+        # This prevents stale specialized context from changing a standalone conceptual question.
+        initial_cognitive=cognition.process(payload.message,ctx,evidence_available=False)
+        ctx["cognition"]=initial_cognitive.as_dict()
+        initial_domain=initial_cognitive.intention.get("domain","general")
+        ctx["current_intent_domain"]=initial_domain
+        activity_events.append(f"Intención actual: {initial_domain}…")
+
+        learned_memory={"summary":"","counts":{},"available":False}
+        learned_prompt=""
+        # Learned specialized patterns are advisory only and must never enter a standalone
+        # general-domain prompt. This is the key isolation boundary against SBT drift.
+        if initial_domain != "general":
+            learned_memory=await cognitive_memory.retrieve(payload.message,ctx)
+            ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}
+            learned_prompt=cognitive_memory.compact_for_prompt(learned_memory)
+            if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos desde Supabase…")
+        else:
+            ctx["learned_cognitive_context"]={"summary":"","counts":{},"available":False,"suppressed":"general_domain_boundary"}
+
         selected=tools.select(payload.message,ctx); trace.tools={"selected":list(selected)}; tool_results=await tools.execute(selected,message=payload.message,context=ctx)
         if selected: activity_events.append("Consultando herramientas relevantes…")
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
