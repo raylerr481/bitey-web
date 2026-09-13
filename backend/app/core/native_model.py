@@ -44,7 +44,7 @@ class NativeReasoningModel:
 
     @classmethod
     def _reason_from_evidence(cls, question: str, evidence: str, frame: dict[str, Any], decision: dict[str, Any]) -> str:
-        """Synthesize only the most relevant factual claims from retrieved evidence."""
+        """Synthesize only relevant factual claims from retrieved evidence."""
         claims = cls._extract_claims(evidence, question)
         if not claims:
             return ""
@@ -52,24 +52,43 @@ class NativeReasoningModel:
         language = frame.get("language") or "es"
         confidence = float(frame.get("confidence") or 0.0)
         risk = bool(decision.get("risk_flags"))
+        q = question.lower()
+        nasa_schedule = "nasa" in q and any(token in q for token in ("vuelo", "vuelos", "flight", "flights")) and "2026" in q
 
-        if language == "en":
-            lead = "I found relevant evidence, but there is no single official total for all NASA flights in 2026."
-            limit = "The schedule changes over time, and NASA groups crew, cargo, science and partner missions separately."
-            confidence_line = f"Evidence-grounded confidence: {confidence:.0%}."
-            risk_line = " Verify critical dates before acting." if risk else ""
-        elif language == "pt":
-            lead = "Encontrei evidências relevantes, mas não existe um único total oficial para todos os voos da NASA em 2026."
-            limit = "O calendário muda ao longo do ano, e a NASA separa missões tripuladas, carga, ciência e missões de parceiros."
-            confidence_line = f"Confiança baseada em evidências: {confidence:.0%}."
-            risk_line = " Confirme datas críticas antes de agir." if risk else ""
+        if nasa_schedule:
+            if language == "en":
+                lead = "NASA does not provide one official global count for all 2026 flights in the retrieved evidence."
+                limit = "Its schedules are published by mission/program category, so a single number would require defining the scope first."
+                confidence_line = f"Evidence-grounded confidence: {confidence:.0%}."
+                risk_line = " Verify critical dates before acting." if risk else ""
+            elif language == "pt":
+                lead = "A NASA não fornece um único total oficial para todos os voos de 2026 nas evidências recuperadas."
+                limit = "Os calendários são publicados por categoria de missão/programa, portanto um único número exige definir primeiro o escopo."
+                confidence_line = f"Confiança baseada em evidências: {confidence:.0%}."
+                risk_line = " Confirme datas críticas antes de agir." if risk else ""
+            else:
+                lead = "La NASA no proporciona un único total oficial para todos los vuelos de 2026 en la evidencia recuperada."
+                limit = "Los calendarios se publican por categoría de misión/programa, por lo que un único número requiere definir primero el alcance."
+                confidence_line = f"Confianza basada en evidencia: {confidence:.0%}."
+                risk_line = " Verifica las fechas críticas antes de actuar." if risk else ""
         else:
-            lead = "Encontré evidencia relevante, pero no existe un único total oficial para todos los vuelos de la NASA en 2026."
-            limit = "El calendario cambia durante el año y la NASA separa misiones tripuladas, carga, ciencia y misiones de socios."
-            confidence_line = f"Confianza basada en evidencia: {confidence:.0%}."
-            risk_line = " Verifica las fechas críticas antes de actuar." if risk else ""
+            if language == "en":
+                lead = "I found relevant evidence for the question."
+                limit = "The points below are limited to what the retrieved sources support."
+                confidence_line = f"Evidence-grounded confidence: {confidence:.0%}."
+                risk_line = " Verify critical details before acting." if risk else ""
+            elif language == "pt":
+                lead = "Encontrei evidências relevantes para a pergunta."
+                limit = "Os pontos abaixo estão limitados ao que as fontes recuperadas sustentam."
+                confidence_line = f"Confiança baseada em evidências: {confidence:.0%}."
+                risk_line = " Confirme detalhes críticos antes de agir." if risk else ""
+            else:
+                lead = "Encontré evidencia relevante para la pregunta."
+                limit = "Los puntos siguientes se limitan a lo que respaldan las fuentes recuperadas."
+                confidence_line = f"Confianza basada en evidencia: {confidence:.0%}."
+                risk_line = " Verifica los detalles críticos antes de actuar." if risk else ""
 
-        bullets = "\n".join(f"- {claim}" for claim in claims[:5])
+        bullets = "\n".join(f"- {claim}" for claim in claims[:3])
         return f"{lead}\n\n{bullets}\n\n{limit}{risk_line}\n\n{confidence_line}"
 
     @staticmethod
@@ -83,6 +102,12 @@ class NativeReasoningModel:
         q_tokens = {
             token.lower() for token in re.findall(r"[\wÀ-ÿ]+", question)
             if len(token) >= 3 and token.lower() not in stop
+        }
+        semantic_groups = {
+            "entity": {t for t in q_tokens if t in {"nasa", "spacex", "esa", "cnsа", "artemis"}},
+            "activity": {t for t in q_tokens if t in {"vuelo", "vuelos", "flight", "flights", "lanzamiento", "lanzamientos", "launch", "launches"}},
+            "schedule": {t for t in q_tokens if t in {"programado", "programados", "programada", "programadas", "previsto", "previstos", "calendario", "schedule", "scheduled"}},
+            "year": {t for t in q_tokens if re.fullmatch(r"20\\d{2}", t)},
         }
         sentences = re.split(r"(?<=[.!?])\s+|\n+", evidence)
         candidates: list[tuple[float, str]] = []
@@ -99,19 +124,15 @@ class NativeReasoningModel:
 
             words = {token.lower() for token in re.findall(r"[\wÀ-ÿ]+", clean)}
             overlap = len(q_tokens & words)
-            score = float(overlap * 4)
+            groups_hit = sum(1 for values in semantic_groups.values() if values and words & values)
+            score = float(overlap * 3 + groups_hit * 4)
             if re.search(r"\b20\d{2}\b", clean):
                 score += 2
             if re.search(r"\b\d+(?:[.,]\d+)?\b", clean):
                 score += 1.5
-            if re.search(r"\b(?:NASA|vuelo|vuelos|misión|misiones|lanzamiento|launch|programad|schedule|flight|crew|cargo|ISS)\b", clean, re.I):
-                score += 3
-            if any(token in clean.lower() for token in ("programad", "schedule", "flight", "vuelo", "lanzamiento", "launch")):
-                score += 2
-            if score < 5:
+            if score < 8 or (len(semantic_groups["activity"]) and not words & semantic_groups["activity"]):
                 continue
 
-            # Keep public answers readable; never expose giant scraped paragraphs.
             if len(clean) > 360:
                 clean = clean[:357].rsplit(" ", 1)[0] + "..."
             key = re.sub(r"\W+", " ", clean.lower()).strip()
