@@ -1,6 +1,53 @@
-# Bitey IA Web — General AI Web Channel
+# Bitey IA Web — Central Cognitive Brain
 
-`bitey-web` is the official web channel of **Bitey IA**, the general/integral AI system. It provides the web interface for general intelligence, memory, planning, evaluation, tools, models, and policies. It is a channel, not a separate brain.
+`bitey-web` is the **central cognitive brain of Bitey IA**. It is the general/integral intelligence layer that coordinates general context, reasoning, memory access, planning, tools, models, evaluation, policies, and specialized capabilities across the Bitey ecosystem.
+
+It is not merely a web channel and it is not a second independent intelligence system.
+
+## Central architecture
+
+The Bitey ecosystem uses **one shared Supabase/Postgres instance for canonical memory and data persistence**:
+
+- Supabase project: **`bitefixes-backed`**
+- The shared persistence layer is used by the central Bitey IA architecture and the specialized BiteFixes enterprise AI.
+- Separate application repositories do not create parallel Supabase memory systems for the same ecosystem.
+
+```text
+                         BITEY IA ECOSYSTEM
+                                  │
+                    ┌─────────────┴─────────────┐
+                    │                           │
+          Bitey IA Web / GitHub        BiteFixes Backend / GitHub
+          CENTRAL COGNITIVE BRAIN      SPECIALIZED ENTERPRISE AI
+                    │                           │
+                    └─────────────┬─────────────┘
+                                  │
+                         shared contracts
+                                  │
+                                  ▼
+                     Supabase/Postgres
+                       `bitefixes-backed`
+                     single shared memory/data
+```
+
+### Responsibilities
+
+**Bitey IA Web** is responsible for the general cognitive layer, including:
+
+- general context and intent understanding;
+- reasoning and planning;
+- task decomposition and orchestration;
+- general memory and knowledge access;
+- tool selection and coordination;
+- model selection and routing;
+- evaluation, contradiction detection, and confidence;
+- permissions and risk policies;
+- learning and observations;
+- coordination of specialized modules.
+
+**BiteFixes Backend** remains the specialized enterprise implementation for BiteFixes. It owns the BiteFixes business/API domain and provides contextual enterprise AI capabilities through explicit contracts with the central Bitey IA layer.
+
+The two systems have different responsibilities but share the same canonical Supabase memory/data architecture.
 
 ## Language and naming standard
 
@@ -12,11 +59,11 @@ Examples: `job_id`, `company`, `location`, `modality`, `skills`, `match_score`, 
 
 Do not introduce Spanish variable names, JSON keys, API parameters, database fields, or internal identifiers in new code.
 
-## Module architecture
+## Specialized modules
 
 ```text
-                         BITEY IA
-                    general intelligence
+                         Bitey IA
+                  central cognitive brain
                            │
              ┌─────────────┼─────────────┐
              │             │             │
@@ -32,69 +79,42 @@ Do not introduce Spanish variable names, JSON keys, API parameters, database fie
   web channel  Android channel
 ```
 
-**JobIA is a specialized module of Bitey IA.** Its domain is employment and professional opportunities. `bitey-web` is only the web channel of Bitey IA and must not be treated as the parent backend or as a second intelligence system.
-
-## Responsibilities of Bitey IA Web
-
-The web channel presents and coordinates access to general Bitey IA capabilities. The underlying Bitey IA system remains authoritative for:
-
-- general context and intent understanding;
-- planning and task decomposition;
-- memory and general knowledge;
-- tool selection;
-- model selection and routing;
-- evaluation, contradiction detection, and confidence;
-- permissions and risk policies;
-- learning and observations;
-- workspace and general capabilities.
-
-Models are replaceable inference workers. Bitey IA must not depend on a single model provider.
-
-## JobIA as a module
-
-JobIA implements specialized employment intelligence through its own backend and versioned `jobia-v1` contract.
-
-```text
-Bitey IA
-   │
-   │ specialized employment capability
-   ▼
- JobIA Backend
-   │
-   ├── opportunities
-   ├── matching / ranking
-   ├── profiles
-   ├── applications
-   └── alerts
-   │
-   ├───────────────┐
-   ▼               ▼
-JobIA-Web      JobIA-app
-web channel    Android channel
-```
-
-The JobIA backend may request general Bitey IA capabilities when required. Client channels must never depend on private implementation details of either intelligence layer.
+**JobIA is a specialized module of Bitey IA.** Its domain is employment and professional opportunities. Client channels must consume explicit contracts and must not become alternative brains.
 
 ## Bitey Trainer
 
 `bitey-trainer` is an internal Bitey IA capability for training, evaluation, and validation of specialized capabilities used by modules such as JobIA. It is not a client and not a second brain.
 
 ```text
-Bitey Trainer → validates capabilities → JobIA → channels
+Bitey Trainer → validates capabilities → specialized modules → channels
 ```
-
-## JobIA channels
-
-- **JobIA-Web:** official web channel.
-- **JobIA-app:** official Android channel.
-
-Both consume the same JobIA backend contract. Neither contains private credentials or a parallel backend.
 
 ## Data and persistence
 
-Supabase/Postgres is the canonical persistence layer when Bitey IA requires persistent application data. Modules must access data through appropriate contracts and isolation boundaries.
+**`bitefixes-backed` is the single canonical Supabase/Postgres persistence and memory instance for the Bitey/BiteFixes architecture.**
+
+The shared instance provides the canonical data foundation while application responsibilities remain separated by repository and API contract.
 
 Neo4j and MongoDB are not architectural dependencies.
+
+A new module must not create another Supabase memory instance merely to duplicate ecosystem state.
+
+## BiteFixes boundary
+
+BiteFixes remains an enterprise domain with its own business rules, CRM, SaaS and operational APIs. The specialized BiteFixes AI implementation remains in `bitefixes-backend`.
+
+The central Bitey IA brain may coordinate with BiteFixes Backend through explicit contracts, but general Bitey IA must not absorb or replace the BiteFixes business domain.
+
+## Security
+
+- Secrets are server-side only.
+- External models are untrusted inputs until evaluated.
+- Tools require explicit permissions.
+- Private context is isolated by user/tenant.
+- High-impact actions require authorization.
+- Modules communicate through versioned contracts.
+- Shared persistence must preserve tenant and domain isolation.
+- No service-role or privileged database credentials belong in browser code.
 
 ## Cost policy
 
@@ -106,19 +126,9 @@ The architecture is **free-first and no-surprise-cost**:
 - Cloudflare is allowed when its free usage is sufficient and any later cost occurs only after a clearly defined usage threshold; paid plans and automatic billing must never be enabled without explicit approval.
 - Before incorporating a new service, verify pricing, billing behavior, limits, card requirements, and overage behavior.
 - If a service can generate costs without an explicit decision first, use a safer alternative.
-- This README policy is documentation-only and must not alter existing working runtime integrations.
 
 Gemini API is not required.
 
-## Security
-
-- Secrets are server-side only.
-- External models are untrusted inputs until evaluated.
-- Tools require explicit permissions.
-- Private context is isolated by user/tenant.
-- High-impact actions require authorization.
-- Modules communicate through versioned contracts.
-
 ## Principle
 
-> **Bitey IA is the general system. `bitey-web` is its web channel. JobIA is a specialized employment/work module of Bitey IA. JobIA-Web and JobIA-app are JobIA channels. Bitey Trainer is an internal training and validation capability.**
+> **Bitey IA Web is the central cognitive brain. BiteFixes Backend is the specialized BiteFixes enterprise AI/business backend. Both integrate with the same canonical Supabase memory/data instance, `bitefixes-backed`. Specialized modules remain separated by explicit contracts and must not create parallel ecosystem memory systems.**
