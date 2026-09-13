@@ -115,15 +115,20 @@ class CognitiveModel:
     def process(self, message: str, context: dict[str, Any] | None = None, *, evidence_available: bool = False) -> CognitiveState:
         ctx = context or {}
         cached = ctx.get("_cognitive_state")
+        # A cognitive state is message-specific. Reusing it across turns can
+        # leak the previous domain (for example trading) into a new question.
         if isinstance(cached, CognitiveState):
+            cached_message = str(cached.context.get("_cognitive_message") or "").strip()
             cached_available = bool(cached.evidence.get("available", False))
-            if cached_available != bool(evidence_available):
-                return self.evaluate(cached, evidence_available=evidence_available)
-            return cached
+            if cached_message == message.strip():
+                if cached_available != bool(evidence_available):
+                    return self.evaluate(cached, evidence_available=evidence_available)
+                return cached
         perception = self.perceive(message)
         intention = self.infer_intention(message, ctx)
         plan = self.build_plan(message, ctx, intention)
         state = CognitiveState(perception=perception, intention=intention, context=ctx, plan=plan)
+        state.context["_cognitive_message"] = message.strip()
         return self.evaluate(state, evidence_available=evidence_available)
 
     @staticmethod
