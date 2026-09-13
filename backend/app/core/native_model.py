@@ -49,7 +49,7 @@ class NativeReasoningModel:
         if not claims:
             return ""
 
-        language = frame.get("language") or "es"
+        language = cls._answer_language(question, frame.get("language"))
         confidence = float(frame.get("confidence") or 0.0)
         risk = bool(decision.get("risk_flags"))
         q = question.lower()
@@ -104,10 +104,10 @@ class NativeReasoningModel:
             if len(token) >= 3 and token.lower() not in stop
         }
         semantic_groups = {
-            "entity": {t for t in q_tokens if t in {"nasa", "spacex", "esa", "cnsа", "artemis"}},
+            "entity": {t for t in q_tokens if t in {"nasa", "spacex", "esa", "cnsa", "artemis"}},
             "activity": {t for t in q_tokens if t in {"vuelo", "vuelos", "flight", "flights", "lanzamiento", "lanzamientos", "launch", "launches"}},
             "schedule": {t for t in q_tokens if t in {"programado", "programados", "programada", "programadas", "previsto", "previstos", "calendario", "schedule", "scheduled"}},
-            "year": {t for t in q_tokens if re.fullmatch(r"20\\d{2}", t)},
+            "year": {t for t in q_tokens if re.fullmatch(r"20\d{2}", t)},
         }
         sentences = re.split(r"(?<=[.!?])\s+|\n+", evidence)
         candidates: list[tuple[float, str]] = []
@@ -143,6 +143,24 @@ class NativeReasoningModel:
 
         candidates.sort(key=lambda item: (-item[0], len(item[1])))
         return [claim for _score, claim in candidates[:8]]
+
+    @staticmethod
+    def _answer_language(question: str, frame_language: str | None) -> str:
+        """Prefer the language of the actual question over ambient context."""
+        tokens = set(re.findall(r"[\wÀ-ÿ]+", question.lower()))
+        spanish = {"qué", "cómo", "quiero", "puede", "necesito", "enfermedad", "afecta", "síntoma", "síntomas", "tratamiento", "infección", "los", "las", "del", "una"}
+        portuguese = {"que", "como", "quero", "pode", "preciso", "doença", "afeta", "sintoma", "sintomas", "tratamento", "infecção", "os", "as", "dos", "uma", "não"}
+        english = {"what", "how", "want", "can", "please", "disease", "symptom", "treatment", "diagnosis", "the"}
+        es_score = sum(token in spanish for token in tokens)
+        pt_score = sum(token in portuguese for token in tokens)
+        en_score = sum(token in english for token in tokens)
+        if es_score >= 2 and es_score > pt_score:
+            return "es"
+        if pt_score >= 2 and pt_score > es_score:
+            return "pt"
+        if en_score >= 2 and en_score > max(es_score, pt_score):
+            return "en"
+        return frame_language or "es"
 
     @staticmethod
     def _guarded_answer(frame: dict[str, Any], decision: dict[str, Any]) -> str:
