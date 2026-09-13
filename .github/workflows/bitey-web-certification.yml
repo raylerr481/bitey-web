@@ -44,5 +44,35 @@ jobs:
           echo "$edge" | grep -q '"policy":"groq-primary-free-only"'
           echo "$edge" | grep -q '"answer"'
 
+          conversation=$(curl -L -fsS --retry 5 --retry-delay 3 --max-time 30 \
+            -H 'Content-Type: application/json' \
+            -d '{"metadata":{}}' \
+            "$BASE/api/v1/conversations")
+          conversation_id=$(python -c 'import json,sys; print(json.load(sys.stdin)["conversation_id"])' <<< "$conversation")
+          test_response=$(curl -L -fsS --retry 3 --retry-delay 2 --max-time 90 \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"¿Qué es Bitcoin?","metadata":{}}' \
+            "$BASE/api/v1/conversations/$conversation_id/messages")
+          TEST_RESPONSE="$test_response" python - <<'PY'
+          import json
+          import os
+          payload = json.loads(os.environ["TEST_RESPONSE"])
+          answer = payload.get("answer", "")
+          assert answer.strip(), "Bitcoin conceptual certification returned an empty answer"
+          forbidden = (
+              "SBT ejecutó",
+              "Smart Money Concepts",
+              "BOS/CHOCH",
+              "FVG",
+              "order blocks",
+              "backtest determinista",
+              "señal técnica",
+              "No se enviaron órdenes",
+          )
+          leaked = [item for item in forbidden if item.lower() in answer.lower()]
+          assert not leaked, f"General Bitcoin question drifted into SBT: {leaked}"
+          print("CERTIFICATION GENERAL-DOMAIN BOUNDARY PASSED")
+          PY
+
           echo "CERTIFICATION PROVIDER CHECKS PASSED"
           echo "CERTIFICATION PASSED: Bitey IA Web public provider policy is Groq-primary free-only"
