@@ -40,6 +40,8 @@ class CognitiveModel:
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
     }
 
+    _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
+
     def perceive(self, message: str) -> dict[str, Any]:
         text = message.strip()
         words = len(text.split())
@@ -62,11 +64,12 @@ class CognitiveModel:
             if len(strong_domains) == 1:
                 scores[strong_domains[0]] += 2
 
-        # Explicit context is only allowed to resolve an otherwise ambiguous
-        # request. A clear current-message intent must win over stale context.
+        # Stale session context must not hijack a new standalone question.
+        # Reuse the previous domain only for clear conversational follow-ups.
         explicit_domain = str(context.get("domain") or "").strip().lower()
         current_signal = max(scores.values(), default=0)
-        if explicit_domain in scores and current_signal == 0:
+        is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
+        if explicit_domain in scores and current_signal == 0 and is_followup:
             scores[explicit_domain] += 1
 
         order = list(self._DOMAIN_HINTS)
