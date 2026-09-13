@@ -31,14 +31,21 @@ class CognitiveModel:
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
     }
 
-    # Strong intent requires market/trading context. Generic concepts such as
-    # Bitcoin and generic "bot" requests must not activate SBT by themselves.
+    # Strong intent requires an actual operation or specialized workflow.
+    # Generic concepts must not activate a specialized module by topic alone.
     _STRONG_INTENT = {
         "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
-        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mercado", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading"),
+        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mercado", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
         "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather"),
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
     }
+
+    _CONCEPTUAL_CUES = (
+        "qué es", "que es", "qué son", "que son", "qué significa", "que significa",
+        "cómo funciona", "como funciona", "definición", "definicion", "define",
+        "explica", "explícame", "explicame", "concepto", "what is", "what are",
+        "how does", "qual é", "o que é", "o que são", "como funciona",
+    )
 
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
 
@@ -49,7 +56,7 @@ class CognitiveModel:
             "message_length": len(text),
             "word_count": words,
             "language_hint": self._language_hint(text),
-            "question": "?" in text or bool(re.match(r"^(que|qué|como|cómo|por que|por qué|what|how|why|qual|como|onde|quando)\b", text.lower())),
+            "question": "?" in text or bool(re.match(r"^(que|qué|como|cómo|por que|por qué|what|how|why|qual|onde|quando)\b", text.lower())),
             "has_url": bool(re.search(r"https?://|www\.", text, re.I)),
             "complexity_signal": min(1.0, 0.20 + min(0.30, words / 180)),
         }
@@ -57,7 +64,17 @@ class CognitiveModel:
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = message.lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
+        conceptual = any(cue in text for cue in self._CONCEPTUAL_CUES)
         strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
+
+        # A conceptual question is educational/general unless it also contains
+        # a clear operational request (for example "analiza BTC" or "backtest").
+        if conceptual:
+            for domain in strong_scores:
+                if domain != "weather" or not any(x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico")):
+                    strong_scores[domain] = 0
+            scores["general"] = 1
+
         max_strong = max(strong_scores.values(), default=0)
         if max_strong:
             strong_domains = [d for d, score in strong_scores.items() if score == max_strong]
@@ -65,15 +82,14 @@ class CognitiveModel:
                 scores[strong_domains[0]] += 2
 
         # Stale session context must not hijack a new standalone question.
-        # Reuse the previous domain only for clear conversational follow-ups.
         explicit_domain = str(context.get("domain") or "").strip().lower()
         current_signal = max(scores.values(), default=0)
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
         if explicit_domain in scores and current_signal == 0 and is_followup:
             scores[explicit_domain] += 1
 
-        order = list(self._DOMAIN_HINTS)
-        ranked = sorted(scores.items(), key=lambda item: (-item[1], order.index(item[0])))
+        order = ["general"] + list(self._DOMAIN_HINTS)
+        ranked = sorted(scores.items(), key=lambda item: (-item[1], order.index(item[0]) if item[0] in order else len(order)))
         top_domain, top_score = ranked[0] if ranked else ("general", 0)
         second_score = ranked[1][1] if len(ranked) > 1 else 0
         if top_score == 0:
@@ -115,8 +131,6 @@ class CognitiveModel:
     def process(self, message: str, context: dict[str, Any] | None = None, *, evidence_available: bool = False) -> CognitiveState:
         ctx = context or {}
         cached = ctx.get("_cognitive_state")
-        # A cognitive state is message-specific. Reusing it across turns can
-        # leak the previous domain (for example trading) into a new question.
         if isinstance(cached, CognitiveState):
             cached_message = str(cached.context.get("_cognitive_message") or "").strip()
             cached_available = bool(cached.evidence.get("available", False))
