@@ -120,7 +120,24 @@ class BiteyBrain:
         return "fast_synthesis","low_complexity_direct_response"
 
     def system_directive(self,state):
-        return ("BITEY BRAIN EXECUTIVE CONTRACT\n" f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n" "Bitey has already decided what must be done. The selected model is only an inference/synthesis worker. Do not invent facts, bypass tool/evidence requirements, or override the cognitive contract.")
+        directive = (
+            "BITEY BRAIN EXECUTIVE CONTRACT\n"
+            f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n"
+            "Bitey has already decided what must be done. The selected model is only an inference/synthesis worker. Do not invent facts, bypass tool/evidence requirements, or override the cognitive contract."
+        )
+        if state.task_class == "general":
+            directive += (
+                "\nGENERAL-DOMAIN BOUNDARY — This request is classified as general knowledge or general assistance. "
+                "Answer the user's actual question directly. Do not invoke, simulate, narrate, or claim execution of any specialized module "
+                "(including SBT/trading) merely because the topic mentions Bitcoin, crypto, bots, markets, finance, or another specialized subject. "
+                "A specialized module is allowed only when the cognitive task itself explicitly requires that specialized operation."
+            )
+        elif state.task_class == "trading":
+            directive += (
+                "\nTRADING-DOMAIN BOUNDARY — Use trading/SBT behavior only because the cognitive router explicitly classified this request as trading. "
+                "Respect the SBT risk gate and never imply live execution when live trading is disabled."
+            )
+        return directive
 
     def status(self):
-        return {"name":"Bitey Brain","version":"2.1.1","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"],"external_models_are_tools":True}
+        return {"name":"Bitey Brain","version":"2.2.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"] ,"status_boundary":"general_domain_blocks_specialized_module_drift"}
