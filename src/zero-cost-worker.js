@@ -7,6 +7,27 @@ const PROVIDER_POLICY = 'groq-primary-free-only';
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // The published app.js currently contains a one-character parser defect in
+    // the attachment listener. Repair only that served asset at the edge so the
+    // browser can execute the existing frontend without rewriting the source app.
+    if (url.pathname === '/app.js' && request.method === 'GET') {
+      const assetResponse = await env.ASSETS.fetch(request);
+      const source = await assetResponse.text();
+      const fixed = source.replace(
+        "remove('open')});fileInput",
+        "remove('open')}));fileInput",
+      );
+      const headers = new Headers(assetResponse.headers);
+      headers.set('cache-control', 'no-store');
+      headers.set('content-type', 'application/javascript; charset=utf-8');
+      return new Response(fixed, {
+        status: assetResponse.status,
+        statusText: assetResponse.statusText,
+        headers,
+      });
+    }
+
     const rawEdgeAi = env.AI;
     const baseAi = createProviderAi(env);
     let lastProvider = null;
