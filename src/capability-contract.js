@@ -11,13 +11,19 @@ function timeoutFromEnv(env) {
 }
 
 function specializedPath(capability) {
-  if (capability === 'jobia') return '/api/v1/capabilities/delegate';
-  if (capability === 'sbt') return '/api/v1/capabilities/delegate';
+  if (capability === 'enterprise' || capability === 'jobia' || capability === 'sbt') return '/api/v1/capabilities/delegate';
+  return '';
+}
+
+function contractName(capability) {
+  if (capability === 'enterprise') return 'bitey-enterprise-v1';
+  if (capability === 'jobia') return 'jobia-v1';
+  if (capability === 'sbt') return 'sbt-v1';
   return '';
 }
 
 export async function delegateCapability({ request, env, requestId, capability, message, conversationId = '' }) {
-  const envKey = capability === 'jobia' ? 'JOBIA_API_ORIGIN' : capability === 'sbt' ? 'SBT_API_ORIGIN' : '';
+  const envKey = capability === 'enterprise' ? 'ENTERPRISE_API_ORIGIN' : capability === 'jobia' ? 'JOBIA_API_ORIGIN' : capability === 'sbt' ? 'SBT_API_ORIGIN' : '';
   const origin = originFromEnv(env, envKey);
   if (!origin) return { handled: false, configured: false, reason: 'specialized_origin_not_configured' };
 
@@ -41,7 +47,7 @@ export async function delegateCapability({ request, env, requestId, capability, 
       method: 'POST',
       headers,
       body: JSON.stringify({
-        contract: capability === 'jobia' ? 'jobia-v1' : 'sbt-v1',
+        contract: contractName(capability),
         capability,
         message,
         conversation_id: conversationId || null,
@@ -64,7 +70,7 @@ export async function delegateCapability({ request, env, requestId, capability, 
 }
 
 export function specializedUnavailable(capability, reason, requestId) {
-  const label = capability === 'jobia' ? 'JobIA' : 'Bitey SBT';
+  const label = capability === 'enterprise' ? 'Bitey Enterprise' : capability === 'jobia' ? 'JobIA' : 'Bitey SBT';
   return {
     error: 'specialized_capability_unavailable',
     capability,
