@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 import re
@@ -35,12 +34,50 @@ class NativeReasoningModel:
         decision = cognition["decision"]
         evidence = str(context.get("evidence") or "").strip()
 
+        direct = self._direct_general_answer(user_message, frame)
+        if direct:
+            return direct
+
         if evidence:
             answer = self._reason_from_evidence(user_message, evidence, frame, decision)
             if answer:
                 return answer
 
         return self._guarded_answer(frame, decision)
+
+    @staticmethod
+    def _direct_general_answer(question: str, frame: dict[str, Any]) -> str:
+        """Answer low-risk, stable general questions without requiring web retrieval."""
+        q = question.strip().lower()
+        language = frame.get("language") or "es"
+
+        if re.search(r"\b(qui[eé]n eres|qu[eé] eres|qu[eé] puedes hacer|qu[eé] haces|c[oó]mo funcionas)\b", q, re.I):
+            if language == "pt":
+                return ("Soy Bitey IA, un asistente cognitivo general. Puedo conversar, explicar conceptos, analizar información, "
+                        "ayudarte con código, proyectos, investigación y razonamiento, y usar herramientas cuando la tarea lo requiere. "
+                        "También puedo trabajar con módulos especializados cuando la solicitud los necesita, manteniendo sus límites de seguridad.")
+            if language == "en":
+                return ("I am Bitey IA, a general cognitive assistant. I can converse, explain concepts, analyze information, "
+                        "help with code, projects, research and reasoning, and use tools when a task requires them. "
+                        "I can also work with specialized modules when the request actually needs them, while respecting their safety boundaries.")
+            return ("Soy Bitey IA, un asistente cognitivo general. Puedo conversar, explicar conceptos, analizar información, "
+                    "ayudarte con código, proyectos, investigación y razonamiento, y usar herramientas cuando la tarea lo requiere. "
+                    "También puedo trabajar con módulos especializados cuando la solicitud realmente los necesita, respetando sus límites de seguridad.")
+
+        if re.search(r"\bqu[eé] es bitcoin\b|\bwhat is bitcoin\b|\bo que [ée] bitcoin\b", q, re.I):
+            if language == "pt":
+                return ("Bitcoin é uma moeda digital descentralizada criada em 2009 por uma pessoa ou grupo que usou o pseudônimo Satoshi Nakamoto. "
+                        "Funciona em uma rede distribuída chamada blockchain, na qual as transações são registradas publicamente e validadas pela rede. "
+                        "Não é emitido por um banco central. Seu preço pode variar muito e, como investimento, envolve risco significativo.")
+            if language == "en":
+                return ("Bitcoin is a decentralized digital currency introduced in 2009 by a person or group using the pseudonym Satoshi Nakamoto. "
+                        "It operates on a distributed network called a blockchain, where transactions are publicly recorded and validated by the network. "
+                        "It is not issued by a central bank. Its price can be highly volatile and it carries significant investment risk.")
+            return ("Bitcoin es una moneda digital descentralizada introducida en 2009 por una persona o grupo que utilizó el seudónimo Satoshi Nakamoto. "
+                    "Funciona sobre una red distribuida llamada blockchain, donde las transacciones se registran públicamente y son validadas por la red. "
+                    "No es emitido por un banco central. Su precio puede ser muy volátil y, como inversión, implica un riesgo significativo.")
+
+        return ""
 
     @classmethod
     def _reason_from_evidence(cls, question: str, evidence: str, frame: dict[str, Any], decision: dict[str, Any]) -> str:
