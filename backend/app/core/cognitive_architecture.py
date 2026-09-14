@@ -66,11 +66,40 @@ class BiteyCognitiveArchitecture:
         ),
     }
 
+    MARKET_INSTRUMENT_RE = re.compile(
+        r"\b(?:[A-Z]{2,6}(?:USDT|USDC|USD|EUR|JPY|GBP|CHF|AUD|CAD|NZD)|BTC(?:USD|USDT|USDC)?|ETH(?:USD|USDT|USDC)?|XAUUSD|XAGUSD)\b",
+        re.I,
+    )
+    MARKET_TIMEFRAME_RE = re.compile(r"\b(?:M1|M3|M5|M15|M30|H1|H2|H4|D1|W1|MN1)\b", re.I)
+    MARKET_CONTEXT_RE = re.compile(
+        r"\b(?:vela|velas|candela|candles|gráfico|grafico|chart|precio|cotización|cotizacion|spread|bid|ask|" 
+        r"soporte|resistencia|tendencia|trend|scalp|scalping|forex|crypto|cripto|futuros|futures|" 
+        r"indicador|rsi|macd|ema|sma|atr|liquidez|liquidity|fvg|order\s+block|smart\s+money)\b",
+        re.I,
+    )
+
     def perceive(self, text: str, context: dict[str, Any]) -> CognitiveFrame:
         message = text.strip()
         language = self._language(message, context)
         domain, domain_score = self._domain(message)
-        evidence_required = bool(context.get("research")) or domain in {"research", "health"}
+        market_instrument = bool(self.MARKET_INSTRUMENT_RE.search(message))
+        market_timeframe = bool(self.MARKET_TIMEFRAME_RE.search(message))
+        market_context = bool(self.MARKET_CONTEXT_RE.search(message))
+        market_signal = int(market_instrument) + int(market_timeframe) + int(market_context)
+
+        # A market instrument plus a timeframe is an explicit trading request,
+        # even when generic research words such as "analiza" are present.
+        if market_instrument and market_timeframe:
+            domain = "trading"
+            domain_score = max(domain_score, 3)
+        elif market_instrument and market_context:
+            domain = "trading"
+            domain_score = max(domain_score, 3)
+        elif market_signal >= 2 and domain == "research":
+            domain = "trading"
+            domain_score = max(domain_score, 2)
+
+        evidence_required = bool(context.get("research")) or domain in {"research", "health", "trading"}
         risk_flags: list[str] = []
         lowered = message.lower()
         if domain == "trading" and any(token in lowered for token in ("comprar", "vender", "ejecuta", "orden", "live", "real")):
@@ -78,6 +107,11 @@ class BiteyCognitiveArchitecture:
         if any(token in lowered for token in ("contraseña", "password", "secret", "api key", "token")):
             risk_flags.append("credential_request")
         confidence = min(0.95, 0.55 + min(domain_score, 3) * 0.10)
+        if domain == "trading" and market_instrument and market_timeframe:
+            confidence = 0.95
+        elif domain == "trading" and market_signal >= 2:
+            confidence = max(confidence, 0.85)
+
         return CognitiveFrame(
             input_text=message,
             language=language,
@@ -120,9 +154,6 @@ class BiteyCognitiveArchitecture:
     @staticmethod
     def _language(text: str, context: dict[str, Any]) -> str:
         explicit = str(context.get("language") or "").lower()
-        lowered = f" {text.lower()} "
-
-        # Prefer strong textual evidence over an ambient/browser language hint.
         spanish = {
             "qué", "cómo", "quiero", "puede", "necesito", "enfermedad", "afecta", "afectan", "síntoma",
             "síntomas", "tratamiento", "médico", "médica", "diagnóstico", "infección", "cáncer", "los", "las", "del", "una",
@@ -132,12 +163,10 @@ class BiteyCognitiveArchitecture:
             "médico", "médica", "diagnóstico", "infecção", "câncer", "os", "as", "dos", "uma", "não",
         }
         english = {"what", "how", "want", "can", "please", "disease", "symptom", "treatment", "diagnosis", "the"}
-
         tokens = set(re.findall(r"[\wÀ-ÿ]+", text.lower()))
         es_score = sum(token in spanish for token in tokens)
         pt_score = sum(token in portuguese for token in tokens)
         en_score = sum(token in english for token in tokens)
-
         if es_score >= 2 and es_score > pt_score:
             return "es"
         if pt_score >= 2 and pt_score > es_score:
