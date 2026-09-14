@@ -49,6 +49,17 @@ class NativeReasoningModel:
     def _direct_general_answer(question: str, frame: dict[str, Any]) -> str:
         q = question.strip().lower()
         language = frame.get("language") or "es"
+        intent = str(frame.get("intent") or "")
+
+        # Greetings are conversational acts, not factual queries. They must never
+        # fall through to the evidence-grounded factual fallback.
+        if intent == "greeting":
+            if language == "pt":
+                return "Olá! Sou Bitey IA. Como posso ajudar você hoje?"
+            if language == "en":
+                return "Hello! I'm Bitey IA. How can I help you today?"
+            return "¡Hola! Soy Bitey IA. ¿Cómo puedo ayudarte hoy?"
+
         if re.search(r"\b(qui[eé]n eres|qu[eé] eres|qu[eé] puedes hacer|qu[eé] haces|c[oó]mo funcionas)\b", q, re.I):
             return ("Soy Bitey IA, un asistente cognitivo general. Puedo conversar, explicar conceptos, analizar información, "
                     "ayudarte con código, proyectos, investigación y razonamiento, y usar herramientas cuando la tarea lo requiere. "
