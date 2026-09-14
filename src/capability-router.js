@@ -1,4 +1,4 @@
-const ENTERPRISE_KEYWORDS = /\b(bitey\s*enterprise|bitey\s*empresarial|bitefixes|portal de soporte|soporte empresarial|ticket de cliente|tickets de clientes|cliente de bitefixes|whatsapp empresarial|atenci[oó]n empresarial)\b/i;
+const ENTERPRISE_KEYWORDS = /\b(bitey\s*enterprise|bitey\s*empresarial|marketing digital|marketing para mi negocio|estrategia de marketing|campaña de marketing|campaña publicitaria|publicidad|seo|posicionamiento|contenido para redes|redes sociales|instagram|facebook|tiktok|linkedin|generar leads|generación de leads|captar clientes|captación de clientes|embudo de ventas|funnel de ventas|crm|ventas|estrategia comercial|automatización comercial|automatizar ventas|automatización de marketing|marketing automation)\b/i;
 const JOBIA_KEYWORDS = /\b(empleo|empleos|trabajo|trabajos|vacante|vacantes|curr[ií]culum|cv|carta de presentaci[oó]n|entrevista laboral|entrevista de trabajo|postulaci[oó]n|postular|contrataci[oó]n|salario|sueldo|profesi[oó]n|carrera profesional|job|jobs|career|resume|cover letter)\b/i;
 const SBT_KEYWORDS = /\b(trading|trader|forex|divisas|mercado financiero|mercados financieros|acciones|bolsa|crypto|criptomonedas|bitcoin|eur\/usd|usd\/brl|xau\/usd|xauusd|gold|oro|precio del oro|cotizaci[oó]n del oro|oro hoy|estrategia de trading|estrategia de mercado|backtest|backtesting|bot de trading|bot trading|robot de trading|mt5|metatrader|tradingview|alpaca|riesgo de trading|paper trading|demo trading)\b/i;
 const CONCEPTUAL = /\b(qu[eé]|cu[aá]l|cu[aá]les|c[oó]mo|como|significa|definici[oó]n|define|explica|expl[ií]ca|expl[ií]came|what|which|how|meaning|definition|explain)\b/i;
@@ -8,7 +8,7 @@ export function classifyCapability(message = '') {
   const text = String(message).trim();
   if (!text) return { capability: 'general', confidence: 1, reason: 'empty_or_general', specialized: false };
 
-  if (ENTERPRISE_KEYWORDS.test(text)) return { capability: 'enterprise', confidence: 0.99, reason: 'enterprise_domain', specialized: true };
+  if (ENTERPRISE_KEYWORDS.test(text)) return { capability: 'enterprise', confidence: 0.96, reason: 'enterprise_marketing_domain', specialized: true };
 
   const hasSbtDomain = SBT_KEYWORDS.test(text);
   if (CONCEPTUAL.test(text) && hasSbtDomain && !TRADING_ACTION.test(text)) {
