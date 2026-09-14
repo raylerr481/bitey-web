@@ -31,14 +31,18 @@ class CognitiveModel:
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
     }
 
-    # Strong intent requires an actual operation or specialized workflow.
-    # Generic concepts must not activate a specialized module by topic alone.
     _STRONG_INTENT = {
         "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
         "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mercado", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
         "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather"),
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
     }
+
+    _GREETING_PATTERNS = (
+        r"^hola[!,.¡¿?\s]*$", r"^holi[!,.¡¿?\s]*$", r"^hello[!,.¡¿?\s]*$",
+        r"^hi[!,.¡¿?\s]*$", r"^hey[!,.¡¿?\s]*$", r"^buenos?\s+d[ií]as[!,.¡¿?\s]*$",
+        r"^buenas\s+(tardes|noches)[!,.¡¿?\s]*$", r"^boa\s+(tarde|noite)[!,.¡¿?\s]*$",
+    )
 
     _CONCEPTUAL_CUES = (
         "qué es", "que es", "qué son", "que son", "qué significa", "que significa",
@@ -49,6 +53,11 @@ class CognitiveModel:
 
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
 
+    @classmethod
+    def _is_greeting(cls, text: str) -> bool:
+        normalized = " ".join(text.lower().strip().split())
+        return any(re.fullmatch(pattern, normalized, flags=re.I) for pattern in cls._GREETING_PATTERNS)
+
     def perceive(self, message: str) -> dict[str, Any]:
         text = message.strip()
         words = len(text.split())
@@ -58,17 +67,29 @@ class CognitiveModel:
             "language_hint": self._language_hint(text),
             "question": "?" in text or bool(re.match(r"^(que|qué|como|cómo|por que|por qué|what|how|why|qual|onde|quando)\b", text.lower())),
             "has_url": bool(re.search(r"https?://|www\.", text, re.I)),
+            "greeting": self._is_greeting(text),
             "complexity_signal": min(1.0, 0.20 + min(0.30, words / 180)),
         }
 
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
-        text = message.lower()
+        text = message.lower().strip()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
         conceptual = any(cue in text for cue in self._CONCEPTUAL_CUES)
+        greeting = self._is_greeting(text)
         strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
 
-        # A conceptual question is educational/general unless it also contains
-        # a clear operational request (for example "analiza BTC" or "backtest").
+        # A standalone greeting is always conversational/general. It must not
+        # activate a specialized module or inherit a stale domain from the session.
+        if greeting:
+            return {
+                "domain": "general",
+                "intent": "greeting",
+                "scores": {**scores, "general": 1},
+                "confidence": 0.98,
+                "source": "structured_greeting_intent",
+                "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation",
+            }
+
         if conceptual:
             for domain in strong_scores:
                 if domain != "weather" or not any(x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico")):
@@ -81,7 +102,6 @@ class CognitiveModel:
             if len(strong_domains) == 1:
                 scores[strong_domains[0]] += 2
 
-        # Stale session context must not hijack a new standalone question.
         explicit_domain = str(context.get("domain") or "").strip().lower()
         current_signal = max(scores.values(), default=0)
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
@@ -97,10 +117,22 @@ class CognitiveModel:
         confidence = 0.55 if top_score else 0.35
         if top_score > second_score:
             confidence += min(0.25, (top_score - second_score) * 0.08)
-        return {"domain": top_domain, "scores": scores, "confidence": min(1.0, confidence), "source": "structured_intent_inference"}
+        return {"domain": top_domain, "intent": "answer_or_assist", "scores": scores, "confidence": min(1.0, confidence), "source": "structured_intent_inference"}
 
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
         domain = intention.get("domain", "general")
+        intent = intention.get("intent", "answer_or_assist")
+        if intent == "greeting":
+            return {
+                "objective": "acknowledge_greeting_and_continue_conversation",
+                "domain": "general",
+                "intent": "greeting",
+                "needs_evidence": False,
+                "freshness_required": False,
+                "requires_specialized_module": False,
+                "verification_required": False,
+                "stop_condition": "natural_conversational_greeting_response",
+            }
         freshness = domain == "weather" or bool(context.get("freshness_required"))
         evidence = freshness or bool(context.get("research") or context.get("requires_web_research") or context.get("needs_web")) or domain == "research"
         return {
@@ -122,6 +154,7 @@ class CognitiveModel:
         state.decision = {
             "mode": "retrieve_then_respond" if state.plan.get("needs_evidence") else "respond",
             "domain": state.intention.get("domain", "general"),
+            "intent": state.intention.get("intent", "answer_or_assist"),
             "confidence": state.confidence,
             "evidence_required": bool(state.plan.get("needs_evidence")),
             "freshness_required": bool(state.plan.get("freshness_required")),
