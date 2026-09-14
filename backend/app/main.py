@@ -4,7 +4,7 @@ import time
 from uuid import UUID, uuid4
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .background_worker import process_once
@@ -24,6 +24,10 @@ from .core.research_engine import ResearchEngine
 from .core.tool_orchestrator import ToolOrchestrator, ToolSpec, safe_calculate
 from .core.vector_memory import QdrantVectorMemory
 from .core.workspace import WorkspaceStore
+from .core.supabase_auth import SupabaseAuthError, resolve_supabase_user
+from .core.tenant_resolver import resolve_tenant_id
+from .core.capability_boundary import classify_server_capability
+from .core.execution_context import build_execution_context
 from .notifications import send_trainer_test_email
 from .schemas import ConversationCreate, MessageCreate, MessageResponse
 from .workspace_api import router as workspace_router
@@ -131,17 +135,36 @@ async def submit_feedback(payload: dict) -> dict:
     await workspace.feedback(conversation_id=str(payload.get("conversation_id")),message_id=payload.get("message_id"),rating=payload.get("rating"),feedback=payload.get("feedback")); return {"status":"recorded"}
 
 @app.post("/api/v1/conversations/{conversation_id}/messages", response_model=MessageResponse)
-async def send_message(conversation_id: str,payload: MessageCreate) -> MessageResponse:
+async def send_message(conversation_id: str,payload: MessageCreate, authorization: str | None = Header(default=None)) -> MessageResponse:
     started=time.perf_counter(); activity_events=["Analizando tu solicitud…"]
     try: UUID(conversation_id)
     except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available(),elapsed_ms=int((time.perf_counter()-started)*1000),activity_events=["Validando la conversación…"])
+
+    authenticated_user = None
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token.strip():
+            raise HTTPException(status_code=401, detail="invalid_authorization_header")
+        try:
+            authenticated_user = await resolve_supabase_user(token)
+        except SupabaseAuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    tenant_id = resolve_tenant_id(authenticated_user.user_id) if authenticated_user else None
+    server_capability = classify_server_capability(payload.message)
+    execution_context = build_execution_context(
+        conversation_id=conversation_id,
+        trusted_tenant_id=tenant_id or "public",
+        trusted_user_id=authenticated_user.user_id if authenticated_user else "anonymous",
+        trusted_channel="web",
+        trusted_module_id=server_capability,
+    )
+
     trace=cognitive_trace.start(payload.message,conversation_id,request_id=str(payload.metadata.get("request_id") or "") or None)
     ctx={}
     try:
-        context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
+        context=context_engine.assemble(message=payload.message,metadata=payload.metadata,execution_context=execution_context); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
 
-        # Classify the current message before memory, tools, research, or module routing.
-        # This prevents stale specialized context from changing a standalone conceptual question.
         initial_cognitive=cognition.process(payload.message,ctx,evidence_available=False)
         ctx["cognition"]=initial_cognitive.as_dict()
         initial_domain=initial_cognitive.intention.get("domain","general")
@@ -150,8 +173,6 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
 
         learned_memory={"summary":"","counts":{},"available":False}
         learned_prompt=""
-        # Learned specialized patterns are advisory only and must never enter a standalone
-        # general-domain prompt. This is the key isolation boundary against SBT drift.
         if initial_domain != "general":
             learned_memory=await cognitive_memory.retrieve(payload.message,ctx)
             ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}
@@ -173,9 +194,6 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         ctx["evidence"]=evidence
         ctx["evidence_source_count"]=len(search_results)
 
-        # The first classification is authoritative for this user message. Do not allow
-        # evidence, tool output, or accumulated context to reclassify a standalone question.
-        # Evidence can update confidence, but never the domain or module boundary.
         cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence))
         ctx["cognition"]=cognitive.as_dict()
         ctx["current_intent_domain"]=initial_domain
