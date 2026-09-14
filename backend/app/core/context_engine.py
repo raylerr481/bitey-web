@@ -54,6 +54,8 @@ class ContextEngine:
         if execution_context is None and conversation_id:
             execution_context = server_execution_context(conversation_id)
 
+        module_id = execution_context.module_id if execution_context is not None else None
+
         # BiteFixes context is available only when the server has established the
         # BiteFixes tenant and the company identifier is configured server-side.
         if execution_context is not None and execution_context.tenant_id == "bitefixes":
@@ -69,18 +71,25 @@ class ContextEngine:
                         "read_only": True,
                         "authoritative": True,
                     }
-        elif execution_context is None and os.getenv("BITEY_ENTERPRISE_PROFILE_JSON"):
-            # Preserve the existing static enterprise profile behavior only for
-            # callers that do not provide a conversation scope.
+
+        # Enterprise profile is available only when the trusted execution context
+        # explicitly selects the Enterprise module. It is never activated merely
+        # because a client sends enterprise-shaped metadata.
+        elif module_id == "enterprise" and os.getenv("BITEY_ENTERPRISE_PROFILE_JSON"):
             enterprise = self.enterprise_resolver.resolve({})
-        else:
-            # Client-provided enterprise metadata is advisory context only.
-            # It must never become authoritative or establish tenant scope.
+
+        # Client-provided enterprise metadata is accepted only inside an already
+        # trusted Enterprise execution. It can enrich that module but cannot create
+        # authority, tenant scope, or access to another module.
+        elif module_id == "enterprise":
             candidate = metadata.get("enterprise")
             if isinstance(candidate, dict) and candidate:
                 enterprise = dict(candidate)
                 enterprise["authoritative"] = False
                 enterprise["source"] = "client_metadata"
+
+        # For general, SBT, JobIA, and all other modules enterprise context remains
+        # absent. This prevents metadata from becoming an unintended prompt input.
 
         return ContextEnvelope(
             user=metadata.get("user", {}) if isinstance(metadata.get("user", {}), dict) else {},
