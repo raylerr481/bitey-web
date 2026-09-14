@@ -25,11 +25,11 @@ def resolve_tenant_id(user_id: str) -> str | None:
 
     try:
         mapping = json.loads(raw)
-    except (TypeError, ValueError) as exc:
-        raise TenantResolutionError("invalid_tenant_mapping") from exc
+    except (TypeError, ValueError):
+        return None
 
     if not isinstance(mapping, dict):
-        raise TenantResolutionError("invalid_tenant_mapping")
+        return None
 
     tenant_id = mapping.get(uid)
     if not isinstance(tenant_id, str):
