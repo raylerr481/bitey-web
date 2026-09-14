@@ -14,10 +14,7 @@ export class MemoryEngine {
   }
 
   async remember(entry = {}) {
-    const capability = capabilityOf(entry, null);
-    if (!capability) {
-      throw new Error('Memory entry capability is required');
-    }
+    const capability = capabilityOf(entry, 'general');
     return this.adapter?.remember?.({ ...entry, capability }) ?? null;
   }
 }
