@@ -44,6 +44,19 @@ class CognitiveModel:
         r"^buenas\s+(tardes|noches)[!,.¡¿?\s]*$", r"^boa\s+(tarde|noite)[!,.¡¿?\s]*$",
     )
 
+    _IDENTITY_PATTERNS = (
+        r"^(?:[¿?\s]*)qu[ií]e?n\s+eres[?!.,¡¿\s]*$",
+        r"^(?:[¿?\s]*)qu[eé]\s+eres[?!.,¡¿\s]*$",
+        r"^(?:[¿?\s]*)qu[eé]\s+puedes\s+hacer[?!.,¡¿\s]*$",
+        r"^(?:[¿?\s]*)qu[eé]\s+haces[?!.,¡¿\s]*$",
+        r"^(?:[¿?\s]*)c[oó]mo\s+funcionas[?!.,¡¿\s]*$",
+        r"^(?:[¿?\s]*)what\s+are\s+you[?!.,\s]*$",
+        r"^(?:[¿?\s]*)who\s+are\s+you[?!.,\s]*$",
+        r"^(?:[¿?\s]*)what\s+can\s+you\s+do[?!.,\s]*$",
+        r"^(?:[¿?\s]*)qual\s+[eé]\s+voc[eê][?!.,\s]*$",
+        r"^(?:[¿?\s]*)o\s+que\s+voc[eê]\s+faz[?!.,\s]*$",
+    )
+
     _CONCEPTUAL_CUES = (
         "qué es", "que es", "qué son", "que son", "qué significa", "que significa",
         "cómo funciona", "como funciona", "definición", "definicion", "define",
@@ -58,6 +71,11 @@ class CognitiveModel:
         normalized = " ".join(text.lower().strip().split())
         return any(re.fullmatch(pattern, normalized, flags=re.I) for pattern in cls._GREETING_PATTERNS)
 
+    @classmethod
+    def _is_identity_request(cls, text: str) -> bool:
+        normalized = " ".join(text.lower().strip().split())
+        return any(re.fullmatch(pattern, normalized, flags=re.I) for pattern in cls._IDENTITY_PATTERNS)
+
     def perceive(self, message: str) -> dict[str, Any]:
         text = message.strip()
         words = len(text.split())
@@ -68,6 +86,7 @@ class CognitiveModel:
             "question": "?" in text or bool(re.match(r"^(que|qué|como|cómo|por que|por qué|what|how|why|qual|onde|quando)\b", text.lower())),
             "has_url": bool(re.search(r"https?://|www\.", text, re.I)),
             "greeting": self._is_greeting(text),
+            "identity_request": self._is_identity_request(text),
             "complexity_signal": min(1.0, 0.20 + min(0.30, words / 180)),
         }
 
@@ -76,10 +95,9 @@ class CognitiveModel:
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
         conceptual = any(cue in text for cue in self._CONCEPTUAL_CUES)
         greeting = self._is_greeting(text)
+        identity_request = self._is_identity_request(text)
         strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
 
-        # A standalone greeting is always conversational/general. It must not
-        # activate a specialized module or inherit a stale domain from the session.
         if greeting:
             return {
                 "domain": "general",
@@ -88,6 +106,18 @@ class CognitiveModel:
                 "confidence": 0.98,
                 "source": "structured_greeting_intent",
                 "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation",
+            }
+
+        # Questions about Bitey's own identity/capabilities are conversational
+        # and do not require external evidence or a specialized module.
+        if identity_request:
+            return {
+                "domain": "general",
+                "intent": "self_identity",
+                "scores": {**scores, "general": 2},
+                "confidence": 0.98,
+                "source": "structured_self_identity_intent",
+                "response_guidance": "describe_bitey_identity_capabilities_and_scope_without_external_research",
             }
 
         if conceptual:
@@ -122,16 +152,16 @@ class CognitiveModel:
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
         domain = intention.get("domain", "general")
         intent = intention.get("intent", "answer_or_assist")
-        if intent == "greeting":
+        if intent in {"greeting", "self_identity"}:
             return {
-                "objective": "acknowledge_greeting_and_continue_conversation",
+                "objective": "acknowledge_greeting_and_continue_conversation" if intent == "greeting" else "answer_bitey_identity_and_capabilities",
                 "domain": "general",
-                "intent": "greeting",
+                "intent": intent,
                 "needs_evidence": False,
                 "freshness_required": False,
                 "requires_specialized_module": False,
                 "verification_required": False,
-                "stop_condition": "natural_conversational_greeting_response",
+                "stop_condition": "natural_conversational_response",
             }
         freshness = domain == "weather" or bool(context.get("freshness_required"))
         evidence = freshness or bool(context.get("research") or context.get("requires_web_research") or context.get("needs_web")) or domain == "research"
