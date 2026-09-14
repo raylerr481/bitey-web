@@ -130,7 +130,12 @@ class MemoryStore:
                 ]
         return list(self.conversations.get(conversation_id, []))
 
-    async def conversation_metadata(self, conversation_id: str) -> dict[str, Any] | None:
+    async def conversation_metadata(
+        self,
+        conversation_id: str,
+        execution_context: ExecutionContext | None = None,
+    ) -> dict[str, Any] | None:
+        scope = self._scope(conversation_id, execution_context)
         if not self.persistent:
             return None
         async with httpx.AsyncClient(timeout=10) as client:
@@ -139,6 +144,7 @@ class MemoryStore:
                 headers=self._headers(),
                 params={
                     "id": f"eq.{conversation_id}",
+                    "metadata->>memory_scope": f"eq.{scope.memory_scope}",
                     "select": "metadata",
                     "limit": "1",
                 },
