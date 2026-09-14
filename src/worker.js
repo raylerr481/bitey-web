@@ -179,16 +179,24 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
 }
 
 function resolveFallbackCapability(payload, message) {
-  const explicit = payload?.capability || payload?.routing || payload?.['x-bitey-capability'];
-  if (explicit === 'jobia' || explicit === 'sbt' || explicit === 'general') return explicit;
+  const explicit = String(payload?.capability || payload?.routing || payload?.['x-bitey-capability'] || '').toLowerCase();
+  if (explicit === 'enterprise' || explicit === 'jobia' || explicit === 'sbt' || explicit === 'general') return explicit;
   return classifyCapability(message).capability || 'general';
 }
 
 function specializedFallbackBlocked(capability, requestId) {
   const answer = capability === 'sbt'
     ? 'La capacidad de SBT no está disponible en este momento. No voy a simular una respuesta de trading o inversión.'
-    : 'La capacidad de JobIA no está disponible en este momento. No voy a simular una respuesta especializada de empleo.';
+    : capability === 'enterprise'
+      ? 'La capacidad de Bitey Enterprise no está disponible en este momento. No voy a simular una respuesta especializada de marketing o crecimiento empresarial.'
+      : 'La capacidad de JobIA no está disponible en este momento. No voy a simular una respuesta especializada de empleo.';
   return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
+}
+
+function resolveFallbackCapabilityLegacy(payload, message) {
+  const explicit = payload?.capability || payload?.routing || payload?.['x-bitey-capability'];
+  if (explicit === 'jobia' || explicit === 'sbt' || explicit === 'general') return explicit;
+  return classifyCapability(message).capability || 'general';
 }
 
 async function recoverToolEvidence(message, requestId) {
@@ -218,83 +226,3 @@ async function recoverWeather(message, requestId) {
   const locations = (await geoResponse.json())?.results || [];
   if (!locations.length) return null;
   const location = locations.find(x => String(x?.name || '').toLowerCase() === locationQuery.toLowerCase()) || locations[0];
-  const weatherUrl = new URL('https://api.open-meteo.com/v1/forecast');
-  weatherUrl.searchParams.set('latitude', String(location.latitude)); weatherUrl.searchParams.set('longitude', String(location.longitude));
-  weatherUrl.searchParams.set('current', 'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code'); weatherUrl.searchParams.set('timezone', 'auto'); weatherUrl.searchParams.set('forecast_days', '1');
-  const weatherResponse = await fetch(weatherUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
-  if (!weatherResponse.ok) return null;
-  const current = (await weatherResponse.json())?.current || {};
-  return { text: `WEATHER SOURCE: Open-Meteo\nLOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}\nOBSERVATION TIME: ${current.time || 'unknown'}\nTEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C\nAPPARENT TEMPERATURE: ${current.apparent_temperature ?? 'unknown'} °C\nHUMIDITY: ${current.relative_humidity_2m ?? 'unknown'} %\nWIND: ${current.wind_speed_10m ?? 'unknown'} km/h\nWEATHER CODE: ${current.weather_code ?? 'unknown'}`, sources: [{ title: 'Open-Meteo', url: weatherUrl.toString(), snippet: `Datos meteorológicos actuales de ${location.name}. Observación: ${current.time || 'unknown'}.` }] };
-}
-
-async function recoverSearch(message, requestId) {
-  const sources = [
-    { base: 'https://html.duckduckgo.com/html/', selector: /<div class="result__body".*?<\/div>\s*<\/div>/gs, link: /class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s, snippet: /class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s },
-    { base: 'https://lite.duckduckgo.com/lite/', selector: /<tr>\s*<td[^>]*class="result-link"[\s\S]*?<\/tr>/gi, link: /<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i, snippet: /class="result-snippet"[^>]*>(.*?)<\//i }
-  ];
-  for (const source of sources) {
-    try {
-      const url = new URL(source.base); url.searchParams.set('q', message);
-      const response = await fetch(url, { headers: { 'User-Agent': 'BiteySearch/1.0', 'Accept': 'text/html' } });
-      if (!response.ok) continue;
-      const body = await response.text();
-      const blocks = [...body.matchAll(source.selector)].slice(0, 8);
-      const items = []; const sourceObjects = [];
-      for (const blockMatch of blocks) {
-        const block = blockMatch[0];
-        const link = block.match(source.link);
-        if (!link) continue;
-        const raw = decodeHtml(link[1]); const redirect = raw.match(/[?&]uddg=([^&]+)/); const target = redirect ? decodeURIComponent(redirect[1]) : raw;
-        const title = stripHtml(decodeHtml(link[2]));
-        const snippetMatch = block.match(source.snippet);
-        const snippet = stripHtml(decodeHtml(snippetMatch?.[1] || ''));
-        if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}\nTITLE: ${title}\nSNIPPET: ${snippet}`); }
-      }
-      if (items.length) return { text: items.join('\n\n'), sources: sourceObjects };
-    } catch (error) {
-      console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
-    }
-  }
-  return null;
-}
-
-function stripHtml(value) { return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
-function decodeHtml(value) { return String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
-
-async function loadConversationHistory(origin, conversationId, requestId) {
-  if (!origin || !conversationId) return [];
-  try {
-    const url = new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, origin);
-    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json', 'x-bitey-channel': 'web', 'x-bitey-origin': 'cloudflare', 'x-request-id': requestId } });
-    if (!response.ok) return [];
-    const body = await response.json();
-    return Array.isArray(body?.messages) ? body.messages.slice(-8) : [];
-  } catch (error) {
-    console.warn('Bitey edge could not load conversation history', { requestId, error: String(error) });
-    return [];
-  }
-}
-
-function extractAiText(response) {
-  if (!response) return '';
-  const direct = response.response ?? response.result;
-  if (typeof direct === 'string' && direct.trim()) return direct.trim();
-  const choice = response.choices?.[0];
-  const content = choice?.message?.content ?? choice?.text;
-  if (typeof content === 'string' && content.trim()) return content.trim();
-  if (Array.isArray(content)) return content.map(part => typeof part === 'string' ? part : part?.text || '').join('').trim();
-  return '';
-}
-
-function safeAiShape(response) {
-  if (!response || typeof response !== 'object') return typeof response;
-  return { keys: Object.keys(response), has_choices: Array.isArray(response.choices), has_response: typeof response.response === 'string', has_result: typeof response.result === 'string' };
-}
-
-function jsonResponse(body, status = 200, source = 'cloudflare', requestId = '') {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': source, 'X-Bitey-Request-Id': requestId } });
-}
-
-function jsonError(message, status = 500, requestId = '') {
-  return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
-}
