@@ -1,3 +1,6 @@
+import { classifyCapability } from './capability-router.js';
+import { filterConversationHistory } from './conversation-isolation.js';
+
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
 const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en este momento. Inténtalo nuevamente en unos momentos.';
@@ -132,14 +135,22 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const conversationId = String(request.url).match(/conversations\/([^/]+)\/messages/)?.[1] || '';
   if (!message) return null;
 
+  const capability = resolveFallbackCapability(payload, message);
+  if (capability !== 'general') {
+    console.warn('Bitey edge fallback blocked for specialized capability', { requestId, capability });
+    return specializedFallbackBlocked(capability, requestId);
+  }
+
   let history = [];
   if (conversationId) history = await loadConversationHistory(origin, conversationId, requestId);
-  const compactHistory = history.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
+  const isolatedHistory = filterConversationHistory(history, capability);
+  const compactHistory = isolatedHistory.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
 
   const evidence = await recoverToolEvidence(message, requestId);
-  const backendEvidence = String(upstreamBody?.evidence_context || '').trim();
+  const backendEvidenceCapability = String(upstreamBody?.capability || upstreamBody?.routing || upstreamBody?.['x-bitey-capability'] || '').trim();
+  const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
-  const backendSources = Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : [];
+  const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
   const evidenceInstruction = combinedEvidence
     ? `EVIDENCIA RECUPERADA POR BITEY:\n${combinedEvidence}\n\nUsa esta evidencia para responder. No inventes datos y no menciones herramientas internas.`
@@ -165,6 +176,19 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
     }
   }
   return null;
+}
+
+function resolveFallbackCapability(payload, message) {
+  const explicit = payload?.capability || payload?.routing || payload?.['x-bitey-capability'];
+  if (explicit === 'jobia' || explicit === 'sbt' || explicit === 'general') return explicit;
+  return classifyCapability(message).capability || 'general';
+}
+
+function specializedFallbackBlocked(capability, requestId) {
+  const answer = capability === 'sbt'
+    ? 'La capacidad de SBT no está disponible en este momento. No voy a simular una respuesta de trading o inversión.'
+    : 'La capacidad de JobIA no está disponible en este momento. No voy a simular una respuesta especializada de empleo.';
+  return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
 }
 
 async function recoverToolEvidence(message, requestId) {
