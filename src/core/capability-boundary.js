@@ -16,12 +16,6 @@ export function normalizeCapability(value, fallback = 'general') {
 export function resolveCapability(input = {}) {
   const explicit = input.capability ?? input.metadata?.capability ?? input['x-bitey-capability'];
   if (explicit) return normalizeCapability(explicit);
-
-  const message = String(input.message ?? '').trim();
-  if (!message) return 'general';
-
-  // Reuse the canonical edge classifier when available without making the
-  // core depend on the worker/router implementation.
   return normalizeCapability(input.classifiedCapability ?? 'general');
 }
 
@@ -30,19 +24,19 @@ export function capabilityOf(value, fallback = null) {
   if (!value || typeof value !== 'object') return fallback;
   return normalizeCapability(
     value.capability ?? value.routing ?? value['x-bitey-capability'],
-    fallback ?? 'general',
+    fallback,
   );
 }
 
 export function isCapabilityAllowed(value, target) {
   const source = capabilityOf(value, null);
-  return source === normalizeCapability(target);
+  const normalizedTarget = normalizeCapability(target);
+  return source === normalizedTarget || (normalizedTarget === 'general' && source === null);
 }
 
 export function filterByCapability(values, targetCapability = 'general') {
   if (!Array.isArray(values)) return [];
-  const target = normalizeCapability(targetCapability);
-  return values.filter(value => isCapabilityAllowed(value, target));
+  return values.filter(value => isCapabilityAllowed(value, targetCapability));
 }
 
 export function scopeResult(value, capability) {
@@ -51,5 +45,6 @@ export function scopeResult(value, capability) {
   if (typeof value !== 'object') return value;
 
   const tagged = capabilityOf(value, null);
-  return tagged === null || tagged === capability ? value : null;
+  const target = normalizeCapability(capability);
+  return tagged === target || (target === 'general' && tagged === null) ? value : null;
 }
