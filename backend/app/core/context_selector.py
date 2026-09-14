@@ -5,7 +5,7 @@ from typing import Any
 
 TOKEN_RE = re.compile(r"[\wÀ-ÿ]+", re.UNICODE)
 ESSENTIAL_KEYS = ("user_query", "current_message", "goals", "constraints")
-ORDER = ESSENTIAL_KEYS + ("conversation", "memory", "learned_cognitive_context", "evidence", "sources", "tools", "module_routing")
+ORDER = ESSENTIAL_KEYS + ("conversation", "memory", "learned_cognitive_context", "evidence", "sources", "tools", "module_routing", "enterprise_context", "jobia_context", "sbt_context")
 CAPABILITIES = frozenset({"general", "enterprise", "jobia", "sbt"})
 CAPABILITY_KEYS = ("capability", "routing", "x-bitey-capability")
 SPECIALIZED_KEYS = frozenset({"enterprise", "sbt", "jobia", "trading", "jobia_context", "enterprise_context", "sbt_context"})
@@ -100,8 +100,6 @@ def _scope_value(value: Any, target: str, *, key: str | None = None) -> Any:
         return None
 
     if isinstance(value, dict):
-        # A specialized top-level block is scoped even when its internal records
-        # predate capability tagging. This prevents token overlap from selecting it.
         normalized_key = str(key or "").strip().lower()
         if normalized_key in SPECIALIZED_KEYS:
             inferred = normalized_key.split("_", 1)[0]
@@ -144,11 +142,14 @@ def select_context(source: dict[str, Any], capability: str | None = None) -> tup
     selected: dict[str, Any] = {}
     scores: dict[str, float] = {}
     for key in ORDER:
-        if key not in scoped_source or not _string(scoped_source[key]):
+        if key not in scoped_source:
             continue
-        overlap = len(query_tokens & tokens(scoped_source[key]))
+        value = scoped_source[key]
+        if not _string(value) and key not in ("memory", "learned_cognitive_context", "enterprise_context", "jobia_context", "sbt_context"):
+            continue
+        overlap = len(query_tokens & tokens(value))
         scores[key] = (1000.0 if key in ESSENTIAL_KEYS else 100.0) + overlap * 25
-        selected[key] = scoped_source[key]
+        selected[key] = value
     for key, value in scoped_source.items():
         if key.startswith("_") or key in selected or not _string(value):
             continue
