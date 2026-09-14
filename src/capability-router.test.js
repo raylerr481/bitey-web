@@ -29,6 +29,21 @@ describe('Bitey capability router', () => {
     expect(classifyCapability('¿Cómo invertir en Bitcoin?').capability).toBe('sbt');
   });
 
+  test('routes marketing and growth requests to Enterprise', () => {
+    expect(classifyCapability('Hazme una estrategia de marketing para mi negocio').capability).toBe('enterprise');
+    expect(classifyCapability('Necesito una campaña para captar clientes').capability).toBe('enterprise');
+    expect(classifyCapability('Ayúdame a mejorar el SEO de mi empresa').capability).toBe('enterprise');
+    expect(classifyCapability('Quiero generar leads y organizar mi CRM').capability).toBe('enterprise');
+    expect(classifyCapability('Crea contenido para Instagram de mi negocio').capability).toBe('enterprise');
+  });
+
+  test('does not route BiteFixes operational support to Enterprise', () => {
+    expect(classifyCapability('Tengo un ticket de BiteFixes').capability).toBe('general');
+    expect(classifyCapability('Revisa el portal de soporte de BiteFixes').capability).toBe('general');
+    expect(classifyCapability('Necesito atender a un cliente de BiteFixes').capability).toBe('general');
+    expect(classifyCapability('¿Cuál es el estado de este ticket de cliente?').capability).toBe('general');
+  });
+
   test('keeps general conversation in Bitey Core', () => {
     expect(classifyCapability('Hola, ¿cómo estás?').capability).toBe('general');
   });
@@ -36,6 +51,11 @@ describe('Bitey capability router', () => {
   test('prevents a specialized delegation loop', () => {
     const headers = new Headers({ 'x-bitey-capability': 'jobia' });
     expect(shouldDelegate('Busca un trabajo para mí', headers).delegate).toBe(false);
+  });
+
+  test('prevents an Enterprise delegation loop', () => {
+    const headers = new Headers({ 'x-bitey-capability': 'enterprise' });
+    expect(shouldDelegate('Crea una campaña de marketing', headers).delegate).toBe(false);
   });
 
   test('normalizes specialized result metadata', () => {
