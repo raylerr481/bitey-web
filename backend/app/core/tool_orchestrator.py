@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ast import Expression, Constant, BinOp, UnaryOp, Add, Sub, Mult, Div, Pow, Mod, USub, UAdd, parse
 from dataclasses import dataclass
+import os
 import re
 from typing import Any, Awaitable, Callable
 
@@ -29,6 +30,7 @@ class ToolOrchestrator:
     FRESH_RE = re.compile(r"\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\b", re.I)
     WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|mercado|acciones|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?|who is|what is|how much|where|when|who|what|which)\b", re.I)
     QUESTION_RE = re.compile(r"^\s*(qu[eé]|qui[eé]n|cu[aá]l|cu[aá]les|c[oó]mo|d[oó]nde|cu[aá]ndo|por qu[eé]|what|who|which|where|when|why|how)\b", re.I)
+    TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -36,6 +38,7 @@ class ToolOrchestrator:
         self._brain = BiteyBrain()
         self.register(ToolSpec("search", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
+        self.register(ToolSpec("sbt_market", "Consulta el mercado SBT y ejecuta inteligencia técnica únicamente con datos verificables; no ejecuta órdenes.", ("trading", "market_intelligence", "market_data", "risk"), self._sbt_market))
 
     def register(self, spec: ToolSpec) -> None:
         self._tools[spec.name] = spec
@@ -50,10 +53,13 @@ class ToolOrchestrator:
         brain = self._brain.think(message, ctx)
         ctx["bitey_brain"] = brain.as_dict(); ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
-        # Weather is a specialized deterministic tool. Natural-language weather
-        # requests must route to it even when the upstream cognitive classifier
-        # labels the domain as general.
-        if self.WEATHER_RE.search(message):
+        # Trading classification is authoritative for the current message. Route
+        # market requests to SBT before generic web search so technical analysis
+        # cannot be mistaken for ordinary research.
+        trading_domain = str(cognitive.intention.get("domain", "general")).lower() == "trading"
+        if trading_domain or (self.TRADING_RE.search(message) and re.search(r"\b(analiza|analizar|gr[aá]fico|velas|rsi|macd|ema|bos|choch|liquidez|entrada|stop|take profit|señal|signal)\b", message, re.I)):
+            requested = ["sbt_market"]
+        elif self.WEATHER_RE.search(message):
             requested = ["weather"]
         elif brain.evidence_required and "search" not in requested:
             requested.append("search")
@@ -85,6 +91,69 @@ class ToolOrchestrator:
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
         return results
+
+    async def _sbt_market(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Bridge Bitey trading analysis to the independent SBT market contract.
+
+        The bridge is fail-closed: no SBT URL or usable candles means no market
+        conclusion. It never synthesizes prices, indicators, entries or orders.
+        """
+        context = context or {}
+        base_url = os.getenv("SBT_MODULE_URL", "").strip().rstrip("/")
+        if not base_url:
+            return {"ok": False, "available": False, "verified": False, "execution_enabled": False,
+                    "reason": "sbt_module_not_configured",
+                    "evidence": "SBT market data is not configured for Bitey IA Web. No verified market data was available; no price, indicator, signal, entry, stop or take-profit was inferred."}
+
+        instrument_match = re.search(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", message, re.I)
+        timeframe_match = re.search(r"\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", message, re.I)
+        symbol = instrument_match.group(0).upper() if instrument_match else ""
+        timeframe = timeframe_match.group(0).upper() if timeframe_match else "M5"
+        if not symbol:
+            return {"ok": False, "available": False, "verified": False, "execution_enabled": False,
+                    "reason": "market_instrument_not_identified",
+                    "evidence": "SBT was selected for trading analysis, but the market instrument could not be identified. No market conclusion was generated."}
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(f"{base_url}/api/v1/market/candles/{symbol}", params={"timeframe": timeframe, "limit": 100})
+                if response.status_code >= 400:
+                    detail = response.text[:500]
+                    return {"ok": False, "available": False, "verified": False, "execution_enabled": False,
+                            "reason": "market_data_unavailable", "status_code": response.status_code,
+                            "evidence": f"SBT could not provide verified {symbol} {timeframe} market data. Provider response: {detail}. No price or signal was inferred."}
+                payload = response.json()
+                candles = payload.get("candles") or []
+                source = payload.get("source") or "unknown"
+                if len(candles) < 35:
+                    return {"ok": False, "available": False, "verified": False, "execution_enabled": False,
+                            "reason": "insufficient_market_data", "symbol": symbol, "timeframe": timeframe,
+                            "candle_count": len(candles), "source": source,
+                            "evidence": f"SBT returned only {len(candles)} verified candles for {symbol} {timeframe}; at least 35 are required for baseline analysis. No signal was generated."}
+                analysis = await client.post(f"{base_url}/api/v1/sbt/market-intelligence/analyze", json={
+                    "symbol": symbol, "timeframe": timeframe, "candles": candles, "language": "es", "event": "market_structure"
+                })
+                if analysis.status_code >= 400:
+                    detail = analysis.text[:500]
+                    return {"ok": False, "available": True, "verified": True, "execution_enabled": False,
+                            "reason": "sbt_analysis_unavailable", "symbol": symbol, "timeframe": timeframe, "source": source,
+                            "evidence": f"Verified market data was received from SBT ({source}), but SBT analysis failed: {detail}. No trading signal was generated."}
+                result = analysis.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            return {"ok": False, "available": False, "verified": False, "execution_enabled": False,
+                    "reason": "sbt_connection_error", "error": type(exc).__name__,
+                    "evidence": f"Bitey could not obtain verified market data from SBT for {symbol} {timeframe}. No market conclusion was generated."}
+
+        result["execution_enabled"] = False
+        result["verified_market_data"] = True
+        result["source"] = source
+        result["evidence"] = (
+            f"SBT verified market analysis for {symbol} {timeframe}. Source: {source}. "
+            f"Candles: {len(candles)}. Last price: {result.get('last_price')}. "
+            f"Bias: {result.get('bias')}. Confidence: {result.get('confidence')}. "
+            "SBT remains research-only and execution is disabled."
+        )
+        return {"ok": True, "available": True, "verified": True, "execution_enabled": False, "symbol": symbol, "timeframe": timeframe, "source": source, "analysis": result, "evidence": result["evidence"]}
 
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         result = await __import__("asyncio").to_thread(general_search, message, 8)
