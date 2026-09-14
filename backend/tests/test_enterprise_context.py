@@ -9,7 +9,7 @@ def test_enterprise_context_is_optional_and_does_not_break_general_context():
     assert payload["task"]["message"] == "hello"
 
 
-def test_request_enterprise_context_is_normalized():
+def test_request_enterprise_context_is_not_authorized_from_client_metadata():
     execution = build_execution_context(
         conversation_id="demo-conversation",
         trusted_tenant_id="demo-tenant",
@@ -30,16 +30,9 @@ def test_request_enterprise_context_is_normalized():
         },
         execution_context=execution,
     )
-    enterprise = context.as_dict()["enterprise"]
-    assert context.as_dict()["capability"] == "enterprise"
-    assert enterprise["company_id"] == "demo-1"
-    assert enterprise["company_name"] == "Demo Company"
-    assert enterprise["website"] == "https://example.com"
-    assert enterprise["services"] == ["support"]
-    assert enterprise["directives"]["tone"] == "professional"
-    assert enterprise["authoritative"] is False
-    assert enterprise["source"] == "client_metadata"
-    assert enterprise["capability"] == "enterprise"
+    payload = context.as_dict()
+    assert payload["capability"] == "enterprise"
+    assert payload["enterprise"] is None
 
 
 def test_general_execution_does_not_accept_client_enterprise_context():
