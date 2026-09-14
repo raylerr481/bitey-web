@@ -4,3 +4,12 @@ export { MemoryEngine } from './memory.js';
 export { ResearchEngine } from './research.js';
 export { EnterpriseContext } from './enterprise-context.js';
 export { ProviderRegistry } from './provider-registry.js';
+export {
+  CAPABILITIES,
+  normalizeCapability,
+  resolveCapability,
+  capabilityOf,
+  isCapabilityAllowed,
+  filterByCapability,
+  scopeResult,
+} from './capability-boundary.js';

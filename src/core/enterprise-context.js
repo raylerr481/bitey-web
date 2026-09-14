@@ -11,14 +11,14 @@ export class EnterpriseContext {
     this.knowledgeProvider = knowledgeProvider;
   }
 
-  async resolve({ tenantId = null, userId = null, permissions = {} } = {}) {
-    if (!tenantId || permissions.enterpriseContext !== true) {
+  async resolve({ tenantId = null, userId = null, permissions = {}, capability = 'general' } = {}) {
+    if (capability !== 'enterprise' || !tenantId || permissions.enterpriseContext !== true) {
       return { enabled: false, tenantId: null, profile: null, knowledge: [] };
     }
 
     const profile = await this.profileProvider?.get?.(tenantId, userId) ?? null;
     const knowledge = await this.knowledgeProvider?.search?.(tenantId) ?? [];
 
-    return { enabled: true, tenantId, profile, knowledge };
+    return { enabled: true, capability: 'enterprise', tenantId, profile, knowledge };
   }
 }

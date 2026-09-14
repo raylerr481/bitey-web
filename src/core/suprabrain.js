@@ -6,6 +6,9 @@
  * Bitey intelligence platform without embedding credentials or business data.
  */
 
+import { classifyCapability } from '../capability-router.js';
+import { normalizeCapability } from './capability-boundary.js';
+
 export class BiteySupracerebro {
   constructor({ context, memory, research, providers = [], tools = [] } = {}) {
     this.context = context;
@@ -54,10 +57,17 @@ export class BiteySupracerebro {
 
   normalize(input = {}) {
     const message = String(input.message ?? '').trim();
+    const classified = classifyCapability(message);
+    const explicitCapability = input.capability ?? input.metadata?.capability;
+    const capability = normalizeCapability(explicitCapability || classified.capability);
+
     return {
       message,
+      capability,
       conversationId: input.conversationId ?? null,
       tenantId: input.tenantId ?? null,
+      userId: input.userId ?? null,
+      permissions: input.permissions ?? {},
       language: input.language ?? null,
       researchRequired: Boolean(input.researchRequired),
       channel: input.channel ?? 'web',

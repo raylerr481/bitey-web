@@ -4,12 +4,12 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-_ALLOWED_MODULES = {"general", "bitefixes", "jobia", "sbt"}
+_ALLOWED_MODULES = {"general", "bitefixes", "enterprise", "jobia", "sbt"}
 _ALLOWED_CHANNELS = {"web", "api", "telegram", "whatsapp", "messenger", "app", "unknown"}
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    """Canonical execution scope used to keep tenant, identity and memory boundaries explicit."""
+    """Canonical execution scope used to keep tenant, capability and memory boundaries explicit."""
     tenant_id: str
     user_id: str
     actor_type: str
@@ -18,11 +18,16 @@ class ExecutionContext:
     module_id: str
 
     @property
+    def capability(self) -> str:
+        # BiteFixes is a tenant/integration scope, not an AI capability.
+        return "general" if self.module_id == "bitefixes" else self.module_id
+
+    @property
     def memory_scope(self) -> str:
-        return f"tenant:{self.tenant_id}:user:{self.user_id}:module:{self.module_id}:conversation:{self.conversation_id}"
+        return f"tenant:{self.tenant_id}:user:{self.user_id}:capability:{self.capability}:conversation:{self.conversation_id}"
 
     def as_dict(self) -> dict[str, Any]:
-        return {"identity":{"user_id":self.user_id,"actor_type":self.actor_type},"tenant":{"tenant_id":self.tenant_id},"session":{"conversation_id":self.conversation_id,"channel":self.channel},"module":{"module_id":self.module_id},"memory":{"memory_scope":self.memory_scope}}
+        return {"identity":{"user_id":self.user_id,"actor_type":self.actor_type},"tenant":{"tenant_id":self.tenant_id},"session":{"conversation_id":self.conversation_id,"channel":self.channel},"module":{"module_id":self.module_id},"capability":self.capability,"memory":{"memory_scope":self.memory_scope}}
 
 def build_execution_context(*, conversation_id: str, metadata: dict[str, Any] | None = None, trusted_tenant_id: str | None = None, trusted_user_id: str | None = None, trusted_channel: str | None = None, trusted_module_id: str | None = None) -> ExecutionContext:
     """Build scope from trusted server values; client metadata is never authoritative."""

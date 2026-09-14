@@ -1,10 +1,11 @@
 import { classifyHistoryMessage, filterConversationHistory } from './conversation-isolation.js';
 
 describe('conversation isolation', () => {
-  test('classifies specialized history', () => {
+  test('uses the central capability classifier for specialized history', () => {
     expect(classifyHistoryMessage('Quiero hacer backtesting en MT5')).toBe('sbt');
     expect(classifyHistoryMessage('Necesito mejorar mi CV para un empleo remoto')).toBe('jobia');
-    expect(classifyHistoryMessage('Necesito revisar un ticket de cliente de BiteFixes')).toBe('enterprise');
+    expect(classifyHistoryMessage('Necesito una estrategia de marketing para mi negocio')).toBe('enterprise');
+    expect(classifyHistoryMessage('Necesito revisar un ticket de cliente de BiteFixes')).toBe('general');
     expect(classifyHistoryMessage('Explícame qué es una base de datos')).toBe('general');
   });
 
@@ -30,8 +31,8 @@ describe('conversation isolation', () => {
 
   test('removes Enterprise turns from General history', () => {
     const history = [
-      { role: 'user', content: 'Necesito revisar un ticket de cliente de BiteFixes' },
-      { role: 'assistant', content: 'Revisemos el estado del ticket empresarial.' },
+      { role: 'user', content: 'Necesito una campaña de marketing para mi negocio' },
+      { role: 'assistant', content: 'Podemos definir objetivos, audiencia y canales.' },
       { role: 'user', content: 'Explícame qué es Docker' },
       { role: 'assistant', content: 'Docker es una plataforma de contenedores.' }
     ];
@@ -60,19 +61,21 @@ describe('conversation isolation', () => {
 
   test('preserves only Enterprise turns for Enterprise', () => {
     const history = [
-      { role: 'user', content: 'Necesito revisar un ticket de cliente de BiteFixes' },
-      { role: 'assistant', content: 'El ticket pertenece al portal de soporte.' },
+      { role: 'user', content: 'Necesito una estrategia de marketing para mi negocio' },
+      { role: 'assistant', content: 'Definamos el público objetivo y la propuesta.' },
       { role: 'user', content: 'Analiza Bitcoin' },
       { role: 'assistant', content: 'Información de mercado.' },
       { role: 'user', content: 'Ayúdame con mi CV' },
-      { role: 'assistant', content: 'Podemos mejorar tu CV.' }
+      { role: 'assistant', content: 'Podemos mejorar tu CV.' },
+      { role: 'user', content: 'Necesito revisar un ticket de cliente de BiteFixes' },
+      { role: 'assistant', content: 'Ese ticket pertenece al soporte operativo.' }
     ];
     expect(filterConversationHistory(history, 'enterprise')).toEqual([history[0], history[1]]);
   });
 
   test('keeps Enterprise history out of SBT and JobIA', () => {
     const history = [
-      { role: 'user', capability: 'enterprise', content: 'Revisemos el portal de soporte de BiteFixes' },
+      { role: 'user', capability: 'enterprise', content: 'Diseña una campaña de marketing' },
       { role: 'assistant', capability: 'enterprise', content: 'De acuerdo.' }
     ];
     expect(filterConversationHistory(history, 'sbt')).toEqual([]);
