@@ -74,18 +74,18 @@ class ContextEngine:
                             "authoritative": True,
                             "capability": "enterprise",
                         }
-        elif capability == "enterprise":
+        elif execution_context is not None and capability == "enterprise":
             # Enterprise profiles are available only after the server execution
             # context has explicitly established the Enterprise capability.
-            if execution_context is None and os.getenv("BITEY_ENTERPRISE_PROFILE_JSON"):
+            candidate = metadata.get("enterprise")
+            if isinstance(candidate, dict) and candidate:
+                enterprise = dict(candidate)
+                enterprise["authoritative"] = False
+                enterprise["source"] = "client_metadata"
+                enterprise["capability"] = "enterprise"
+
+            if enterprise is None and os.getenv("BITEY_ENTERPRISE_PROFILE_JSON"):
                 enterprise = self.enterprise_resolver.resolve({})
-            else:
-                candidate = metadata.get("enterprise")
-                if isinstance(candidate, dict) and candidate:
-                    enterprise = dict(candidate)
-                    enterprise["authoritative"] = False
-                    enterprise["source"] = "client_metadata"
-                    enterprise["capability"] = "enterprise"
 
         return ContextEnvelope(
             user=metadata.get("user", {}) if isinstance(metadata.get("user", {}), dict) else {},
