@@ -72,8 +72,8 @@ class BiteyCognitiveArchitecture:
     )
     MARKET_TIMEFRAME_RE = re.compile(r"\b(?:M1|M3|M5|M15|M30|H1|H2|H4|D1|W1|MN1)\b", re.I)
     MARKET_CONTEXT_RE = re.compile(
-        r"\b(?:vela|velas|candela|candles|gráfico|grafico|chart|precio|cotización|cotizacion|spread|bid|ask|" 
-        r"soporte|resistencia|tendencia|trend|scalp|scalping|forex|crypto|cripto|futuros|futures|" 
+        r"\b(?:vela|velas|candela|candles|gráfico|grafico|chart|precio|cotización|cotizacion|spread|bid|ask|"
+        r"soporte|resistencia|tendencia|trend|scalp|scalping|forex|crypto|cripto|futuros|futures|"
         r"indicador|rsi|macd|ema|sma|atr|liquidez|liquidity|fvg|order\s+block|smart\s+money)\b",
         re.I,
     )
@@ -99,6 +99,7 @@ class BiteyCognitiveArchitecture:
             domain = "trading"
             domain_score = max(domain_score, 2)
 
+        intent = self._intent(message, domain)
         evidence_required = bool(context.get("research")) or domain in {"research", "health", "trading"}
         risk_flags: list[str] = []
         lowered = message.lower()
@@ -107,7 +108,9 @@ class BiteyCognitiveArchitecture:
         if any(token in lowered for token in ("contraseña", "password", "secret", "api key", "token")):
             risk_flags.append("credential_request")
         confidence = min(0.95, 0.55 + min(domain_score, 3) * 0.10)
-        if domain == "trading" and market_instrument and market_timeframe:
+        if intent == "greeting":
+            confidence = 0.95
+        elif domain == "trading" and market_instrument and market_timeframe:
             confidence = 0.95
         elif domain == "trading" and market_signal >= 2:
             confidence = max(confidence, 0.85)
@@ -116,6 +119,7 @@ class BiteyCognitiveArchitecture:
             input_text=message,
             language=language,
             domain=domain,
+            intent=intent,
             evidence_required=evidence_required,
             evidence_available=bool(context.get("evidence_available")),
             confidence=confidence,
@@ -127,7 +131,7 @@ class BiteyCognitiveArchitecture:
         action = "respond"
         if frame.risk_flags:
             action = "respond_with_guardrails"
-        if frame.evidence_required and not frame.evidence_available:
+        if frame.evidence_required and not frame.evidence_available and frame.intent != "greeting":
             action = "request_or_retrieve_evidence"
         return {
             "action": action,
@@ -150,6 +154,25 @@ class BiteyCognitiveArchitecture:
         scores = {domain: sum(1 for hint in hints if hint in lowered) for domain, hints in self.DOMAIN_HINTS.items()}
         domain = max(scores, key=scores.get) if scores and max(scores.values()) else "general"
         return domain, scores.get(domain, 0)
+
+    @staticmethod
+    def _intent(text: str, domain: str) -> str:
+        lowered = text.strip().lower()
+        if re.fullmatch(r"(?:hola|holaa+|buenas|hey|hello|hi|oi|olá|ola|buenos días|buenas tardes|buenas noches|buenos dias|buenas tardes|buenas noches)[!.?,\s]*", lowered, re.I):
+            return "greeting"
+        if domain == "trading":
+            return "trading_request"
+        if domain == "research":
+            return "research_request"
+        if domain == "programming":
+            return "programming_request"
+        if domain == "support":
+            return "support_request"
+        if domain == "marketing":
+            return "marketing_request"
+        if domain == "health":
+            return "health_request"
+        return "answer_or_assist"
 
     @staticmethod
     def _language(text: str, context: dict[str, Any]) -> str:
