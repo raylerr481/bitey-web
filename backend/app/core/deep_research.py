@@ -28,6 +28,8 @@ class DeepResearchPlan:
     evidence: list[Evidence] = field(default_factory=list)
     research_passes: int = 0
     verification_required: bool = False
+    query_variants: list[str] = field(default_factory=list)
+    clarification_needed: bool = False
 
 
 class DeepResearchEngine:
@@ -42,6 +44,11 @@ class DeepResearchEngine:
         r"cuál es|cual es|dime|explícame|explicame|informa(?:me|r)?|quiero saber|"
         r"necesito saber|enséñame|ensename|muéstrame|muestrame|tell me|explain|"
         r"inform me|i want to know|i need to know|teach me)\b",
+        re.I,
+    )
+    AMBIGUOUS_RE = re.compile(
+        r"^(?:qué|que|quién|quien|cómo|como|cuál|cual|dime|explica(?:me)?|"
+        r"inform(?:a|ame)?|ayuda(?:me)?|what|who|how|which|tell me|explain)\s*$",
         re.I,
     )
     MEDICAL_RE = re.compile(
@@ -60,6 +67,20 @@ class DeepResearchEngine:
     MEDICAL_AUTHORITY_DOMAINS = (
         "who.int", "paho.org", "cdc.gov", "nih.gov", "gov.br", "fiocruz.br", "unaids.org"
     )
+
+    def _build_query_variants(self, query: str, reasons: list[str]) -> list[str]:
+        """Create search-ready reformulations when the user's wording is incomplete."""
+        base = re.sub(r"\s+", " ", query).strip()
+        variants: list[str] = [base]
+        if self.AMBIGUOUS_RE.match(base) or len(base.split()) <= 2:
+            variants.extend([f"{base} meaning", f"{base} explanation", f"{base} definition"])
+        elif "knowledge_request" in reasons:
+            variants.append(f"{base} explanation reliable sources")
+        elif "freshness" in reasons:
+            variants.append(f"{base} latest current information")
+        elif "research_intent" in reasons:
+            variants.append(f"{base} sources evidence")
+        return list(dict.fromkeys(v for v in variants if v))[:4]
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -85,11 +106,15 @@ class DeepResearchEngine:
         verification_required = bool(reasons and any(r in reasons for r in (
             "freshness", "knowledge_request", "research_intent", "medical_domain", "year_specific", "required_research"
         )))
+        variants = self._build_query_variants(query, reasons)
+        clarification_needed = bool(self.AMBIGUOUS_RE.match(query.strip()))
         return DeepResearchPlan(
             query=query,
             reasons=reasons,
             mode=str(context.get("research_mode") or "deep"),
             verification_required=verification_required,
+            query_variants=variants,
+            clarification_needed=clarification_needed,
         )
 
     @staticmethod
@@ -193,9 +218,20 @@ class DeepResearchEngine:
             urls = [u.rstrip(".,);]}") for u in self.URL_RE.findall(plan.query)[:5]]
             urls = [u if u.lower().startswith(("http://", "https://")) else "https://" + u for u in urls]
             if not urls and plan.reasons:
-                urls = await self._search(client, plan.query, limit=5, medical="medical_domain" in plan.reasons)
-            plan.urls = list(dict.fromkeys(urls))[:5]
-            plan.research_passes = 1 if plan.urls else 0
+                # Research each reformulation until enough distinct sources are collected.
+                for variant in plan.query_variants or [plan.query]:
+                    found = await self._search(client, variant, limit=4, medical="medical_domain" in plan.reasons)
+                    plan.research_passes += 1
+                    for url in found:
+                        if url not in urls:
+                            urls.append(url)
+                        if len(urls) >= 8:
+                            break
+                    if len(urls) >= 8:
+                        break
+            plan.urls = list(dict.fromkeys(urls))[:8]
+            if plan.urls and plan.research_passes == 0:
+                plan.research_passes = 1
             for url in plan.urls:
                 try:
                     r = await client.get(url)
@@ -224,13 +260,16 @@ class DeepResearchEngine:
             return ""
         source_header = (
             f"RESEARCH STATUS: {len(usable)} usable source(s); "
-            f"verification_required={plan.verification_required}; passes={plan.research_passes}"
+            f"verification_required={plan.verification_required}; passes={plan.research_passes}; "
+            f"clarification_needed={plan.clarification_needed}; "
+            f"query_variants={len(plan.query_variants)}"
         )
+        query_info = "\n".join(f"RESEARCH QUERY {i}: {q}" for i, q in enumerate(plan.query_variants, 1))
         sources = "\n\n".join(
             f"SOURCE {i}: {e.url}\nTITLE: {e.title}\nEVIDENCE:\n{e.content}"
             for i, e in enumerate(usable, 1)
         )
-        return f"{source_header}\n\n{sources}"
+        return f"{source_header}\n\n{query_info}\n\n{sources}"
 
     def source_summary(self, plan: DeepResearchPlan) -> list[dict[str, Any]]:
         return [
@@ -240,6 +279,8 @@ class DeepResearchEngine:
                 "ok": e.ok,
                 "error": e.error,
                 "verification_required": plan.verification_required,
+                "query_variants": plan.query_variants,
+                "clarification_needed": plan.clarification_needed,
             }
             for e in plan.evidence
         ]
