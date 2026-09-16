@@ -62,7 +62,52 @@ class NativeReasoningModel:
     @staticmethod
     def _specialized_evidence_answer(question: str, evidence: str, frame: dict[str, Any]) -> str:
         if not evidence: return ""
-        q = question.lower(); trading = frame.get("domain") == "trading" or bool(re.search(r"\b(?:[a-z]{2,12}(?:usdt|usd)|[a-z]{6})\b|\b(?:m1|m3|m5|m15|m30|h1|h4|d1|w1|mn1)\b", q, re.I))
+        q = question.lower()
+        domain = str(frame.get("domain") or "")
+
+        # Weather is a deterministic tool result, so synthesize its structured
+        # fields directly instead of relying on generic keyword overlap.
+        if domain == "weather" or "WEATHER SOURCE: Open-Meteo" in evidence:
+            if "WEATHER SOURCE: Open-Meteo" not in evidence:
+                return ""
+            def field(name: str) -> str:
+                match = re.search(rf"^{re.escape(name)}:\s*(.+)$", evidence, re.I | re.M)
+                return match.group(1).strip() if match else ""
+            location = field("LOCATION")
+            observed = field("OBSERVATION TIME")
+            temperature = field("TEMPERATURE")
+            apparent = field("APPARENT TEMPERATURE")
+            humidity = field("RELATIVE HUMIDITY")
+            wind = field("WIND SPEED")
+            condition = field("CONDITION")
+            if not temperature:
+                return "Bitey IA recuperó datos meteorológicos de Open-Meteo, pero el campo de temperatura no estuvo disponible en la respuesta verificada."
+            language = str(frame.get("language") or "es")
+            if language == "pt":
+                answer = f"Em {location or 'a localização solicitada'}, a temperatura registrada é {temperature}."
+                if apparent: answer += f" Sensação térmica: {apparent}."
+                if condition: answer += f" Condição: {condition}."
+                if humidity: answer += f" Umidade relativa: {humidity}."
+                if wind: answer += f" Vento: {wind}."
+                if observed: answer += f" Observado em {observed}."
+                return answer + " Fonte: Open-Meteo."
+            if language == "en":
+                answer = f"In {location or 'the requested location'}, the recorded temperature is {temperature}."
+                if apparent: answer += f" Feels like: {apparent}."
+                if condition: answer += f" Condition: {condition}."
+                if humidity: answer += f" Relative humidity: {humidity}."
+                if wind: answer += f" Wind: {wind}."
+                if observed: answer += f" Observed at {observed}."
+                return answer + " Source: Open-Meteo."
+            answer = f"En {location or 'la ubicación solicitada'}, la temperatura registrada es {temperature}."
+            if apparent: answer += f" Sensación térmica: {apparent}."
+            if condition: answer += f" Condición: {condition}."
+            if humidity: answer += f" Humedad relativa: {humidity}."
+            if wind: answer += f" Viento: {wind}."
+            if observed: answer += f" Observado a las {observed}."
+            return answer + " Fuente: Open-Meteo."
+
+        trading = frame.get("domain") == "trading" or bool(re.search(r"\b(?:[a-z]{2,12}(?:usdt|usd)|[a-z]{6})\b|\b(?:m1|m3|m5|m15|m30|h1|h4|d1|w1|mn1)\b", q, re.I))
         if not trading: return ""
         if "sbt_module_not_configured" in evidence or "not configured for Bitey IA Web" in evidence:
             return ("He clasificado correctamente la solicitud como análisis de trading y el flujo SBT fue seleccionado, pero SBT todavía no está conectado a una fuente de mercado verificable desde Bitey IA Web.\n\n"
