@@ -29,7 +29,15 @@ class WebResearchPolicy:
         re.I,
     )
     FACTUAL_QUESTION = re.compile(
-        r"(?:\?|\b(?:quién|quien|qué|que|cuál|cual|cuándo|cuando|dónde|donde|cómo|como|por qué|porque|cuánto|cuanto|cuántos|cuantos|qué significa|que significa|what|who|which|when|where|how|why|how much|how many)\b)",
+        r"(?:\?|\b(?:quién|quien|qué|que|cuál|cual|cuándo|cuando|dónde|donde|cómo|como|por qué|porque|cuánto|cuanto|cuántos|cuantos|qué significa|que significa|qué es|que es|what|who|which|when|where|how|why|how much|how many)\b)",
+        re.I,
+    )
+    KNOWLEDGE_REQUEST = re.compile(
+        r"\b(?:dime|decime|explícame|explicame|explique|informa(?:me|r)?|quiero saber|necesito saber|enséñame|ensename|muéstrame|muestrame|tell me|explain|inform me|i want to know|i need to know|teach me)\b",
+        re.I,
+    )
+    CASUAL = re.compile(
+        r"^(?:hola|hey|hi|buenas|buenos días|buenas tardes|buenas noches|cómo estás|como estas|qué tal|que tal|todo bien|gracias|muchas gracias|ok|vale|adiós|adios)[!?. ]*$",
         re.I,
     )
     MEDICAL = re.compile(
@@ -53,12 +61,18 @@ class WebResearchPolicy:
             score += 0.72; reasons.append("dynamic_domain")
         if self.FACTUAL_QUESTION.search(text):
             score += 0.78; reasons.append("factual_question")
+        if self.KNOWLEDGE_REQUEST.search(text):
+            score += 0.78; reasons.append("knowledge_request")
         if self.MEDICAL.search(text):
             score += 0.90; reasons.append("medical_domain")
         if self.EVIDENCE.search(text):
             score += 0.80; reasons.append("evidence_requested")
         if self.URL.search(text):
             score += 0.95; reasons.append("url_present")
+
+        if self.CASUAL.fullmatch(text):
+            score = 0.0
+            reasons = []
 
         research_ctx = ctx.get("research") if isinstance(ctx.get("research"), dict) else {}
         if research_ctx.get("requested") or research_ctx.get("requires_web_research") or research_ctx.get("needs_web") or research_ctx.get("freshness_required"):
