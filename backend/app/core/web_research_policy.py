@@ -28,6 +28,10 @@ class WebResearchPolicy:
         r"\b(precio|precios|cotización|cotizaciones|stock|acciones|mercado|clima|temperatura|tiempo|pronóstico|weather|forecast|news|noticias|horario|horarios|disponible|disponibilidad|versión|version|release|regulación|ley|impuesto|tax|tipo de cambio|exchange rate|población|estadística|ranking|score|resultado|resultados)\b",
         re.I,
     )
+    FACTUAL_QUESTION = re.compile(
+        r"(?:\?|\b(?:quién|quien|qué|que|cuál|cual|cuándo|cuando|dónde|donde|cómo|como|por qué|porque|cuánto|cuanto|cuántos|cuantos|qué significa|que significa|what|who|which|when|where|how|why|how much|how many)\b)",
+        re.I,
+    )
     MEDICAL = re.compile(
         r"\b(salud|health|enfermedad|enfermedades|disease|síntoma|síntomas|sintoma|sintomas|symptom|sida|vih|hiv|tratamiento|tratamientos|treatment|medicina|medical|médico|médica|diagnóstico|diagnostico|diagnosis|infección|infecciones|infection|cáncer|cancer|virus|bacteria|vacuna|vacunación|hospital|medicación|medicamento)\b",
         re.I,
@@ -47,6 +51,8 @@ class WebResearchPolicy:
             score += 0.90; reasons.append("freshness_sensitive")
         if self.FACTUAL_DYNAMIC.search(text):
             score += 0.72; reasons.append("dynamic_domain")
+        if self.FACTUAL_QUESTION.search(text):
+            score += 0.78; reasons.append("factual_question")
         if self.MEDICAL.search(text):
             score += 0.90; reasons.append("medical_domain")
         if self.EVIDENCE.search(text):
