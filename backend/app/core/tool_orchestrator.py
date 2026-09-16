@@ -56,18 +56,17 @@ class ToolOrchestrator:
         ctx["bitey_brain"] = brain.as_dict(); ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
 
-        # Deterministic arithmetic bypasses model/search routing.
         if self.MATH_RE.fullmatch(message.strip()):
             requested = ["calculator"]
         else:
-            # Any explicit trading instrument, including a simple price query
-            # such as "a cuanto esta ETC/USDT?", is routed to SBT market data.
             trading_domain = str(cognitive.intention.get("domain", "general")).lower() == "trading"
             trading_instrument = self.TRADING_RE.search(message) is not None
             if trading_domain or trading_instrument:
                 requested = ["sbt_market"]
             elif self.WEATHER_RE.search(message):
-                requested = ["weather"]
+                # Weather is a specialized source, but factual/current questions
+                # must also pass through Bitey's general search/research layer.
+                requested = ["weather", "search"]
             elif brain.evidence_required and "search" not in requested:
                 requested.append("search")
 
@@ -88,17 +87,30 @@ class ToolOrchestrator:
 
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
         results: dict[str, Any] = {}
+        evidence_parts: list[str] = []
+        evidence_sources: list[Any] = []
+        evidence_reasons: list[str] = []
+        overall_ok = False
         for name in names:
             tool = self._tools.get(name)
             if not tool: continue
             try:
                 result = await tool.handler(**kwargs); results[name] = result
                 if isinstance(result, dict) and result.get("evidence"):
-                    existing = results.get("web_research")
-                    if not existing or not existing.get("evidence"):
-                        results["web_research"] = {"ok": bool(result.get("ok", True)), "reasons": [f"specialized:{name}"], "sources": result.get("source"), "evidence": str(result["evidence"])}
+                    overall_ok = overall_ok or bool(result.get("ok", True))
+                    evidence_parts.append(str(result["evidence"]))
+                    if result.get("source"):
+                        evidence_sources.append(result.get("source"))
+                    evidence_reasons.append(f"tool:{name}")
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
+        if evidence_parts:
+            results["web_research"] = {
+                "ok": overall_ok,
+                "reasons": evidence_reasons,
+                "sources": evidence_sources,
+                "evidence": "\n\n".join(evidence_parts),
+            }
         return results
 
     async def _calculator(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -110,7 +122,6 @@ class ToolOrchestrator:
             return {"ok": False, "error": type(exc).__name__, "source": "local-calculator"}
 
     async def _sbt_market(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Bridge Bitey trading analysis to the independent SBT market contract."""
         context = context or {}
         base_url = os.getenv("SBT_MODULE_URL", "").strip().rstrip("/")
         if not base_url:
