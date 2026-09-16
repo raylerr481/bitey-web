@@ -26,6 +26,8 @@ class DeepResearchPlan:
     reasons: list[str] = field(default_factory=list)
     urls: list[str] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
+    research_passes: int = 0
+    verification_required: bool = False
 
 
 class DeepResearchEngine:
@@ -35,6 +37,13 @@ class DeepResearchEngine:
     RESULT_RE = re.compile(r'<a[^>]+class=["\']result__a["\'][^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
     BING_RESULT_RE = re.compile(r'<li[^>]+class=["\']b_algo["\'][^>]*>.*?<h2[^>]*>\s*<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
     YEAR_RE = re.compile(r"\b20\d{2}\b")
+    KNOWLEDGE_RE = re.compile(
+        r"\b(?:qué es|que es|quién es|quien es|cómo funciona|como funciona|por qué|porque|"
+        r"cuál es|cual es|dime|explícame|explicame|informa(?:me|r)?|quiero saber|"
+        r"necesito saber|enséñame|ensename|muéstrame|muestrame|tell me|explain|"
+        r"inform me|i want to know|i need to know|teach me)\b",
+        re.I,
+    )
     MEDICAL_RE = re.compile(
         r"\b(?:salud|health|enfermedad|enfermedades|síntoma|síntomas|sintoma|sintomas|"
         r"sida|vih|hiv|tratamiento|tratamientos|medicina|médico|médica|medical|"
@@ -60,8 +69,10 @@ class DeepResearchEngine:
             reasons.append("explicit_url")
         if any(x in q for x in ("investiga", "busca", "fuentes", "compara", "contrasta", "research", "evidence")):
             reasons.append("research_intent")
-        if any(x in q for x in ("último", "ultima", "última", "actual", "hoy", "latest", "current", "precio")):
+        if any(x in q for x in ("último", "ultima", "última", "actual", "ahora", "hoy", "latest", "current", "precio", "cotización", "cotizacion")):
             reasons.append("freshness")
+        if self.KNOWLEDGE_RE.search(q):
+            reasons.append("knowledge_request")
         if self.YEAR_RE.search(query):
             reasons.append("year_specific")
         if any(x in q for x in ("programado", "programada", "previsto", "prevista", "calendario", "schedule", "scheduled")):
@@ -70,7 +81,16 @@ class DeepResearchEngine:
             reasons.append("medical_domain")
         if context.get("research_required"):
             reasons.append("required_research")
-        return DeepResearchPlan(query=query, reasons=list(dict.fromkeys(reasons)), mode=str(context.get("research_mode") or "deep"))
+        reasons = list(dict.fromkeys(reasons))
+        verification_required = bool(reasons and any(r in reasons for r in (
+            "freshness", "knowledge_request", "research_intent", "medical_domain", "year_specific", "required_research"
+        )))
+        return DeepResearchPlan(
+            query=query,
+            reasons=reasons,
+            mode=str(context.get("research_mode") or "deep"),
+            verification_required=verification_required,
+        )
 
     @staticmethod
     def _clean_result_url(href: str) -> str:
@@ -110,7 +130,6 @@ class DeepResearchEngine:
             return []
 
     async def _search_bing_rss(self, client: httpx.AsyncClient, query: str, limit: int = 5) -> list[str]:
-        """Fallback to Bing RSS when HTML result markup changes or is blocked."""
         try:
             r = await client.get(f"https://www.bing.com/search?format=rss&q={quote_plus(query)}")
             r.raise_for_status()
@@ -176,6 +195,7 @@ class DeepResearchEngine:
             if not urls and plan.reasons:
                 urls = await self._search(client, plan.query, limit=5, medical="medical_domain" in plan.reasons)
             plan.urls = list(dict.fromkeys(urls))[:5]
+            plan.research_passes = 1 if plan.urls else 0
             for url in plan.urls:
                 try:
                     r = await client.get(url)
@@ -200,7 +220,26 @@ class DeepResearchEngine:
 
     def evidence_context(self, plan: DeepResearchPlan) -> str:
         usable = [e for e in plan.evidence if e.ok and e.content]
-        return "\n\n".join(f"SOURCE {i}: {e.url}\nTITLE: {e.title}\nEVIDENCE:\n{e.content}" for i, e in enumerate(usable, 1))
+        if not usable:
+            return ""
+        source_header = (
+            f"RESEARCH STATUS: {len(usable)} usable source(s); "
+            f"verification_required={plan.verification_required}; passes={plan.research_passes}"
+        )
+        sources = "\n\n".join(
+            f"SOURCE {i}: {e.url}\nTITLE: {e.title}\nEVIDENCE:\n{e.content}"
+            for i, e in enumerate(usable, 1)
+        )
+        return f"{source_header}\n\n{sources}"
 
     def source_summary(self, plan: DeepResearchPlan) -> list[dict[str, Any]]:
-        return [{"url": e.url, "title": e.title, "ok": e.ok, "error": e.error} for e in plan.evidence]
+        return [
+            {
+                "url": e.url,
+                "title": e.title,
+                "ok": e.ok,
+                "error": e.error,
+                "verification_required": plan.verification_required,
+            }
+            for e in plan.evidence
+        ]
