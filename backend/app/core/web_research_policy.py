@@ -67,4 +67,10 @@ class WebResearchPolicy:
         required = score >= 0.70
         strategy = "multi_source_research" if score >= 1.35 else ("web_lookup" if required else "none")
         confidence = min(1.0, score)
+        if required:
+            ctx["research_required"] = True
+            research_state = ctx.setdefault("research", {})
+            if isinstance(research_state, dict):
+                research_state["requires_web_research"] = True
+                research_state["needs_web"] = True
         return WebResearchDecision(required=required, confidence=confidence, reasons=list(dict.fromkeys(reasons)), strategy=strategy)
