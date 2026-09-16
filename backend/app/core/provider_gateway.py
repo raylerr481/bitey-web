@@ -51,9 +51,6 @@ def sanitize_public_answer(text: str) -> str:
         return ""
     value = re.sub(r"^\s*(?:final\s+answer|respuesta\s+final|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*", "", value, flags=re.I)
     value = re.sub(r"\n{3,}", "\n\n", value).strip()
-    # A single character, token, or tiny fragment is not a valid public answer.
-    # This specifically prevents UI artifacts such as the lone "B" avatar marker
-    # from becoming the assistant response when a provider truncates generation.
     words = re.findall(r"\S+", value)
     if len(value) < 24 or len(words) < 4:
         return ""
@@ -102,7 +99,7 @@ class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
         "strong_reasoning_synthesis":("ollama-local","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("ollama-local","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("bitey-native-cognitive-v1","ollama-local"),
         "code_reasoning":("ollama-local","bitey-native-cognitive-v1"),
         "guarded_analysis":("bitey-native-cognitive-v1","ollama-local"),
         "fast_synthesis":("ollama-local","bitey-native-cognitive-v1"),
@@ -168,8 +165,19 @@ class ProviderGateway:
         providers=[p for p in self._providers.values() if (not free_only_mode() or p.free_only) and (p.name != "bitey-native-cognitive-v1" or env_true("BITEY_NATIVE_AS_GENERATOR",False))]
         if not providers: return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
         conversation_id=str(context.get("conversation_id") or "").strip(); brain=context.get("bitey_brain") or {}; role=str(brain.get("model_role") or context.get("model_role") or "synthesis")
-        ordered=self._order_for_role(providers,role); sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None; sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
-        if sticky: ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
+        ordered=self._order_for_role(providers,role)
+        evidence_signal=str(context.get("evidence") or "")
+        evidence_required=bool(context.get("evidence_available") or evidence_signal)
+        domain=str(context.get("current_intent_domain") or context.get("domain") or "").lower().strip()
+        weather_evidence=domain=="weather" or "WEATHER SOURCE: Open-Meteo" in evidence_signal
+        factual_evidence=evidence_required or bool(context.get("research_required") or context.get("research_state",{}).get("requires_web_research"))
+        native=next((p for p in ordered if p.name=="bitey-native-cognitive-v1"),None)
+        if native and (evidence_required or weather_evidence or factual_evidence):
+            ordered=[native]+[p for p in ordered if p.name!=native.name]
+        else:
+            sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None
+            sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
+            if sticky: ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
         max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","3")))
         for attempt,provider in enumerate(ordered[:max_providers],1):
             context["provider_attempts"].append({"provider":provider.name,"attempt":attempt})
