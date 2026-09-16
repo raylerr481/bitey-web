@@ -53,6 +53,7 @@ class BiteyCognitiveArchitecture:
     """
 
     DOMAIN_HINTS = {
+        "weather": ("temperatura", "clima", "tiempo", "weather", "temperature", "forecast", "pronóstico", "pronostico", "previsão", "previsao"),
         "trading": ("trading", "trade", "forex", "stock", "mercado", "mt5", "tradingview", "bot", "bolsa"),
         "support": ("ticket", "soporte", "error", "incidencia", "cliente", "reparación", "repair", "cctv"),
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar", "github"),
@@ -100,7 +101,7 @@ class BiteyCognitiveArchitecture:
             domain_score = max(domain_score, 2)
 
         intent = self._intent(message, domain)
-        evidence_required = bool(context.get("research")) or domain in {"research", "health", "trading"}
+        evidence_required = bool(context.get("research")) or domain in {"weather", "research", "health", "trading"}
         risk_flags: list[str] = []
         lowered = message.lower()
         if domain == "trading" and any(token in lowered for token in ("comprar", "vender", "ejecuta", "orden", "live", "real")):
@@ -160,6 +161,8 @@ class BiteyCognitiveArchitecture:
         lowered = text.strip().lower()
         if re.fullmatch(r"(?:hola|holaa+|buenas|hey|hello|hi|oi|olá|ola|buenos días|buenas tardes|buenas noches|buenos dias|buenas tardes|buenas noches)[!.?,\s]*", lowered, re.I):
             return "greeting"
+        if domain == "weather":
+            return "weather_request"
         if domain == "trading":
             return "trading_request"
         if domain == "research":
@@ -207,12 +210,15 @@ class BiteyCognitiveArchitecture:
             plan.append("retrieve_or_validate_evidence")
         if domain != "general":
             plan.append("resolve_specialized_capability")
+        if domain == "weather":
+            plan.append("synthesize_weather_evidence")
         plan.extend(("evaluate_risk", "decide", "generate_response", "learn_from_outcome"))
         return plan
 
     @staticmethod
     def _module_for(domain: str) -> str | None:
         return {
+            "weather": "weather",
             "trading": "sbt",
             "support": "bitefixes",
             "programming": "code_reasoning",
