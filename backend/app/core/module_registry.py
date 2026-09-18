@@ -27,6 +27,11 @@ class ModuleSpec:
     def role(self) -> str:
         return str(self.metadata.get("role", "specialized_module"))
 
+    @property
+    def configured(self) -> bool:
+        """Whether the module has a usable integration endpoint."""
+        return bool(self.endpoint and self.endpoint.strip())
+
 
 class ModuleRegistry:
     """Runtime capability registry with explicit ownership semantics."""
@@ -45,29 +50,28 @@ class ModuleRegistry:
                 "endpoint": m.endpoint,
                 "capabilities": list(m.capabilities),
                 "enabled": m.enabled,
-                "configured": bool(m.endpoint),
+                "configured": m.configured,
                 "integration_type": m.integration_type,
                 "role": m.role,
                 "metadata": dict(m.metadata),
             }
             for m in sorted(self._modules.values(), key=lambda item: item.name)
-            if m.enabled
+            if m.enabled and m.configured
         ]
 
     def find_for(self, capability: str) -> list[ModuleSpec]:
         key = capability.strip().lower()
         return [
             m for m in self._modules.values()
-            if m.enabled and key in {c.lower() for c in m.capabilities}
+            if m.enabled and m.configured and key in {c.lower() for c in m.capabilities}
         ]
 
     def resolve_for_domain(self, domain: str) -> list[ModuleSpec]:
-        """Resolve a specialized capability owner for a non-general domain.
+        """Resolve a configured specialized capability owner for a non-general domain.
 
         ``general`` is an explicit isolation boundary: no specialized module
         may be selected for it, even if a future module advertises a generic
-        capability. This prevents topic mentions or stale context from
-        activating SBT or another specialized module.
+        capability. Unconfigured modules are never returned.
         """
         domain = domain.strip().lower()
         if not domain or domain == "general":
@@ -88,4 +92,4 @@ class ModuleRegistry:
         return result
 
     def names(self) -> list[str]:
-        return [m.name for m in self._modules.values() if m.enabled]
+        return [m.name for m in self._modules.values() if m.enabled and m.configured]
