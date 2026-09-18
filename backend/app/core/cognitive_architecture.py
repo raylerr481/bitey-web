@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 import hashlib
 import re
+from difflib import SequenceMatcher
 
 
 @dataclass
@@ -79,8 +80,35 @@ class BiteyCognitiveArchitecture:
         re.I,
     )
 
-    def perceive(self, text: str, context: dict[str, Any]) -> CognitiveFrame:
+    GREETING_ALIASES = {
+        "hola", "holaa", "holla", "hoka", "hol", "ola", "olaa", "oi", "hey", "hello", "hi",
+    }
+
+    @classmethod
+    def _normalize_for_routing(cls, text: str) -> str:
+        """Normalize obvious conversational typos without rewriting user content."""
         message = text.strip()
+        tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", message, re.UNICODE)
+        normalized = []
+        for token in tokens:
+            if not re.fullmatch(r"[\wÀ-ÿ]+", token, re.UNICODE):
+                normalized.append(token)
+                continue
+            lowered = token.lower()
+            if lowered in cls.GREETING_ALIASES:
+                normalized.append("hola")
+                continue
+            if len(lowered) >= 3:
+                best = max(cls.GREETING_ALIASES, key=lambda candidate: SequenceMatcher(None, lowered, candidate).ratio())
+                if SequenceMatcher(None, lowered, best).ratio() >= 0.80:
+                    normalized.append("hola")
+                    continue
+            normalized.append(token)
+        return "".join(normalized)
+
+    def perceive(self, text: str, context: dict[str, Any]) -> CognitiveFrame:
+        original_message = text.strip()
+        message = self._normalize_for_routing(original_message)
         language = self._language(message, context)
         domain, domain_score = self._domain(message)
         market_instrument = bool(self.MARKET_INSTRUMENT_RE.search(message))
@@ -117,7 +145,7 @@ class BiteyCognitiveArchitecture:
             confidence = max(confidence, 0.85)
 
         return CognitiveFrame(
-            input_text=message,
+            input_text=original_message,
             language=language,
             domain=domain,
             intent=intent,
