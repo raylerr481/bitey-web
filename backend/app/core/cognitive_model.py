@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 import re
+from difflib import SequenceMatcher
 
 
 @dataclass
@@ -66,6 +67,45 @@ class CognitiveModel:
 
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
 
+    _ROUTING_ALIASES = {
+        "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
+        "tienpo": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima",
+        "contiua": "continua", "contina": "continua", "continuaaa": "continua",
+    }
+
+    @classmethod
+    def _routing_vocabulary(cls) -> tuple[str, ...]:
+        groups = list(cls._DOMAIN_HINTS.values()) + list(cls._STRONG_INTENT.values()) + [cls._FOLLOWUP_WORDS]
+        words = {"hola", "holi", "hello", "hey", "buenas", "temperatura", "tiempo", "clima", "continua", "continúa"}
+        for group in groups:
+            for word in group:
+                if len(word) >= 4 and " " not in word:
+                    words.add(word.lower())
+        return tuple(words)
+
+    @classmethod
+    def _normalize_for_routing(cls, text: str) -> str:
+        """Correct only high-confidence typos for intent routing."""
+        vocabulary = cls._routing_vocabulary()
+        tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", text.strip(), re.UNICODE)
+        normalized = []
+        for token in tokens:
+            if not re.fullmatch(r"[\wÀ-ÿ]+", token, re.UNICODE):
+                normalized.append(token)
+                continue
+            lowered = token.lower()
+            if lowered in cls._ROUTING_ALIASES:
+                normalized.append(cls._ROUTING_ALIASES[lowered])
+                continue
+            if len(lowered) >= 4:
+                best = max(vocabulary, key=lambda candidate: SequenceMatcher(None, lowered, candidate).ratio())
+                ratio = SequenceMatcher(None, lowered, best).ratio()
+                if ratio >= 0.88 and abs(len(lowered) - len(best)) <= 2:
+                    normalized.append(best)
+                    continue
+            normalized.append(token)
+        return "".join(normalized)
+
     @classmethod
     def _is_greeting(cls, text: str) -> bool:
         normalized = " ".join(text.lower().strip().split())
@@ -77,7 +117,7 @@ class CognitiveModel:
         return any(re.fullmatch(pattern, normalized, flags=re.I) for pattern in cls._IDENTITY_PATTERNS)
 
     def perceive(self, message: str) -> dict[str, Any]:
-        text = message.strip()
+        text = self._normalize_for_routing(message)
         words = len(text.split())
         return {
             "message_length": len(text),
@@ -91,7 +131,7 @@ class CognitiveModel:
         }
 
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
-        text = message.lower().strip()
+        text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
         conceptual = any(cue in text for cue in self._CONCEPTUAL_CUES)
         greeting = self._is_greeting(text)
