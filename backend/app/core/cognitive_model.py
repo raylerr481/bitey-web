@@ -68,9 +68,9 @@ class CognitiveModel:
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
 
     _ROUTING_ALIASES = {
-        "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
+        "hoka": "hola", "holaa": "hola", "holaaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
         "tienpo": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima",
-        "contiua": "continua", "contina": "continua", "continuaaa": "continua",
+        "contiua": "continua", "contina": "continua", "conitnua": "continua", "conitua": "continua", "contnua": "continua", "continuaaa": "continua",
     }
 
     @classmethod
