@@ -61,7 +61,11 @@ class ToolOrchestrator:
         elif self.WEATHER_RE.search(message):
             # Weather is a hard capability boundary: a weather request must
             # never be hijacked by a generic trading/domain heuristic.
-            requested = ["weather", "search"]
+            # Open-Meteo is the specialized primary source; general web search
+            # is selected only when the user explicitly asks for corroboration.
+            requested = ["weather"]
+            if re.search(r"\b(fuente|fuentes|compara|contrasta|corrobora)\b", normalized):
+                requested.append("search")
         else:
             trading_domain = str(cognitive.intention.get("domain", "general")).lower() == "trading"
             trading_instrument = self.TRADING_RE.search(message) is not None
