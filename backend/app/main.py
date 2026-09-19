@@ -82,11 +82,11 @@ async def cognitive_trace_detail(trace_id: str) -> dict:
 
 @app.get("/api/v1/cognitive/traces")
 async def cognitive_trace_recent(conversation_id: str | None = None, limit: int = 20) -> dict:
-    return {"traces":cognitive_trace.recent(conversation_id=conversation_id, limit=limit)}
+    return {"traces": cognitive_trace.recent(conversation_id=conversation_id, limit=limit)}
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))},"email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","false").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))}, "email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True}
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
@@ -144,8 +144,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         initial_domain=initial_cognitive.intention.get("domain","general")
         ctx["current_intent_domain"]=initial_domain
         activity_events.append(f"Intención actual: {initial_domain}…")
-        learned_memory={"summary":"","counts":{},"available":False}
-        learned_prompt=""
+        learned_memory={"summary":"","counts":{},"available":False}; learned_prompt=""
         if initial_domain != "general":
             learned_memory=await cognitive_memory.retrieve(payload.message,ctx)
             ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}
@@ -156,21 +155,19 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         selected=tools.select(payload.message,ctx); trace.tools={"selected":list(selected)}; tool_results=await tools.execute(selected,message=payload.message,context=ctx)
         if selected: activity_events.append("Consultando herramientas relevantes…")
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
-        evidence=tool_results.get("web_research",{}).get("evidence","")
-        search_results=tool_results.get("search",{}).get("results",[])
+        evidence=tool_results.get("web_research",{}).get("evidence",""); search_results=tool_results.get("search",{}).get("results",[])
         if search_results and not evidence:
             evidence="\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title','')}\nSNIPPET: {item.get('snippet','')}" for i,item in enumerate(search_results[:8],1))
         if not evidence and (plan.required or deep_plan.reasons): activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
         trace.evidence={"available":bool(evidence),"required":bool(plan.required or deep_plan.reasons),"source_count":len(search_results),"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
-        ctx["evidence_available"]=bool(evidence)
-        ctx["evidence"]=evidence
-        ctx["evidence_source_count"]=len(search_results)
+        ctx["evidence_available"]=bool(evidence); ctx["evidence"]=evidence; ctx["evidence_source_count"]=len(search_results)
         cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence))
         ctx["cognition"]=cognitive.as_dict()
-        ctx["current_intent_domain"]=initial_domain
-        activity_events.append("Construyendo el razonamiento contextual…")
-        brain_state=brain.think(payload.message,ctx); ctx["bitey_brain"]=brain_state.as_dict(); trace.decision={"intention":cognitive.intention,"domain":cognitive.intention.get("domain","general"),"reasoning_mode":brain_state.reasoning_mode,"model_role":brain_state.model_role,"risk_level":brain_state.risk_level,"plan":cognitive.plan,"goals":brain_state.goals,"constraints":brain_state.constraints,"tool_priority":brain_state.tool_priority,"decision_fingerprint":brain_state.decision_fingerprint}; activity_events.append(f"Bitey Brain: {brain_state.reasoning_mode}…")
-        domain=initial_domain
+        evaluated_domain=cognitive.intention.get("domain") or initial_domain or "general"
+        ctx["current_intent_domain"]=evaluated_domain
+        activity_events.append(f"Dominio cognitivo verificado: {evaluated_domain}…")
+        brain_state=brain.think(payload.message,ctx); ctx["bitey_brain"]=brain_state.as_dict(); trace.decision={"intention":cognitive.intention,"domain":evaluated_domain,"reasoning_mode":brain_state.reasoning_mode,"model_role":brain_state.model_role,"risk_level":brain_state.risk_level,"plan":cognitive.plan,"goals":brain_state.goals,"constraints":brain_state.constraints,"tool_priority":brain_state.tool_priority,"decision_fingerprint":brain_state.decision_fingerprint}; activity_events.append(f"Bitey Brain: {brain_state.reasoning_mode}…")
+        domain=evaluated_domain
         resolved_modules=modules.resolve_for_domain(domain)
         if resolved_modules: ctx["module_routing"]={"domain":domain,"selected":[m.name for m in resolved_modules],"integrated":[m.name for m in resolved_modules if m.integration_type == "bitey_integrated"]}; activity_events.append("Activando el módulo integrado de trading de Bitey…" if any(m.name == "sbt" for m in resolved_modules) else "Seleccionando el módulo especializado adecuado…")
         history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
