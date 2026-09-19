@@ -26,7 +26,7 @@ PUBLIC_OUTPUT_CONTRACT = (
 )
 
 
-def sanitize_public_answer(text: str) -> str:
+def sanitize_public_answer(text: str, *, allow_short: bool = False) -> str:
     """Remove hidden reasoning and reject unusable fragments before public output."""
     value = str(text or "").strip()
     if not value:
@@ -52,7 +52,9 @@ def sanitize_public_answer(text: str) -> str:
     value = re.sub(r"^\s*(?:final\s+answer|respuesta\s+final|draft(?:\s*\(\s*mental\s*\))?)\s*:\s*", "", value, flags=re.I)
     value = re.sub(r"\n{3,}", "\n\n", value).strip()
     words = re.findall(r"\S+", value)
-    if len(value) < 24 or len(words) < 4:
+    # Natural greetings and identity acknowledgements may be intentionally short.
+    # Other answers still require enough substance to be a usable public response.
+    if not allow_short and (len(value) < 24 or len(words) < 4):
         return ""
     return value
 
@@ -190,7 +192,11 @@ class ProviderGateway:
                     revised_messages=public_messages+[{"role":"system","content":PUBLIC_OUTPUT_CONTRACT+" Previous output violated the contract. Rewrite it now as a clean final answer only. Do not describe the rewrite."}]
                     revised=await provider.generate(messages=revised_messages,context={**generation_context,"public_output_revision":True})
                     if revised: answer=revised
-                answer=sanitize_public_answer(answer)
+                cognition=context.get("cognition") or {}
+                intention=cognition.get("intention") or {}
+                conversational_intent=str(intention.get("intent") or "").lower() in {"greeting","self_identity","small_talk","acknowledgement"}
+                conversational_domain=str(intention.get("domain") or context.get("domain") or "general").lower() == "general"
+                answer=sanitize_public_answer(answer, allow_short=conversational_intent and conversational_domain)
                 if not answer: continue
                 context["provider_selected"]=provider.name; context["provider_role"]=role; context["provider_attempt_count"]=attempt
                 executive=ExecutiveEvaluator()
@@ -201,7 +207,7 @@ class ProviderGateway:
                     revision_reasons=", ".join(executive_result.reasons); revision_messages=public_messages+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Produce una respuesta final corregida y útil, sin mencionar este contrato ni revelar razonamiento interno."}]
                     revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True,"public_output_revision":True}); context["executive_revision_attempted"] = True; context["generation_attempts"] = 2
                     if revised:
-                        answer=sanitize_public_answer(revised); executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
+                        answer=sanitize_public_answer(revised, allow_short=conversational_intent and conversational_domain); executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
                 else: context["generation_attempts"] = 1
                 if executive_result.decision == "revise": logger.warning("executive_revision_not_fully_resolved reasons=%s", executive_result.reasons)
                 if conversation_id: self._conversation_provider[conversation_id]=provider.name
