@@ -150,6 +150,14 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
 
         selected=tools.select(payload.message,ctx); trace.tools={"selected":list(selected)}
         tool_results=await tools.execute(selected,message=payload.message,context=ctx)
+        # Weather has a deterministic specialized source. Only fall back to
+        # general web search when that source actually fails.
+        if "weather" in selected and not tool_results.get("weather",{}).get("ok",False):
+            fallback=await tools.execute(["search"],message=payload.message,context=ctx)
+            tool_results["search"]=fallback.get("search",{})
+            if fallback.get("web_research"):
+                tool_results["web_research"]=fallback["web_research"]
+            activity_events.append("La fuente meteorológica falló; activando búsqueda web de respaldo…")
         if selected: activity_events.append("Consultando herramientas relevantes…")
 
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
