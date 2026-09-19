@@ -40,7 +40,7 @@ class NativeReasoningModel:
         if evidence:
             answer = self._reason_from_evidence(user_message, evidence, frame, decision)
             if answer: return answer
-        return self._guarded_answer(frame, decision)
+        return self._contextual_guarded_answer(user_message, frame, decision, context)
 
     @staticmethod
     def _direct_general_answer(question: str, frame: dict[str, Any]) -> str:
@@ -65,23 +65,14 @@ class NativeReasoningModel:
         q = question.lower()
         domain = str(frame.get("domain") or "")
 
-        # Weather is a deterministic tool result, so synthesize its structured
-        # fields directly instead of relying on generic keyword overlap.
         if domain == "weather" or "WEATHER SOURCE: Open-Meteo" in evidence:
-            if "WEATHER SOURCE: Open-Meteo" not in evidence:
-                return ""
+            if "WEATHER SOURCE: Open-Meteo" not in evidence: return ""
             def field(name: str) -> str:
                 match = re.search(rf"^{re.escape(name)}:\s*(.+)$", evidence, re.I | re.M)
                 return match.group(1).strip() if match else ""
-            location = field("LOCATION")
-            observed = field("OBSERVATION TIME")
-            temperature = field("TEMPERATURE")
-            apparent = field("APPARENT TEMPERATURE")
-            humidity = field("RELATIVE HUMIDITY")
-            wind = field("WIND SPEED")
-            condition = field("CONDITION")
-            if not temperature:
-                return "Bitey IA recuperó datos meteorológicos de Open-Meteo, pero el campo de temperatura no estuvo disponible en la respuesta verificada."
+            location = field("LOCATION"); observed = field("OBSERVATION TIME"); temperature = field("TEMPERATURE")
+            apparent = field("APPARENT TEMPERATURE"); humidity = field("RELATIVE HUMIDITY"); wind = field("WIND SPEED"); condition = field("CONDITION")
+            if not temperature: return "Bitey IA recuperó datos meteorológicos de Open-Meteo, pero el campo de temperatura no estuvo disponible en la respuesta verificada."
             language = str(frame.get("language") or "es")
             if language == "pt":
                 answer = f"Em {location or 'a localização solicitada'}, a temperatura registrada é {temperature}."
@@ -159,8 +150,33 @@ class NativeReasoningModel:
         return frame_language or "es"
 
     @staticmethod
-    def _guarded_answer(frame: dict[str, Any], decision: dict[str, Any]) -> str:
-        language=frame.get("language") or "es"; domain=frame.get("domain") or "general"; confidence=float(frame.get("confidence") or 0.0)
-        if language=="en": return f"Soy Bitey IA. I don't have enough verified evidence to give a factual conclusion for this request yet. Detected domain: {domain}; cognitive confidence: {confidence:.0%}. I won't invent the missing information."
-        if language=="pt": return f"Sou a Bitey IA. Ainda não tenho evidências verificadas suficientes para dar uma conclusão factual sobre esta solicitação. Domínio identificado: {domain}; confiança cognitiva: {confidence:.0%}. Não vou inventar a informação ausente."
-        return f"Soy Bitey IA. Para esta solicitud todavía no tengo evidencia verificada suficiente para darte una conclusión factual. Dominio identificado: {domain}; confianza cognitiva: {confidence:.0%}. No voy a inventar la información que falta."
+    def _contextual_guarded_answer(question: str, frame: dict[str, Any], decision: dict[str, Any], context: dict[str, Any]) -> str:
+        language = str(frame.get("language") or "es")
+        domain = str(frame.get("domain") or "general")
+        intent = str(frame.get("intent") or "unknown")
+        confidence = float(frame.get("confidence") or 0.0)
+        required = bool(context.get("research_required"))
+        selected_tools = context.get("selected_tools") or []
+        tool_results = context.get("tool_results") or {}
+        evidence_attempted = bool(context.get("evidence_attempted") or context.get("evidence_required") or context.get("evidence_source_count"))
+        failure = str(context.get("research_failure") or "").strip()
+        if not failure:
+            failed_tools = [name for name, result in tool_results.items() if isinstance(result, dict) and result.get("ok") is False]
+            if failed_tools: failure = "fallaron: " + ", ".join(failed_tools)
+        if language == "pt":
+            if failure:
+                return f"Sou a Bitey IA. Identifiquei a solicitação como '{domain}' e tentei obter evidências, mas a fonte necessária não respondeu corretamente ({failure}). Não vou inventar o dado ausente. Posso responder quando uma fonte verificável estiver disponível."
+            if required or evidence_attempted:
+                return f"Sou a Bitey IA. Identifiquei a solicitação como '{domain}' e fiz a tentativa de pesquisa disponível, mas não obtive evidência verificável suficiente para uma conclusão factual. Não vou inventar o dado ausente."
+            return f"Sou a Bitey IA. Entendi a solicitação como '{intent}' no domínio '{domain}', mas este pedido ainda não está conectado a uma ferramenta de dados verificável. Não vou inventar a resposta."
+        if language == "en":
+            if failure:
+                return f"I'm Bitey IA. I classified this request as '{domain}' and tried to obtain evidence, but the required source did not respond correctly ({failure}). I won't invent the missing data. I can answer when a verifiable source is available."
+            if required or evidence_attempted:
+                return f"I'm Bitey IA. I classified this request as '{domain}' and attempted the available research path, but it did not produce enough verifiable evidence for a factual conclusion. I won't invent the missing data."
+            return f"I'm Bitey IA. I understood the request as '{intent}' in the '{domain}' domain, but this request is not yet connected to a verifiable data tool. I won't invent the answer."
+        if failure:
+            return f"Soy Bitey IA. Clasifiqué la solicitud como '{domain}' e intenté obtener evidencia, pero la fuente necesaria no respondió correctamente ({failure}). No voy a inventar el dato que falta. Podré responder cuando exista una fuente verificable disponible."
+        if required or evidence_attempted:
+            return f"Soy Bitey IA. Clasifiqué la solicitud como '{domain}' y realicé la ruta de investigación disponible, pero no produjo evidencia verificable suficiente para una conclusión factual. No voy a inventar el dato que falta."
+        return f"Soy Bitey IA. Entendí la solicitud como '{intent}' dentro del dominio '{domain}', pero esta petición todavía no está conectada a una herramienta de datos verificable. No voy a inventar la respuesta."
