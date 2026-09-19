@@ -103,7 +103,7 @@ async def knowledge_context(q: str) -> dict:
 async def module_catalog() -> dict: return {"owner":"bitey_ia","description":"Capability modules routed by Bitey Cognitive Core.","modules":modules.available()}
 @app.get("/api/v1/modules/resolve/{domain}")
 async def resolve_module(domain: str) -> dict:
-    resolved = modules.resolve_for_domain(domain); return {"domain":domain,"selected":[{"name":m.name,"integration_type":m.integration_type,"role":m.role,"configured":bool(m.endpoint),"capabilities":list(m.capabilities)} for m in resolved]}
+    resolved = modules.resolve_for_domain(domain); return {"domain":domain,"selected":[{"name":m.name,"integration_type":m.integration_type,"role":m.role,"configured":m.configured,"capabilities":list(m.capabilities)} for m in resolved]}
 @app.post("/api/v1/notifications/test-email")
 async def test_email_notification() -> dict:
     result = await send_trainer_test_email(); return {"status":"sent","provider":"resend","id":result.get("id")}
