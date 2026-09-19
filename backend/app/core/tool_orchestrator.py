@@ -64,8 +64,6 @@ class ToolOrchestrator:
             if trading_domain or trading_instrument:
                 requested = ["sbt_market"]
             elif self.WEATHER_RE.search(message):
-                # Weather is a specialized source, but factual/current questions
-                # must also pass through Bitey's general search/research layer.
                 requested = ["weather", "search"]
             elif brain.evidence_required and "search" not in requested:
                 requested.append("search")
@@ -99,50 +97,34 @@ class ToolOrchestrator:
                 if isinstance(result, dict) and result.get("evidence"):
                     overall_ok = overall_ok or bool(result.get("ok", True))
                     evidence_parts.append(str(result["evidence"]))
-                    if result.get("source"):
-                        evidence_sources.append(result.get("source"))
+                    if result.get("source"): evidence_sources.append(result.get("source"))
                     evidence_reasons.append(f"tool:{name}")
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
         if evidence_parts:
-            results["web_research"] = {
-                "ok": overall_ok,
-                "reasons": evidence_reasons,
-                "sources": evidence_sources,
-                "evidence": "\n\n".join(evidence_parts),
-            }
+            results["web_research"] = {"ok": overall_ok, "reasons": evidence_reasons, "sources": evidence_sources, "evidence": "\n\n".join(evidence_parts)}
         return results
 
     async def _calculator(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            value = safe_calculate(message)
-            rendered = str(int(value)) if float(value).is_integer() else str(value)
+            value = safe_calculate(message); rendered = str(int(value)) if float(value).is_integer() else str(value)
             return {"ok": True, "value": value, "expression": message.strip(), "source": "local-calculator", "evidence": f"Local deterministic calculation: {message.strip()} = {rendered}"}
-        except Exception as exc:
-            return {"ok": False, "error": type(exc).__name__, "source": "local-calculator"}
+        except Exception as exc: return {"ok": False, "error": type(exc).__name__, "source": "local-calculator"}
 
     async def _sbt_market(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        context = context or {}
-        base_url = os.getenv("SBT_MODULE_URL", "").strip().rstrip("/")
-        if not base_url:
-            return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_module_not_configured", "evidence": "SBT market data is not configured for Bitey IA Web. No verified market data was available; no price, indicator, signal, entry, stop or take-profit was inferred."}
-        instrument_match = re.search(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", message, re.I)
-        timeframe_match = re.search(r"\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", message, re.I)
-        symbol = instrument_match.group(0).upper() if instrument_match else ""
-        timeframe = timeframe_match.group(0).upper() if timeframe_match else "M5"
-        if not symbol:
-            return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "market_instrument_not_identified", "evidence": "SBT was selected for trading analysis, but the market instrument could not be identified. No market conclusion was generated."}
+        context = context or {}; base_url = os.getenv("SBT_MODULE_URL", "").strip().rstrip("/")
+        if not base_url: return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_module_not_configured", "evidence": "SBT market data is not configured for Bitey IA Web. No verified market data was available; no price, indicator, signal, entry, stop or take-profit was inferred."}
+        instrument_match = re.search(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", message, re.I); timeframe_match = re.search(r"\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", message, re.I)
+        symbol = instrument_match.group(0).upper() if instrument_match else ""; timeframe = timeframe_match.group(0).upper() if timeframe_match else "M5"
+        if not symbol: return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "market_instrument_not_identified", "evidence": "SBT was selected for trading analysis, but the market instrument could not be identified. No market conclusion was generated."}
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(f"{base_url}/api/v1/market/candles/{symbol}", params={"timeframe": timeframe, "limit": 100})
-                if response.status_code >= 400:
-                    return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "market_data_unavailable", "status_code": response.status_code, "evidence": f"SBT could not provide verified {symbol} {timeframe} market data. No price or signal was inferred."}
+                if response.status_code >= 400: return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "market_data_unavailable", "status_code": response.status_code, "evidence": f"SBT could not provide verified {symbol} {timeframe} market data. No price or signal was inferred."}
                 payload = response.json(); candles = payload.get("candles") or []; source = payload.get("source") or "unknown"
-                if len(candles) < 35:
-                    return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "insufficient_market_data", "symbol": symbol, "timeframe": timeframe, "candle_count": len(candles), "source": source, "evidence": f"SBT returned only {len(candles)} verified candles for {symbol} {timeframe}; at least 35 are required for baseline analysis. No signal was generated."}
+                if len(candles) < 35: return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "insufficient_market_data", "symbol": symbol, "timeframe": timeframe, "candle_count": len(candles), "source": source, "evidence": f"SBT returned only {len(candles)} verified candles for {symbol} {timeframe}; at least 35 are required for baseline analysis. No signal was generated."
                 analysis = await client.post(f"{base_url}/api/v1/sbt/market-intelligence/analyze", json={"symbol": symbol, "timeframe": timeframe, "candles": candles, "language": "es", "event": "market_structure"})
-                if analysis.status_code >= 400:
-                    return {"ok": False, "available": True, "verified": True, "execution_enabled": False, "reason": "sbt_analysis_unavailable", "symbol": symbol, "timeframe": timeframe, "source": source, "evidence": "Verified market data was received from SBT, but SBT analysis failed. No trading signal was generated."}
+                if analysis.status_code >= 400: return {"ok": False, "available": True, "verified": True, "execution_enabled": False, "reason": "sbt_analysis_unavailable", "symbol": symbol, "timeframe": timeframe, "source": source, "evidence": "Verified market data was received from SBT, but SBT analysis failed. No trading signal was generated."}
                 result = analysis.json()
         except (httpx.HTTPError, ValueError) as exc:
             return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_connection_error", "error": type(exc).__name__, "evidence": f"Bitey could not obtain verified market data from SBT for {symbol} {timeframe}. No market conclusion was generated."}
@@ -161,6 +143,13 @@ class ToolOrchestrator:
         known = re.search(r"\b(esteio|porto alegre)\b", text, re.I)
         return known.group(1) if known else text
 
+    @staticmethod
+    def _weather_condition(code: Any) -> str:
+        try: code = int(code)
+        except (TypeError, ValueError): return ""
+        mapping = {0:"Despejado",1:"Principalmente despejado",2:"Parcialmente nublado",3:"Nublado",45:"Niebla",48:"Niebla con escarcha",51:"Llovizna ligera",53:"Llovizna moderada",55:"Llovizna intensa",61:"Lluvia ligera",63:"Lluvia moderada",65:"Lluvia intensa",71:"Nieve ligera",73:"Nieve moderada",75:"Nieve intensa",80:"Chubascos ligeros",81:"Chubascos moderados",82:"Chubascos intensos",95:"Tormenta",96:"Tormenta con granizo ligero",99:"Tormenta con granizo fuerte"}
+        return mapping.get(code, "")
+
     async def _weather(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         location_query = self._weather_location(message)
         async with httpx.AsyncClient(timeout=12.0) as client:
@@ -169,7 +158,13 @@ class ToolOrchestrator:
             if not locations: return {"ok": False, "available": False, "error": "location_not_found", "query": location_query}
             location = locations[0]; lat, lon = location.get("latitude"), location.get("longitude")
             weather = await client.get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code", "timezone": "auto", "forecast_days": 1}); weather.raise_for_status(); current = weather.json().get("current") or {}
-        evidence = f"WEATHER SOURCE: Open-Meteo\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\nOBSERVATION TIME: {current.get('time', 'unknown')}\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C"
+        condition = self._weather_condition(current.get("weather_code"))
+        evidence = (
+            f"WEATHER SOURCE: Open-Meteo\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\n"
+            f"OBSERVATION TIME: {current.get('time', 'unknown')}\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\n"
+            f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\nRELATIVE HUMIDITY: {current.get('relative_humidity_2m', 'unknown')}%\n"
+            f"WIND SPEED: {current.get('wind_speed_10m', 'unknown')} km/h\nCONDITION: {condition or 'no disponible'}"
+        )
         return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "evidence": evidence}
 
 
