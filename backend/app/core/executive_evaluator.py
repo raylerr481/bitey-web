@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import Any
+import re
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,14 @@ class ExecutiveEvaluator:
         # the general domain. Detect strong SBT fingerprints here so the gateway
         # can deterministically request a clean rewrite before public output.
         if task_class == "general":
-            drift_markers = [marker for marker in self._SPECIALIZED_DRIFT_MARKERS if marker in lower_text]
+            drift_markers = []
+            for marker in self._SPECIALIZED_DRIFT_MARKERS:
+                # Match single-word markers as words. Substring matching would
+                # flag innocent text such as Spanish "ambos" because it contains
+                # the trading marker "bos".
+                pattern = rf"\\b{re.escape(marker)}\\b" if " " not in marker else re.escape(marker)
+                if re.search(pattern, lower_text):
+                    drift_markers.append(marker)
             if drift_markers:
                 reasons.append("general_domain_specialized_module_drift")
 
