@@ -93,15 +93,20 @@ class BiteyBrain:
 
     @staticmethod
     def _tool_policy(capabilities,domain,context):
+        # The executive brain is the single source of truth for capability
+        # selection. Specialized domains select their owning capability
+        # directly instead of being re-routed later by lexical heuristics.
         if domain == "weather" and "fresh_data" in capabilities:
             t=["weather"]
+        elif domain == "trading":
+            t=["sbt_market"]
         else:
             t=[]
             if "external_evidence" in capabilities:
                 t.append("search")
         if "code_reasoning" in capabilities:t.append("code_reasoning")
         if context.get("workspace_files_required"):t.append("workspace_files")
-        return t
+        return list(dict.fromkeys(t))
 
     @staticmethod
     def _objective(capabilities,domain):
