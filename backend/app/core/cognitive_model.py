@@ -66,6 +66,9 @@ class CognitiveModel:
     )
 
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
+    _MARKET_INSTRUMENT_RE = re.compile(r"\\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\\b", re.I)
+    _MARKET_ACTION_CUES = ("precio", "cotización", "cotizacion", "valor", "cuánto vale", "cuanto vale", "cómo está", "como esta", "ahora", "ahora mismo", "cotiza")
+
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
@@ -137,6 +140,13 @@ class CognitiveModel:
         greeting = self._is_greeting(text)
         identity_request = self._is_identity_request(text)
         strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
+        # Explicit market instruments plus a market-action question are a
+        # strong trading signal; the instrument alone is not. This keeps
+        # conceptual questions such as "qué es Bitcoin" in the general brain.
+        market_instrument = bool(self._MARKET_INSTRUMENT_RE.search(message))
+        market_action = any(cue in text for cue in self._MARKET_ACTION_CUES)
+        if market_instrument and market_action:
+            strong_scores["trading"] = strong_scores.get("trading", 0) + 2
 
         if greeting:
             return {
