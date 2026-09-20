@@ -53,26 +53,25 @@ class ToolOrchestrator:
         ctx["cognition"] = cognitive.as_dict(); ctx["_cognitive_state"] = cognitive
         brain = self._brain.think(message, ctx)
         ctx["bitey_brain"] = brain.as_dict(); ctx["_bitey_brain_state"] = brain
+        # Bitey Brain owns routing. Deterministic capability guards may
+        # protect explicit math/weather requests, but lexical trading matches
+        # must never override the executive cognitive domain decision.
         requested = list(brain.tool_priority)
         normalized = message.casefold().strip()
 
         if self.MATH_RE.fullmatch(message.strip()):
             requested = ["calculator"]
-        elif self.WEATHER_RE.search(message):
-            # Weather is a hard capability boundary: a weather request must
-            # never be hijacked by a generic trading/domain heuristic.
-            # Open-Meteo is the specialized primary source; general web search
-            # is selected only when the user explicitly asks for corroboration.
+        elif self.WEATHER_RE.search(message) and (
+            str(cognitive.intention.get("domain", "general")).lower() == "weather"
+            or "weather" in requested
+        ):
             requested = ["weather"]
             if re.search(r"\b(fuente|fuentes|compara|contrasta|corrobora)\b", normalized):
                 requested.append("search")
-        else:
-            trading_domain = str(cognitive.intention.get("domain", "general")).lower() == "trading"
-            trading_instrument = self.TRADING_RE.search(message) is not None
-            if trading_domain or trading_instrument:
-                requested = ["sbt_market"]
-            elif brain.evidence_required and "search" not in requested:
-                requested.append("search")
+        elif str(cognitive.intention.get("domain", "general")).lower() == "trading":
+            requested = ["sbt_market"]
+        elif brain.evidence_required and "search" not in requested:
+            requested.append("search")
 
         selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
