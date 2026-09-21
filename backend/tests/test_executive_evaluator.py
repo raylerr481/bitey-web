@@ -79,6 +79,19 @@ class ExecutiveEvaluatorContractTests(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("research_claim_source_reference_missing", result.reasons)
 
+    def test_research_conflict_must_be_acknowledged(self):
+        state = decision("¿Cuál es el dato actual según estas fuentes?")
+        evidence = "SOURCE 1: https://one.example\\nCONTENT: 10\\nSOURCE 2: https://two.example\\nCONTENT: 20"
+        result = ExecutiveEvaluator().evaluate(
+            state=state,
+            answer="El dato es 10. [S1]",
+            evidence=evidence,
+            selected_tools=["search"],
+            conflict_detected=True,
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("source_conflict_not_acknowledged", result.reasons)
+
     def test_unsupported_numeric_claim_is_rejected(self):
         state = decision("¿Qué es Bitcoin?")
         evidence = "SOURCE 1: https://example.org\nCONTENT: Bitcoin is a digital asset."
