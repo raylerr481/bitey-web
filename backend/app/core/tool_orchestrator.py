@@ -68,8 +68,9 @@ class ToolOrchestrator:
             requested = ["weather"]
             if re.search(r"\b(fuente|fuentes|compara|contrasta|corrobora)\b", normalized):
                 requested.append("search")
-        elif str(cognitive.intention.get("domain", "general")).lower() == "trading":
-            requested = ["sbt_market"]
+        # Trading is intentionally not re-routed here. Bitey Brain already
+        # owns specialized tool selection; this layer only executes its decision
+        # and applies deterministic safety guards for math/weather.
         elif brain.evidence_required and "search" not in requested:
             requested.append("search")
 
