@@ -36,8 +36,10 @@ class ToolOrchestrator:
         self._tools: dict[str, ToolSpec] = {}
         self._cognition = CognitiveModel()
         self._brain = BiteyBrain()
-        # Canonical evidence tool. The legacy ``search`` name is retained as a\n        # compatibility alias because older utility paths may still request it.
-        self.register(ToolSpec("web_research", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))\n        self.register(ToolSpec("search", "Compatibility alias for Bitey web research.", ("web", "search", "research", "evidence"), self._search))
+        # Canonical evidence tool. The legacy ``search`` name is retained as a
+        # compatibility alias because older utility paths may still request it.
+        self.register(ToolSpec("web_research", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))
+        self.register(ToolSpec("search", "Compatibility alias for Bitey web research.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
         self.register(ToolSpec("sbt_market", "Consulta el mercado SBT y ejecuta inteligencia técnica únicamente con datos verificables; no ejecuta órdenes.", ("trading", "market_intelligence", "market_data", "risk"), self._sbt_market))
         self.register(ToolSpec("calculator", "Calculadora local determinista para expresiones aritméticas simples; no requiere proveedor externo.", ("math", "calculation"), self._calculator))
