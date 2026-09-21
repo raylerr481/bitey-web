@@ -24,3 +24,15 @@ def test_trading_remains_trading():
 
 def test_market_language_does_not_break_explicit_weather():
     assert _domain("temperatura y mercado hoy en Esteio") == "weather"
+
+
+def test_generic_market_question_stays_general():
+    assert _domain("qué es el mercado") == "general"
+
+
+def test_generic_time_duration_stays_general():
+    assert _domain("cuánto tiempo tarda") == "general"
+
+
+def test_generic_client_question_stays_general():
+    assert _domain("qué necesita un cliente") == "general"
