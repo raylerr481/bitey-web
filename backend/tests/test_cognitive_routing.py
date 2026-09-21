@@ -128,3 +128,30 @@ def test_orchestrator_normalizes_legacy_search_to_canonical_web_research():
     orchestrator = ToolOrchestrator()
     result = orchestrator.cognitive_selection("qué es el mercado", {})
     assert result["selected_tools"] == ["web_research"]
+
+def test_web_research_preserves_verified_source_metadata(monkeypatch):
+    import asyncio
+    from backend.app.core.tool_orchestrator import ToolOrchestrator
+
+    async def fake_search(self, message, context=None):
+        return {
+            "ok": True,
+            "results": [{"url": "https://example.com/source", "evidence_verified": True, "page_evidence": "Population: 10"}],
+            "evidence": "SOURCE 1: https://example.com/source\\nCONTENT: Population: 10",
+            "verified_evidence_count": 1,
+            "discovery_result_count": 1,
+            "conflict_detected": True,
+            "conflict_candidates": [{"field": "population", "values": ["10", "12"]}],
+        }
+
+    orchestrator = ToolOrchestrator()
+    monkeypatch.setattr(orchestrator, "_search", fake_search.__get__(orchestrator, ToolOrchestrator))
+    orchestrator._tools["web_research"] = orchestrator._tools["web_research"].__class__(
+        "web_research", "test", ("web",), orchestrator._search
+    )
+    result = asyncio.run(orchestrator.execute(["web_research"], message="qué es el mercado", context={}))
+    preserved = result["web_research"]
+    assert preserved["verified_evidence_count"] == 1
+    assert preserved["conflict_detected"] is True
+    assert preserved["conflict_candidates"]
+
