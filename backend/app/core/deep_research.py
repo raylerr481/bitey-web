@@ -294,6 +294,47 @@ class DeepResearchEngine:
                         plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True))
                 except Exception as exc:
                     plan.evidence.append(Evidence(url=url, error=type(exc).__name__))
+
+            # Discovery can succeed while every discovered page is blocked or
+            # otherwise unusable. For knowledge questions, recover by querying
+            # Wikipedia directly instead of treating discovery metadata as
+            # verified evidence.
+            if (
+                "knowledge_request" in plan.reasons
+                and not any(e.ok and e.content for e in plan.evidence)
+            ):
+                fallback_urls: list[str] = []
+                for variant in plan.query_variants or [plan.query]:
+                    for url in await self._search_wikipedia(client, variant, limit=3):
+                        if url not in fallback_urls:
+                            fallback_urls.append(url)
+                        if len(fallback_urls) >= 3:
+                            break
+                    plan.research_passes += 1
+                    if len(fallback_urls) >= 3:
+                        break
+                for url in fallback_urls:
+                    if url in plan.urls:
+                        continue
+                    try:
+                        r = await client.get(url)
+                        r.raise_for_status()
+                        ct = r.headers.get("content-type", "")
+                        if "html" not in ct:
+                            plan.evidence.append(Evidence(url=url, error="unsupported_content_type"))
+                            continue
+                        text = r.content[:max_bytes].decode(r.encoding or "utf-8", errors="replace")
+                        title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
+                        title = re.sub(r"\s+", " ", title_match.group(1)).strip() if title_match else ""
+                        text = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", text, flags=re.I | re.S)
+                        text = re.sub(r"<[^>]+>", " ", text)
+                        text = unescape(re.sub(r"\s+", " ", text)).strip()
+                        if len(text) >= 80:
+                            plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True))
+                        else:
+                            plan.evidence.append(Evidence(url=str(r.url), title=title, error="insufficient_text"))
+                    except Exception as exc:
+                        plan.evidence.append(Evidence(url=url, error=type(exc).__name__))
         return plan
 
     def evidence_context(self, plan: DeepResearchPlan) -> str:
