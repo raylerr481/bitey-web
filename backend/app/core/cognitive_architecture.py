@@ -55,7 +55,10 @@ class BiteyCognitiveArchitecture:
 
     DOMAIN_HINTS = {
         "weather": ("temperatura", "clima", "tiempo", "weather", "temperature", "forecast", "pronóstico", "pronostico", "previsão", "previsao"),
-        # Generic concepts such as "mercado", "bolsa" and "bot" are not\n        # sufficient to enter SBT. Trading requires an explicit market\n        # operation, instrument, timeframe, or technical-market context.\n        "trading": ("trading", "trade", "forex", "stock", "mt5", "tradingview"),
+        # Generic concepts such as "mercado", "bolsa" and "bot" are not
+        # sufficient to enter SBT. Trading requires an explicit market
+        # operation, instrument, timeframe, or technical-market context.
+        "trading": ("trading", "trade", "forex", "stock", "mt5", "tradingview"),
         "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair", "cctv"),
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar", "github"),
         "marketing": ("marketing", "ventas", "campaña", "publicidad", "seo"),
@@ -80,7 +83,13 @@ class BiteyCognitiveArchitecture:
         re.I,
     )
 
-    CONCEPTUAL_CUES = (\n        "qué es", "que es", "qué son", "que son", "qué significa", "que significa",\n        "definición", "definicion", "define", "concepto", "cómo funciona", "como funciona",\n        "what is", "what are", "how does", "qual é", "o que é", "o que são", "como funciona",\n    )\n\n    GREETING_ALIASES = {
+    CONCEPTUAL_CUES = (
+        "qué es", "que es", "qué son", "que son", "qué significa", "que significa",
+        "definición", "definicion", "define", "concepto", "cómo funciona", "como funciona",
+        "what is", "what are", "how does", "qual é", "o que é", "o que são", "como funciona",
+    )
+
+    GREETING_ALIASES = {
         "hola", "holaa", "holla", "hoka", "hol", "ola", "olaa", "oi", "hey", "hello", "hi",
     }
 
