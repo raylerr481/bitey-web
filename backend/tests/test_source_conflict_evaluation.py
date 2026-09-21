@@ -1,0 +1,58 @@
+from app.core.executive_evaluator import ExecutiveEvaluator
+
+
+def _state():
+    return {
+        "task_class": "general",
+        "evidence_required": True,
+        "tool_priority": ["search"],
+        "risk_level": "low",
+        "execution_allowed": False,
+        "verification_required": False,
+    }
+
+
+def test_conflicting_verified_sources_require_acknowledgement():
+    evaluator = ExecutiveEvaluator()
+    evidence = (
+        "SOURCE 1: https://a.example\nCONTENT: Population: 10\n"
+        "SOURCE 2: https://b.example\nCONTENT: Population: 12"
+    )
+    result = evaluator.evaluate(
+        state=_state(),
+        answer="La población es 10.",
+        evidence=evidence,
+        selected_tools=["search"],
+        conflict_detected=True,
+    )
+    assert result.decision == "revise"
+    assert "source_conflict_not_acknowledged" in result.reasons
+
+
+def test_conflicting_verified_sources_are_acknowledged():
+    evaluator = ExecutiveEvaluator()
+    evidence = (
+        "SOURCE 1: https://a.example\nCONTENT: Population: 10\n"
+        "SOURCE 2: https://b.example\nCONTENT: Population: 12"
+    )
+    result = evaluator.evaluate(
+        state=_state(),
+        answer="Las fuentes difieren: una indica 10 y otra 12.",
+        evidence=evidence,
+        selected_tools=["search"],
+        conflict_detected=True,
+    )
+    assert result.decision == "accept"
+
+
+def test_single_source_conflict_flag_is_not_required():
+    evaluator = ExecutiveEvaluator()
+    evidence = "SOURCE 1: https://a.example\nCONTENT: Population: 10"
+    result = evaluator.evaluate(
+        state=_state(),
+        answer="La fuente consultada indica 10.",
+        evidence=evidence,
+        selected_tools=["search"],
+        conflict_detected=False,
+    )
+    assert result.decision == "accept"
