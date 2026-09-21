@@ -29,7 +29,7 @@ class EvaluationEngine:
     _UNCERTAINTY = re.compile(r"\b(no sé|no tengo|no puedo verificar|uncertain|unclear|não sei|não posso verificar)\b", re.I)
     _CONVERSATIONAL_INTENTS = {"greeting", "self_identity", "small_talk", "acknowledgement"}
 
-    def evaluate(self, *, user_message: str, answer: str, context: dict[str, Any] | None = None, evidence: str = "") -> EvaluationResult:
+    def evaluate(self, *, user_message: str, answer: str, context: dict[str, Any] | None = None, evidence: str = "", conflict_detected: bool = False) -> EvaluationResult:
         context = context or {}
         text = (answer or "").strip()
         reasons: list[str] = []
@@ -102,7 +102,7 @@ class EvaluationEngine:
         selected_tools = context.get("selected_tools") if "selected_tools" in context else None
         if selected_tools is None and "tools_selected" in context:
             selected_tools = context.get("tools_selected")
-        executive = ExecutiveEvaluator().evaluate(state=brain_state or {}, answer=text, evidence=evidence, selected_tools=selected_tools).as_dict()
+        executive = ExecutiveEvaluator().evaluate(state=brain_state or {}, answer=text, evidence=evidence, selected_tools=selected_tools, conflict_detected=conflict_detected).as_dict()
         if not executive["passed"]:
             reasons.extend(f"executive:{reason}" for reason in executive["reasons"])
             if executive["risk_compliant"] is False:
