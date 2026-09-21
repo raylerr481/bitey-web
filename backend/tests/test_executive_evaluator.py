@@ -43,10 +43,6 @@ class ExecutiveEvaluatorContractTests(unittest.TestCase):
         self.assertTrue(result.passed)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_general_answer_with_sbt_drift_is_rejected_for_revision(self):
         state = decision("¿Qué es Bitcoin?")
         result = ExecutiveEvaluator().evaluate(
@@ -69,3 +65,31 @@ if __name__ == "__main__":
         )
         self.assertFalse(result.passed)
         self.assertTrue(any(reason.startswith("invalid_source_reference:") for reason in result.reasons))
+
+
+    def test_research_answer_without_source_reference_is_rejected(self):
+        state = decision("¿Qué es Bitcoin?")
+        evidence = "SOURCE 1: https://example.org\nCONTENT: Bitcoin is a digital asset."
+        result = ExecutiveEvaluator().evaluate(
+            state=state,
+            answer="Bitcoin es un activo digital.",
+            evidence=evidence,
+            selected_tools=["search"],
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("research_claim_source_reference_missing", result.reasons)
+
+    def test_unsupported_numeric_claim_is_rejected(self):
+        state = decision("¿Qué es Bitcoin?")
+        evidence = "SOURCE 1: https://example.org\nCONTENT: Bitcoin is a digital asset."
+        result = ExecutiveEvaluator().evaluate(
+            state=state,
+            answer="Bitcoin tiene un valor de 100000 dólares. [S1]",
+            evidence=evidence,
+            selected_tools=["search"],
+        )
+        self.assertFalse(result.passed)
+        self.assertTrue(any(reason.startswith("unsupported_numeric_claim:") for reason in result.reasons))
+
+if __name__ == "__main__":
+    unittest.main()
