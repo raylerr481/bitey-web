@@ -100,7 +100,7 @@ class ExecutiveEvaluator:
                 # Match single-word markers as words. Substring matching would
                 # flag innocent text such as Spanish "ambos" because it contains
                 # the trading marker "bos".
-                pattern = rf"\\b{re.escape(marker)}\\b" if " " not in marker else re.escape(marker)
+                pattern = rf"\b{re.escape(marker)}\b"
                 if re.search(pattern, lower_text):
                     drift_markers.append(marker)
             if drift_markers:
