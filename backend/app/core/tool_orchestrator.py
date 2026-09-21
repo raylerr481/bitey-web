@@ -139,9 +139,61 @@ class ToolOrchestrator:
         return {"ok": True, "available": True, "verified": True, "execution_enabled": False, "symbol": symbol, "timeframe": timeframe, "source": source, "analysis": result, "evidence": result["evidence"]}
 
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        result = await __import__("asyncio").to_thread(general_search, message, 8)
-        evidence = "\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title', '')}\nSNIPPET: {item.get('snippet', '')}" for i, item in enumerate((result.get("results") or [])[:8], 1))
-        return {"ok": bool(result.get("results")), **result, "evidence": evidence}
+        # Search is only the discovery step. Fetch the strongest results and
+        # attach lightweight source-quality metadata so synthesis can prefer
+        # primary/official evidence over arbitrary snippets.
+        import asyncio
+        from urllib.parse import urlparse
+        from .search_gateway import safe_fetch
+
+        result = await asyncio.to_thread(general_search, message, 8)
+        raw_results = result.get("results") or []
+        enriched: list[dict[str, Any]] = []
+
+        def quality(url: str) -> tuple[float, str]:
+            host = (urlparse(url).hostname or "").lower()
+            if host.endswith(".gov") or ".gov." in host:
+                return 1.0, "government"
+            if host.endswith(".edu") or ".edu." in host:
+                return 0.95, "academic"
+            if any(host == d or host.endswith("." + d) for d in ("who.int", "wikipedia.org")):
+                return 0.85, "reference"
+            if host:
+                return 0.65, "web_source"
+            return 0.0, "unknown"
+
+        async def enrich(item: dict[str, Any]) -> dict[str, Any]:
+            url = str(item.get("url") or "")
+            score, category = quality(url)
+            page = await asyncio.to_thread(safe_fetch, url, 80000) if url else {"ok": False}
+            out = dict(item)
+            out["source_quality"] = score
+            out["source_category"] = category
+            if page.get("ok"):
+                out["page_evidence"] = str(page.get("content") or "")[:5000]
+                out["evidence_verified"] = True
+            else:
+                out["evidence_verified"] = False
+            return out
+
+        for item in await asyncio.gather(*(enrich(item) for item in raw_results[:6])):
+            enriched.append(item)
+
+        # Prefer sources with fetched evidence and stronger source quality.
+        enriched.sort(key=lambda item: (bool(item.get("evidence_verified")), float(item.get("source_quality", 0.0))), reverse=True)
+        result["results"] = enriched
+        evidence_blocks = []
+        for i, item in enumerate(enriched[:6], 1):
+            page = item.get("page_evidence") or item.get("snippet") or ""
+            evidence_blocks.append(
+                f"SOURCE {i}: {item.get('url')}\n"
+                f"TITLE: {item.get('title', '')}\n"
+                f"SOURCE QUALITY: {item.get('source_quality', 0.0):.2f} ({item.get('source_category', 'unknown')})\n"
+                f"EVIDENCE VERIFIED: {bool(item.get('evidence_verified'))}\n"
+                f"CONTENT: {page[:5000]}"
+            )
+        evidence = "\n\n".join(evidence_blocks)
+        return {"ok": bool(enriched), **result, "evidence": evidence}
 
     @staticmethod
     def _weather_location(message: str) -> str:
