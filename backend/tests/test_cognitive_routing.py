@@ -38,9 +38,13 @@ def test_generic_client_question_stays_general():
     assert _domain("qué necesita un cliente") == "general"
 
 
-def test_generic_market_concept_does_not_force_web_research():
+def test_substantive_general_question_enters_evidence_first_loop():
     from backend.app.core.tool_orchestrator import ToolOrchestrator
-    assert ToolOrchestrator.needs_web_research("qué es el mercado") is False
+    orchestrator = ToolOrchestrator()
+    context = {}
+    selected = orchestrator.cognitive_selection("qué es el mercado", context)
+    assert "search" in selected["selected_tools"]
+    assert selected["brain"]["evidence_required"] is True
 
 
 def test_explicit_current_market_question_requires_web_evidence():
