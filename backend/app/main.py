@@ -141,6 +141,14 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
         initial_cognitive=cognition.process(payload.message,ctx,evidence_available=False); ctx["cognition"]=initial_cognitive.as_dict()
         initial_domain=initial_cognitive.intention.get("domain","general"); ctx["current_intent_domain"]=initial_domain; activity_events.append(f"Intención actual: {initial_domain}…")
+
+        # Run the executive brain before tool selection. This makes the
+        # evidence-first contract authoritative even when the base cognitive
+        # plan intentionally classifies a conceptual question as general.
+        initial_brain=brain.think(payload.message,ctx); ctx["bitey_brain"]=initial_brain.as_dict()
+        ctx["requires_web_research"]=bool(initial_brain.evidence_required)
+        ctx["freshness_required"]=bool(initial_brain.freshness_required)
+
         learned_memory={"summary":"","counts":{},"available":False}; learned_prompt=""
         if initial_domain != "general":
             learned_memory=await cognitive_memory.retrieve(payload.message,ctx); ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}
@@ -148,7 +156,13 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos desde Supabase…")
         else: ctx["learned_cognitive_context"]={"summary":"","counts":{},"available":False,"suppressed":"general_domain_boundary"}
 
-        selected=tools.select(payload.message,ctx); trace.tools={"selected":list(selected)}
+        # The Brain owns tool policy. The legacy orchestrator remains available
+        # for non-evidence utility routing, but cannot override the executive
+        # evidence/tool decision for the current request.
+        selected=list(initial_brain.tool_priority)
+        if not selected:
+            selected=tools.select(payload.message,ctx)
+        trace.tools={"selected":list(selected)}
         tool_results=await tools.execute(selected,message=payload.message,context=ctx)
         # Weather has a deterministic specialized source. Only fall back to
         # general web search when that source actually fails.
