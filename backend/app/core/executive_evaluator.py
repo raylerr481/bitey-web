@@ -62,6 +62,7 @@ class ExecutiveEvaluator:
         lower_text = text.lower()
         task_class = str(self._get(state, "task_class", "general") or "general").lower()
         evidence_required = bool(self._get(state, "evidence_required", False))
+        conceptual_fallback = bool(self._get(state, "conceptual_fallback", False))
 
         def evidence_has_provenance(value: str) -> bool:
             # Evidence must contain a traceable source marker, not merely a
@@ -80,8 +81,8 @@ class ExecutiveEvaluator:
                 for pair in markers
             )
 
-        evidence_ok = evidence_has_provenance(evidence) if evidence_required else True
-        if evidence_required and not evidence:
+        evidence_ok = evidence_has_provenance(evidence) if evidence_required and not conceptual_fallback else True
+        if evidence_required and not evidence and not conceptual_fallback:
             reasons.append("required_evidence_missing")
         elif evidence_required and not evidence_ok:
             reasons.append("evidence_provenance_missing")
