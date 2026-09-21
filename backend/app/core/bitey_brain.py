@@ -12,6 +12,7 @@ class BrainState:
     ambiguity: float = 0.0
     evidence_required: bool = False
     freshness_required: bool = False
+    conceptual_fallback: bool = False
     risk_level: str = "low"
     reasoning_mode: str = "direct"
     memory_priority: str = "normal"
@@ -54,6 +55,11 @@ class BiteyBrain:
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
         lexical_research = any(x in low for x in self.RESEARCH_WORDS)
         # Every substantive user question enters an evidence-first loop.\n        # Greetings/identity requests remain conversational, while domain-specific\n        # questions use their owning evidence source (web, weather, or SBT).\n        perception_question = bool(perception.get("question"))\n        conversational_only = bool(perception.get("greeting") or perception.get("identity_request"))\n        question_requires_evidence = perception_question and not conversational_only\n        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research or question_requires_evidence) or freshness
+        conceptual_fallback = (
+            domain == "general"
+            and not evidence_available
+            and any(cue in low for cue in ("qué es", "que es", "qué son", "que son", "qué significa", "que significa", "definición", "definicion", "define", "concepto", "what is", "what are", "qual é", "o que é"))
+        )
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
@@ -61,7 +67,7 @@ class BiteyBrain:
         capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx); tools = self._tool_policy(capabilities, domain, ctx); verification = evidence or complexity >= .60 or risk in {"high", "critical"}
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
-        state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
+        state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
         if evidence: state.goals.insert(3,"ground_claims_in_evidence")
         if verification: state.goals.append("verify_before_presenting_high_impact_claims")
         if risk == "critical": state.constraints += ["never_bypass_domain_risk_gate","no_live_execution"]
