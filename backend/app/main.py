@@ -199,6 +199,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         # plan intentionally classifies a conceptual question as general.
         initial_brain=brain.think(payload.message,ctx); ctx["bitey_brain"]=initial_brain.as_dict()
         ctx["requires_web_research"]=bool(initial_brain.evidence_required)
+        ctx["evidence_required"]=bool(initial_brain.evidence_required)
         ctx["freshness_required"]=bool(initial_brain.freshness_required)
 
         learned_memory={"summary":"","counts":{},"available":False}; learned_prompt=""
@@ -218,11 +219,14 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         tool_results=await tools.execute(selected,message=payload.message,context=ctx)
         # Weather has a deterministic specialized source. Only fall back to
         # general web search when that source actually fails.
+        recovered_tools=set()
         if "weather" in selected and not tool_results.get("weather",{}).get("ok",False):
             fallback=await tools.execute(["search"],message=payload.message,context=ctx)
             tool_results["search"]=fallback.get("search",{})
             if fallback.get("web_research"):
                 tool_results["web_research"]=fallback["web_research"]
+                if fallback["web_research"].get("ok"):
+                    recovered_tools.add("weather")
             activity_events.append("La fuente meteorológica falló; activando búsqueda web de respaldo…")
         if selected: activity_events.append("Consultando herramientas relevantes…")
 
@@ -275,7 +279,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             evidence=deep_research.evidence_context(deep_plan)
 
         research_required=bool(plan.required or deep_plan.reasons or selected)
-        failed_tools=[name for name in selected if not isinstance(tool_results.get(name),dict) or not tool_results.get(name,{}).get("ok",False)]
+        failed_tools=[name for name in selected if name not in recovered_tools and (not isinstance(tool_results.get(name),dict) or not tool_results.get(name,{}).get("ok",False))]
         evidence_attempted=bool(selected) or bool(plan.required or deep_plan.reasons)
         research_failure=bool(research_required and not evidence) or bool(failed_tools)
         tool_source_count=sum(1 for name in selected if isinstance(tool_results.get(name),dict) and tool_results.get(name,{}).get("source"))
@@ -290,7 +294,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         ctx.update({
             "evidence_available": bool(evidence),
             "evidence": evidence,
-            "evidence_source_count": len(verified_search_results) + tool_source_count,
+            "evidence_source_count": len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,
             "selected_tools": list(selected),
             "tool_results": tool_results,
             "research_required": research_required,
@@ -301,7 +305,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             "evidence_conflict_candidates": conflict_candidates[:12],
         })
 
-        trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(verified_search_results)+tool_source_count,"tool_evidence_count":tool_evidence_count,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
+        trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_evidence_count":tool_evidence_count,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
 
         cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict()
         evaluated_domain=cognitive.intention.get("domain") or initial_domain or "general"; ctx["current_intent_domain"]=evaluated_domain
@@ -330,7 +334,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         elif research_required: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
         for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
         activity_events.append("Seleccionando la mejor IA disponible…")
-        provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(verified_search_results)+tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
+        provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
         answer=await providers.generate(messages=messages,context=provider_context)
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
         evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence,conflict_detected=conflict_detected); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; activity_events.append(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
