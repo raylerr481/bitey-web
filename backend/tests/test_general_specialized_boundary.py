@@ -16,6 +16,7 @@ class GeneralSpecializedBoundaryTests(unittest.TestCase):
         self.assertEqual(brain.task_class, "general", message)
         self.assertNotIn("risk_guard", brain.required_capabilities)
         self.assertIn("GENERAL-DOMAIN BOUNDARY", self.brain.system_directive(brain))
+        self.assertNotIn("sbt_market", brain.tool_priority)
 
     def assert_trading(self, message):
         state = self.cognition.process(message, {})
@@ -24,6 +25,8 @@ class GeneralSpecializedBoundaryTests(unittest.TestCase):
         self.assertEqual(brain.task_class, "trading", message)
         self.assertIn("risk_guard", brain.required_capabilities)
         self.assertIn("TRADING-DOMAIN BOUNDARY", self.brain.system_directive(brain))
+        self.assertEqual(brain.tool_priority, ["sbt_market"])
+        self.assertFalse(brain.execution_allowed)
 
     def test_bitcoin_concept_is_general(self):
         self.assert_general("¿Qué es Bitcoin?")
