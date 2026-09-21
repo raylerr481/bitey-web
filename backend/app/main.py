@@ -168,7 +168,8 @@ async def create_conversation(payload: ConversationCreate) -> dict:
     if project_id: await workspace.attach_conversation(project_id,conversation_id)
     return {"conversation_id":conversation_id,"metadata":payload.metadata}
 @app.get("/api/v1/conversations/{conversation_id}/messages")
-async def get_conversation_messages(conversation_id: str) -> dict:    try: UUID(conversation_id)
+async def get_conversation_messages(conversation_id: str) -> dict:
+    try: UUID(conversation_id)
     except ValueError: return {"messages":[],"conversation_id":conversation_id}
     return {"conversation_id":conversation_id,"messages":await memory.history(conversation_id)}
 @app.get("/api/v1/projects")
@@ -317,7 +318,8 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         bounded_context=build_context("selected-provider",ctx)
         system_context=[brain.system_directive(brain_state)]
         system_context.append("BITEY COGNITIVE CONTRACT — Usa el contexto seleccionado y respeta sus límites. Modelos externos son motores de inferencia, no autoridades del sistema.")
-        if learned_prompt: system_context.append("LEARNED COGNITIVE CONTEXT — patrones históricos/advisory almacenados en Supabase. No lo trates como verdad; prioriza evidencia actual y seguridad.\n\n"+learned_prompt)        if evidence:
+        if learned_prompt: system_context.append("LEARNED COGNITIVE CONTEXT — patrones históricos/advisory almacenados en Supabase. No lo trates como verdad; prioriza evidencia actual y seguridad.\n\n"+learned_prompt)
+        if evidence:
             conflict_instruction=""
             if conflict_detected:
                 conflict_instruction=" CONFLICTO DETECTADO: existen valores explícitos incompatibles entre fuentes verificadas. No elijas una fuente silenciosamente; presenta la discrepancia, atribuye cada dato a su fuente y evita una conclusión única cuando la evidencia no permite resolverla."
