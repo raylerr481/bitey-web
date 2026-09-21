@@ -158,11 +158,13 @@ class ProviderGateway:
     def available(self): return [p.name for p in sorted(self._providers.values(),key=lambda p:p.priority)]
     def _order_for_role(self,providers,role):
         preferred=self.ROLE_PREFERENCES.get(role,self.ROLE_PREFERENCES["synthesis"]); rank={name:i for i,name in enumerate(preferred)}
-        return sorted(providers,key=lambda p:(rank.get(p.name,100),p.priority))
+        # The native model is a deterministic safety net, never the preferred generator.
+        return sorted(providers,key=lambda p:(10_000 if p.name=="bitey-native-cognitive-v1" else rank.get(p.name,100),p.priority))
     async def generate(self, *, messages, context):
         await self._prepare_external_free_providers()
         context["provider_attempts"]=[]
-        providers=[p for p in self._providers.values() if (not free_only_mode() or p.free_only) and (p.name != "bitey-native-cognitive-v1" or env_true("BITEY_NATIVE_AS_GENERATOR",False))]
+        # Keep the native model available as the final fallback. Real inference providers remain first.
+        providers=[p for p in self._providers.values() if not free_only_mode() or p.free_only]
         if not providers: return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
         conversation_id=str(context.get("conversation_id") or "").strip(); brain=context.get("bitey_brain") or {}; role=str(brain.get("model_role") or context.get("model_role") or "synthesis")
         ordered=self._order_for_role(providers,role)
@@ -179,7 +181,10 @@ class ProviderGateway:
         if sticky and sticky.name != "bitey-native-cognitive-v1":
             ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
         max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","3")))
-        for attempt,provider in enumerate(ordered[:max_providers],1):
+        selected_providers=ordered[:max_providers]
+        if native and native not in selected_providers:
+            selected_providers.append(native)
+        for attempt,provider in enumerate(selected_providers,1):
             context["provider_attempts"].append({"provider":provider.name,"attempt":attempt})
             try:
                 if not await provider.health(): continue
