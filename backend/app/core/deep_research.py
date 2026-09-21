@@ -183,6 +183,24 @@ class DeepResearchEngine:
         host = cls._source_key(url)
         return any(host == domain or host.endswith("." + domain) for domain in cls.MEDICAL_AUTHORITY_DOMAINS)
 
+    async def _search_wikipedia(self, client: httpx.AsyncClient, query: str, limit: int = 3) -> list[str]:
+        """Fallback knowledge discovery when search-engine HTML is unavailable."""
+        try:
+            response = await client.get(
+                "https://en.wikipedia.org/w/api.php",
+                params={"action": "query", "list": "search", "srsearch": query, "format": "json", "srlimit": limit},
+            )
+            response.raise_for_status()
+            data = response.json()
+            urls = []
+            for item in (data.get("query", {}).get("search") or []):
+                title = str(item.get("title") or "").strip()
+                if title:
+                    urls.append("https://en.wikipedia.org/wiki/" + quote_plus(title.replace(" ", "_")))
+            return urls
+        except Exception:
+            return []
+
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5, medical: bool = False) -> list[str]:
         urls: list[str] = []
         if medical:
@@ -226,6 +244,8 @@ class DeepResearchEngine:
                 # Research each reformulation until enough distinct sources are collected.
                 for variant in plan.query_variants or [plan.query]:
                     found = await self._search(client, variant, limit=4, medical="medical_domain" in plan.reasons)
+                    if not found and "knowledge_request" in plan.reasons:
+                        found = await self._search_wikipedia(client, variant, limit=3)
                     plan.research_passes += 1
                     for url in found:
                         if url not in urls:
