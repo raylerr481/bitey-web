@@ -195,12 +195,42 @@ class ToolOrchestrator:
                 f"CONTENT: {str(item.get('page_evidence'))[:5000]}"
             )
         evidence = "\n\n".join(evidence_blocks)
+
+        # Detect only conservative, explicit factual conflicts. We compare
+        # numeric/date values attached to the same short field label across
+        # independently fetched sources. This avoids brittle semantic guesses.
+        def conflict_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            fields: dict[str, dict[str, set[str]]] = {}
+            for index, item in enumerate(items, 1):
+                content = str(item.get("page_evidence") or "")
+                source_key = str(item.get("url") or f"source-{index}")
+                for match in re.finditer(
+                    r"(?im)^\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 _/-]{1,40})\s*[:=-]\s*(\d+(?:[.,]\d+)?(?:%|°C|\s?(?:km/h|USD|EUR|BRL))?)\s*$",
+                    content,
+                ):
+                    label = re.sub(r"\s+", " ", match.group(1).strip().lower())
+                    value = re.sub(r"\s+", " ", match.group(2).strip().lower())
+                    fields.setdefault(label, {}).setdefault(source_key, set()).add(value)
+                for match in re.finditer(r"\b(20\d{2}-\d{2}-\d{2})\b", content):
+                    fields.setdefault("__date__", {}).setdefault(source_key, set()).add(match.group(1))
+            conflicts=[]
+            for label, by_source in fields.items():
+                if len(by_source) < 2:
+                    continue
+                distinct={value for values in by_source.values() for value in values}
+                if len(distinct) > 1:
+                    conflicts.append({"field": label, "values": sorted(distinct), "sources": list(by_source)})
+            return conflicts[:12]
+
+        conflicts = conflict_candidates(verified)
         return {
             "ok": bool(enriched),
             **result,
             "evidence": evidence,
             "verified_evidence_count": len(verified),
             "discovery_result_count": len(enriched),
+            "conflict_detected": bool(conflicts),
+            "conflict_candidates": conflicts,
         }
 
     @staticmethod
