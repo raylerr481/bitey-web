@@ -207,7 +207,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             deep_plan=await deep_research.fetch(deep_plan)
             deep_evidence=deep_research.evidence_context(deep_plan)
             if deep_evidence:
-                evidence=(evidence+"\\n\\n"+deep_evidence).strip() if evidence else deep_evidence
+                evidence=(evidence+"\n\n"+deep_evidence).strip() if evidence else deep_evidence
         elif not evidence and (plan.required or deep_plan.reasons):
             activity_events.append("Investigando y contrastando información…")
             deep_plan=await deep_research.fetch(deep_plan)
