@@ -56,3 +56,16 @@ def test_single_source_conflict_flag_is_not_required():
         conflict_detected=False,
     )
     assert result.decision == "accept"
+
+
+def test_unsupported_numeric_claim_is_rejected():
+    evaluator = ExecutiveEvaluator()
+    evidence = "SOURCE 1: https://a.example\nCONTENT: Population: 10"
+    result = evaluator.evaluate(
+        state=_state(),
+        answer="La población es 25.",
+        evidence=evidence,
+        selected_tools=["search"],
+    )
+    assert result.decision == "revise"
+    assert any(reason.startswith("unsupported_numeric_claim:") for reason in result.reasons)
