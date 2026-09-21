@@ -47,7 +47,7 @@ class EvaluationEngine:
         domain = str(intention.get("domain") or context.get("domain") or "general").lower()
         conversational = intent in self._CONVERSATIONAL_INTENTS and domain == "general"
         # Conceptual general-knowledge questions do not require a minimum answer
-        # length. A concise definition can be fully correct without web evidence.
+        # length. Evidence requirements are enforced independently by the executive brain.
         conceptual = bool(re.search(
             r"\b(?:qu[eé]\s+es|qu[eé]\s+son|qu[eé]\s+significa|definici[oó]n|define|explica|concepto|what\s+is|what\s+are|how\s+does)\b",
             user_message,
