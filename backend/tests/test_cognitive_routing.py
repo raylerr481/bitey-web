@@ -73,3 +73,36 @@ def test_native_architecture_keeps_explicit_market_operation_trading():
     cognition = BiteyCognitiveArchitecture().run("Analiza BTCUSDT en M1", {})
     assert cognition["frame"]["domain"] == "trading"
     assert cognition["decision"]["module"] == "sbt"
+
+
+def test_brain_greeting_does_not_require_evidence():
+    from backend.app.core.bitey_brain import BiteyBrain
+    state = BiteyBrain().think("hola", {"cognition": {
+        "intention": {"domain": "general"},
+        "perception": {"greeting": True, "identity_request": False, "question": False},
+        "plan": {"needs_evidence": False, "freshness_required": False},
+    }})
+    assert state.evidence_required is False
+    assert state.tool_priority == []
+
+
+def test_brain_conceptual_general_question_requires_evidence():
+    from backend.app.core.bitey_brain import BiteyBrain
+    state = BiteyBrain().think("qué es el mercado", {"cognition": {
+        "intention": {"domain": "general"},
+        "perception": {"greeting": False, "identity_request": False, "question": True},
+        "plan": {"needs_evidence": False, "freshness_required": False},
+    }})
+    assert state.evidence_required is True
+    assert "search" in state.tool_priority
+
+
+def test_brain_current_market_operation_uses_sbt():
+    from backend.app.core.bitey_brain import BiteyBrain
+    state = BiteyBrain().think("precio actual de BTCUSDT", {"cognition": {
+        "intention": {"domain": "trading"},
+        "perception": {"greeting": False, "identity_request": False, "question": True},
+        "plan": {"needs_evidence": True, "freshness_required": True},
+    }})
+    assert state.evidence_required is True
+    assert state.tool_priority == ["sbt_market"]
