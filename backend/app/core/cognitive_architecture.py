@@ -137,6 +137,15 @@ class BiteyCognitiveArchitecture:
             domain = "trading"
             domain_score = max(domain_score, 2)
 
+        # Conceptual questions are general-knowledge requests even when the
+        # subject overlaps a specialized domain. Specialized routing requires
+        # an explicit operational/current signal (instrument, timeframe, price,
+        # chart, forecast, etc.), not merely a word such as "mercado" or "tiempo".
+        conceptual = any(cue in message.lower() for cue in self.CONCEPTUAL_CUES)
+        if conceptual and not (market_instrument or market_timeframe or market_context and domain == "weather" and any(x in message.lower() for x in ("hoy", "ahora", "actual", "pronóstico", "pronostico"))):
+            domain = "general"
+            domain_score = 0
+
         intent = self._intent(message, domain)
         evidence_required = bool(context.get("research")) or domain in {"weather", "research", "health", "trading"}
         risk_flags: list[str] = []
