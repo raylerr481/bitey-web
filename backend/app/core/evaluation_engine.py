@@ -46,9 +46,16 @@ class EvaluationEngine:
         intent = str(intention.get("intent") or context.get("intent") or "").lower()
         domain = str(intention.get("domain") or context.get("domain") or "general").lower()
         conversational = intent in self._CONVERSATIONAL_INTENTS and domain == "general"
+        # Conceptual general-knowledge questions do not require a minimum answer
+        # length. A concise definition can be fully correct without web evidence.
+        conceptual = bool(re.search(
+            r"\\b(?:qu[eé]\\s+es|qu[eé]\\s+son|qu[eé]\\s+significa|definici[oó]n|define|explica|concepto|what\\s+is|what\\s+are|how\\s+does)\\b",
+            user_message,
+            re.I,
+        )) and domain == "general"
 
-        # Short answers are valid for greetings and other natural conversation.
-        if len(text) < 24 and not conversational:
+        # Short answers are valid for greetings and conceptual general questions.
+        if len(text) < 24 and not conversational and not conceptual:
             quality -= 0.25
             reasons.append("response_too_short")
         if len(text) > 12000:
