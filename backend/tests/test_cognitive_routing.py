@@ -43,7 +43,7 @@ def test_substantive_general_question_enters_evidence_first_loop():
     orchestrator = ToolOrchestrator()
     context = {}
     selected = orchestrator.cognitive_selection("qué es el mercado", context)
-    assert "search" in selected["selected_tools"]
+    assert "web_research" in selected["selected_tools"]
     assert selected["brain"]["evidence_required"] is True
 
 
@@ -94,7 +94,7 @@ def test_brain_conceptual_general_question_requires_evidence():
         "plan": {"needs_evidence": False, "freshness_required": False},
     }})
     assert state.evidence_required is True
-    assert "search" in state.tool_priority
+    assert "web_research" in state.tool_priority
 
 
 def test_brain_current_market_operation_uses_sbt():
