@@ -57,6 +57,34 @@ class NativeReasoningModel:
             if language == "pt": return "Bitcoin é uma moeda digital descentralizada introduzida em 2009. Funciona sobre uma rede distribuída chamada blockchain, onde as transações são registradas e validadas pela rede. Não é emitido por um banco central e seu preço pode ser muito volátil."
             if language == "en": return "Bitcoin is a decentralized digital currency introduced in 2009. It operates on a distributed blockchain network where transactions are recorded and validated by the network. It is not issued by a central bank and can be highly volatile."
             return "Bitcoin es una moneda digital descentralizada introducida en 2009. Funciona sobre una red distribuida llamada blockchain, donde las transacciones se registran y validan en la red. No es emitido por un banco central y su precio puede ser muy volátil."
+        concept = re.match(r"^(?:[¿?]\\s*)?(?:qué|que|cuál|cual|cómo|como)\\s+(?:es|son|significa|funciona)\\s+(.+?)[?¿!¡.\\s]*$", q, re.I)
+        if concept:
+            subject = re.sub(r"\\s+", " ", concept.group(1)).strip(" ?¿!¡.")
+            definitions = {
+                "mercado": {
+                    "es": "Un mercado es un sistema o espacio donde compradores y vendedores intercambian bienes, servicios o activos y donde la oferta y la demanda ayudan a formar precios.",
+                    "pt": "Um mercado é um sistema ou espaço onde compradores e vendedores trocam bens, serviços ou ativos, e a oferta e a demanda ajudam a formar preços.",
+                    "en": "A market is a system or place where buyers and sellers exchange goods, services, or assets, with supply and demand helping determine prices.",
+                },
+                "mercado financiero": {
+                    "es": "El mercado financiero reúne mercados e instituciones donde se negocian activos como acciones, bonos y divisas. Ayuda a canalizar capital, formar precios y gestionar riesgos.",
+                    "pt": "O mercado financeiro reúne mercados e instituições onde são negociados ativos como ações, títulos e moedas. Ele ajuda a canalizar capital, formar preços e administrar riscos.",
+                    "en": "The financial market is the set of markets and institutions where assets such as stocks, bonds, and currencies are traded. It helps channel capital, form prices, and manage risk.",
+                },
+                "trading": {
+                    "es": "Trading es la compra y venta de activos financieros para buscar aprovechar movimientos de precio. Puede involucrar acciones, divisas, criptomonedas e índices y siempre implica riesgo de pérdida.",
+                    "pt": "Trading é a compra e venda de ativos financeiros buscando aproveitar movimentos de preço. Pode envolver ações, câmbio, criptomoedas e índices e sempre envolve risco de perda.",
+                    "en": "Trading is the buying and selling of financial assets to seek gains from price movements. It can involve stocks, currencies, cryptocurrencies, and indices and always carries risk of loss.",
+                },
+                "blockchain": {
+                    "es": "Blockchain es una estructura de registro distribuido en la que los datos se agrupan en bloques enlazados y se mantienen mediante una red de participantes. Se usa para registrar transacciones y otros datos de forma verificable.",
+                    "pt": "Blockchain é uma estrutura de registro distribuído na qual os dados são agrupados em blocos encadeados e mantidos por uma rede de participantes. É usada para registrar transações e outros dados de forma verificável.",
+                    "en": "A blockchain is a distributed ledger in which data is grouped into linked blocks and maintained by a network of participants. It can record transactions and other data in a verifiable way.",
+                },
+            }
+            answer_set = definitions.get(subject.casefold())
+            if answer_set:
+                return answer_set.get(language, answer_set["es"])
         return ""
 
     @staticmethod
