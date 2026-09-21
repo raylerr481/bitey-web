@@ -90,6 +90,17 @@ class ExecutiveEvaluator:
         elif evidence_required and not evidence_ok:
             reasons.append("evidence_provenance_missing")
 
+        # Conservative claim-to-evidence check: concrete numeric/date claims in
+        # a factual answer must be traceable to the retrieved evidence. This
+        # blocks unsupported figures, percentages, years and measurements without
+        # attempting brittle semantic verification of every sentence.
+        if evidence_required and evidence and text:
+            answer_numbers = set(re.findall(r"(?<![A-Za-z])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![A-Za-z])", text))
+            evidence_numbers = set(re.findall(r"(?<![A-Za-z])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![A-Za-z])", evidence))
+            unsupported_numbers = sorted(answer_numbers - evidence_numbers)
+            if unsupported_numbers:
+                reasons.append("unsupported_numeric_claim:" + ",".join(unsupported_numbers[:8]))
+
         # When verified sources contain an explicit factual conflict, the
         # generated answer must acknowledge it rather than silently selecting
         # one source as authoritative.
@@ -151,7 +162,7 @@ class ExecutiveEvaluator:
         provider_independent = True
         if not text:
             reasons.append("empty_generation")
-        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok and conflict_acknowledged and "general_domain_specialized_module_drift" not in reasons
+        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok and conflict_acknowledged and not any(reason.startswith("unsupported_numeric_claim:") for reason in reasons) and "general_domain_specialized_module_drift" not in reasons
         decision = "accept" if passed else "revise"
         return ExecutiveEvaluation(
             decision=decision,
