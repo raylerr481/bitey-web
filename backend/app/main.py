@@ -188,13 +188,20 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
                 f"CONTENT: {item.get('page_evidence','')[:5000]}"
                 for i,item in enumerate(verified_search_results[:6],1)
             )
-        if not evidence and initial_brain.evidence_required:
-            # Mandatory second research pass: every substantive question must
-            # obtain verified evidence before generation. The first search is
-            # discovery; deep research is the recovery/cross-check pass.
-            activity_events.append("La primera búsqueda no produjo evidencia verificable; ejecutando una segunda investigación…")
+        verified_source_count=len(verified_search_results)
+        general_research_crosscheck=(initial_domain == "general" and "search" in selected)
+        if initial_brain.evidence_required and (not evidence or (general_research_crosscheck and verified_source_count < 2)):
+            # Every substantive question needs verified evidence. General web
+            # research also gets a cross-check pass when the first discovery
+            # round yields fewer than two independently fetched sources.
+            if evidence:
+                activity_events.append("La primera investigación obtuvo evidencia limitada; ejecutando una segunda pasada para contrastarla…")
+            else:
+                activity_events.append("La primera búsqueda no produjo evidencia verificable; ejecutando una segunda investigación…")
             deep_plan=await deep_research.fetch(deep_plan)
-            evidence=deep_research.evidence_context(deep_plan)
+            deep_evidence=deep_research.evidence_context(deep_plan)
+            if deep_evidence:
+                evidence=(evidence+"\\n\\n"+deep_evidence).strip() if evidence else deep_evidence
         elif not evidence and (plan.required or deep_plan.reasons):
             activity_events.append("Investigando y contrastando información…")
             deep_plan=await deep_research.fetch(deep_plan)
