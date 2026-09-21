@@ -262,7 +262,10 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             conflict_instruction=""
             if conflict_detected:
                 conflict_instruction=" CONFLICTO DETECTADO: existen valores explícitos incompatibles entre fuentes verificadas. No elijas una fuente silenciosamente; presenta la discrepancia, atribuye cada dato a su fuente y evita una conclusión única cuando la evidencia no permite resolverla."
-            system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias."+conflict_instruction+"\n\n"+evidence)
+            evidence_citation_instruction = ""
+            if domain in {"general", "research"} and "search" in selected:
+                evidence_citation_instruction = " Para cada afirmación factual basada en la investigación web, añade una referencia breve [S1], [S2], etc. inmediatamente después de la afirmación. Usa únicamente los números SOURCE disponibles en la evidencia; no inventes referencias."
+            system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias."+evidence_citation_instruction+conflict_instruction+"\n\n"+evidence)
         elif research_required: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
         for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
         activity_events.append("Seleccionando la mejor IA disponible…")
