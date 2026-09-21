@@ -57,7 +57,10 @@ class BiteyBrain:
         # Every substantive user question enters an evidence-first loop.
         # Greetings/identity requests remain conversational, while domain-specific
         # questions use their owning evidence source (web, weather, or SBT).
-        perception_question = bool(perception.get("question"))\n        conversational_only = bool(perception.get("greeting") or perception.get("identity_request"))\n        question_requires_evidence = perception_question and not conversational_only\n        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research or question_requires_evidence) or freshness
+        perception_question = bool(perception.get("question"))
+        conversational_only = bool(perception.get("greeting") or perception.get("identity_request"))
+        question_requires_evidence = perception_question and not conversational_only
+        evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research or question_requires_evidence) or freshness
         conceptual_fallback = (
             domain == "general"
             and not evidence_available
