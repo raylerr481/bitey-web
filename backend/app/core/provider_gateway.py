@@ -208,7 +208,12 @@ class ProviderGateway:
                     if revised:
                         answer=sanitize_public_answer(revised); executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"),conflict_detected=bool(context.get("evidence_conflict_detected",False))); context["executive_evaluation"] = executive_result.as_dict()
                 else: context["generation_attempts"] = 1
-                if executive_result.decision == "revise": logger.warning("executive_revision_not_fully_resolved reasons=%s", executive_result.reasons)
+                if executive_result.decision == "revise":
+                    logger.warning("executive_revision_not_fully_resolved reasons=%s", executive_result.reasons)
+                    # A provider that still violates the executive contract is
+                    # not allowed to become the public answer. Try the next
+                    # provider instead of silently exposing an unverified draft.
+                    continue
                 if conversation_id: self._conversation_provider[conversation_id]=provider.name
                 return answer
             except Exception as exc:
