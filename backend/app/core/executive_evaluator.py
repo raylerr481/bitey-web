@@ -81,8 +81,11 @@ class ExecutiveEvaluator:
                 for pair in markers
             )
 
-        evidence_ok = evidence_has_provenance(evidence) if evidence_required and not conceptual_fallback else True
-        if evidence_required and not evidence and not conceptual_fallback:
+        # Evidence-first is mandatory for every substantive question. A
+        # conceptual label must never bypass web research; fallback knowledge is
+        # not considered verified evidence.
+        evidence_ok = evidence_has_provenance(evidence) if evidence_required else True
+        if evidence_required and not evidence:
             reasons.append("required_evidence_missing")
         elif evidence_required and not evidence_ok:
             reasons.append("evidence_provenance_missing")
@@ -124,7 +127,7 @@ class ExecutiveEvaluator:
                 for term in ("no se ejecut", "no ejecutar", "bloquead", "no puedo ejecutar", "cannot execute")
             )
         )
-        verification_ok = safe_risk_refusal or conceptual_fallback or (not verification_required or bool(evidence))
+        verification_ok = safe_risk_refusal or (not verification_required or bool(evidence))
         if verification_required and not verification_ok:
             reasons.append("verification_requirement_not_satisfied")
 
