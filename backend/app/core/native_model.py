@@ -57,9 +57,9 @@ class NativeReasoningModel:
             if language == "pt": return "Bitcoin é uma moeda digital descentralizada introduzida em 2009. Funciona sobre uma rede distribuída chamada blockchain, onde as transações são registradas e validadas pela rede. Não é emitido por um banco central e seu preço pode ser muito volátil."
             if language == "en": return "Bitcoin is a decentralized digital currency introduced in 2009. It operates on a distributed blockchain network where transactions are recorded and validated by the network. It is not issued by a central bank and can be highly volatile."
             return "Bitcoin es una moneda digital descentralizada introducida en 2009. Funciona sobre una red distribuida llamada blockchain, donde las transacciones se registran y validan en la red. No es emitido por un banco central y su precio puede ser muy volátil."
-        concept = re.match(r"^(?:[¿?]\\s*)?(?:qué|que|cuál|cual|cómo|como)\\s+(?:es|son|significa|funciona)\\s+(.+?)[?¿!¡.\\s]*$", q, re.I)
+        concept = re.match(r"^(?:[¿?]\s*)?(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(.+?)[?¿!¡.\s]*$", q, re.I)
         if concept:
-            subject = re.sub(r"\\s+", " ", concept.group(1)).strip(" ?¿!¡.")
+            subject = re.sub(r"\s+", " ", concept.group(1)).strip(" ?¿!¡.")
             definitions = {
                 "mercado": {
                     "es": "Un mercado es un sistema o espacio donde compradores y vendedores intercambian bienes, servicios o activos y donde la oferta y la demanda ayudan a formar precios.",
