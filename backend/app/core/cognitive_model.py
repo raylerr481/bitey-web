@@ -24,18 +24,21 @@ class CognitiveModel:
     """Domain-neutral structured cognition used before model routing."""
 
     _DOMAIN_HINTS = {
-        "weather": ("temperatura", "clima", "tiempo", "weather", "temperature", "forecast", "previsão", "previsao"),
-        "trading": ("trading", "trade", "forex", "stock", "mercado", "tradingview", "mt5"),
-        "support": ("ticket", "soporte", "error", "incidencia", "cliente", "reparación", "repair"),
+        # Keep domain hints semantically specific. Generic words such as
+        # "tiempo", "mercado" and "cliente" are intentionally excluded here;
+        # they need contextual evidence before selecting a specialized domain.
+        "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao"),
+        "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
+        "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair"),
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar"),
-        "marketing": ("marketing", "ventas", "campaña", "cliente", "publicidad", "seo"),
+        "marketing": ("marketing", "ventas", "campaña", "publicidad", "seo"),
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
     }
 
     _STRONG_INTENT = {
         "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
-        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mercado", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
-        "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather"),
+        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
+        "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather", "tiempo hoy", "el tiempo hoy", "como esta el tiempo", "cómo está el tiempo"),
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
     }
 
