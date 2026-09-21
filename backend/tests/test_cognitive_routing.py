@@ -46,3 +46,26 @@ def test_generic_market_concept_does_not_force_web_research():
 def test_explicit_current_market_question_requires_web_evidence():
     from backend.app.core.tool_orchestrator import ToolOrchestrator
     assert ToolOrchestrator.needs_web_research("precio actual de BTCUSDT") is True
+
+
+
+def test_native_architecture_keeps_generic_market_concept_general():
+    from backend.app.core.cognitive_architecture import BiteyCognitiveArchitecture
+    cognition = BiteyCognitiveArchitecture().run("¿Qué es el mercado?", {})
+    assert cognition["frame"]["domain"] == "general"
+    assert cognition["frame"]["intent"] == "answer_or_assist"
+    assert cognition["decision"]["module"] is None
+
+
+def test_native_architecture_keeps_trading_concept_general():
+    from backend.app.core.cognitive_architecture import BiteyCognitiveArchitecture
+    cognition = BiteyCognitiveArchitecture().run("¿Qué es trading?", {})
+    assert cognition["frame"]["domain"] == "general"
+    assert cognition["decision"]["module"] is None
+
+
+def test_native_architecture_keeps_explicit_market_operation_trading():
+    from backend.app.core.cognitive_architecture import BiteyCognitiveArchitecture
+    cognition = BiteyCognitiveArchitecture().run("Analiza BTCUSDT en M1", {})
+    assert cognition["frame"]["domain"] == "trading"
+    assert cognition["decision"]["module"] == "sbt"
