@@ -69,3 +69,28 @@ def test_unsupported_numeric_claim_is_rejected():
     )
     assert result.decision == "revise"
     assert any(reason.startswith("unsupported_numeric_claim:") for reason in result.reasons)
+
+
+def test_researched_general_answer_requires_source_reference():
+    evaluator = ExecutiveEvaluator()
+    evidence = "SOURCE 1: https://a.example\\nCONTENT: La población es 10."
+    result = evaluator.evaluate(
+        state=_state(),
+        answer="La población es 10.",
+        evidence=evidence,
+        selected_tools=["search"],
+    )
+    assert result.decision == "revise"
+    assert "research_claim_source_reference_missing" in result.reasons
+
+
+def test_researched_general_answer_accepts_valid_source_reference():
+    evaluator = ExecutiveEvaluator()
+    evidence = "SOURCE 1: https://a.example\\nCONTENT: La población es 10."
+    result = evaluator.evaluate(
+        state=_state(),
+        answer="La población es 10. [S1]",
+        evidence=evidence,
+        selected_tools=["search"],
+    )
+    assert result.decision == "accept"
