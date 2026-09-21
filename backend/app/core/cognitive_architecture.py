@@ -89,6 +89,14 @@ class BiteyCognitiveArchitecture:
         "what is", "what are", "how does", "qual é", "o que é", "o que são", "como funciona",
     )
 
+    MARKET_OPERATIONAL_CUES = (
+        "precio", "cotización", "cotizacion", "comprar", "compra", "vender", "vende",
+        "analiza", "análisis", "analisis", "señal", "señales", "gráfico", "grafico",
+        "chart", "spread", "bid", "ask", "entrada", "salida", "soporte", "resistencia",
+        "tendencia", "vela", "velas", "scalping", "backtest", "pronóstico", "pronostico",
+        "ahora", "actual", "actualmente", "hoy", "tiempo real", "en vivo",
+    )
+
     GREETING_ALIASES = {
         "hola", "holaa", "holla", "hoka", "hol", "ola", "olaa", "oi", "hey", "hello", "hi",
     }
@@ -142,7 +150,20 @@ class BiteyCognitiveArchitecture:
         # an explicit operational/current signal (instrument, timeframe, price,
         # chart, forecast, etc.), not merely a word such as "mercado" or "tiempo".
         conceptual = any(cue in message.lower() for cue in self.CONCEPTUAL_CUES)
-        if conceptual and not (market_instrument or market_timeframe or market_context and domain == "weather" and any(x in message.lower() for x in ("hoy", "ahora", "actual", "pronóstico", "pronostico"))):
+        market_operational = any(cue in message.lower() for cue in self.MARKET_OPERATIONAL_CUES)
+        if conceptual and not (
+            market_operational
+            or (
+                market_context
+                and domain == "weather"
+                and any(x in message.lower() for x in ("hoy", "ahora", "actual", "pronóstico", "pronostico"))
+            )
+        ):
+            # A question such as "¿Qué es BTCUSDT?" or "¿Cómo funciona BTCUSDT?"
+            # is still a general conceptual question. An instrument name alone
+            # must not activate SBT; specialization requires an operational or
+            # current-market signal such as price, analysis, chart, signal or
+            # timeframe.
             domain = "general"
             domain_score = 0
 
