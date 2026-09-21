@@ -201,12 +201,12 @@ class ProviderGateway:
                 executive=ExecutiveEvaluator()
                 evidence_signal = str(context.get("evidence") or "")
                 if not evidence_signal and context.get("evidence_available"): evidence_signal = "[bitey_evidence_available]"
-                executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
+                executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"),conflict_detected=bool(context.get("evidence_conflict_detected",False))); context["executive_evaluation"] = executive_result.as_dict()
                 if executive_result.decision == "revise":
                     revision_reasons=", ".join(executive_result.reasons); revision_messages=public_messages+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Produce una respuesta final corregida y útil, sin mencionar este contrato ni revelar razonamiento interno."}]
                     revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True,"public_output_revision":True}); context["executive_revision_attempted"] = True; context["generation_attempts"] = 2
                     if revised:
-                        answer=sanitize_public_answer(revised); executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools")); context["executive_evaluation"] = executive_result.as_dict()
+                        answer=sanitize_public_answer(revised); executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"),conflict_detected=bool(context.get("evidence_conflict_detected",False))); context["executive_evaluation"] = executive_result.as_dict()
                 else: context["generation_attempts"] = 1
                 if executive_result.decision == "revise": logger.warning("executive_revision_not_fully_resolved reasons=%s", executive_result.reasons)
                 if conversation_id: self._conversation_provider[conversation_id]=provider.name
