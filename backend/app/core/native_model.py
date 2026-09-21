@@ -152,7 +152,7 @@ class NativeReasoningModel:
         if language=="en": lead,limit,confidence_line="I found relevant evidence for the question.","The points below are limited to what the retrieved sources support.",f"Evidence-grounded confidence: {confidence:.0%}."; risk_line=" Verify critical details before acting." if risk else ""
         elif language=="pt": lead,limit,confidence_line="Encontrei evidências relevantes para a pergunta.","Os pontos abaixo estão limitados ao que as fontes recuperadas sustentam.",f"Confiança baseada em evidências: {confidence:.0%}."; risk_line=" Confirme detalhes críticos antes de agir." if risk else ""
         else: lead,limit,confidence_line="Encontré evidencia relevante para la pregunta.","Los puntos siguientes se limitan a lo que respaldan las fuentes recuperadas.",f"Confianza basada en evidencia: {confidence:.0%}."; risk_line=" Verifica los detalles críticos antes de actuar." if risk else ""
-        source_count = len(re.findall(r"(?im)^SOURCE\\s+(\\d+)\\s*:", evidence))
+        source_count = len(re.findall(r"(?im)^SOURCE\s+(\d+)\s*:", evidence))
         refs = [f"[S{i}]" for i in range(1, min(source_count, 3) + 1)]
         bullets = []
         for index, claim in enumerate(claims[:3]):
