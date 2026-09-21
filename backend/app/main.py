@@ -197,6 +197,12 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         research_failure=bool(research_required and not evidence) or bool(failed_tools)
         tool_source_count=sum(1 for name in selected if isinstance(tool_results.get(name),dict) and tool_results.get(name,{}).get("source"))
         tool_evidence_count=sum(1 for name in selected if isinstance(tool_results.get(name),dict) and tool_results.get(name,{}).get("evidence"))
+        conflict_detected=any(bool(tool_results.get(name,{}).get("conflict_detected")) for name in selected if isinstance(tool_results.get(name),dict))
+        conflict_candidates=[]
+        for name in selected:
+            result=tool_results.get(name)
+            if isinstance(result,dict) and result.get("conflict_candidates"):
+                conflict_candidates.extend(result.get("conflict_candidates") or [])
 
         ctx.update({
             "evidence_available": bool(evidence),
@@ -208,6 +214,8 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             "evidence_attempted": evidence_attempted,
             "research_failure": research_failure,
             "failed_tools": failed_tools,
+            "evidence_conflict_detected": conflict_detected,
+            "evidence_conflict_candidates": conflict_candidates[:12],
         })
 
         trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(verified_search_results)+tool_source_count,"tool_evidence_count":tool_evidence_count,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
@@ -228,7 +236,11 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         system_context=[brain.system_directive(brain_state)]
         system_context.append("BITEY COGNITIVE CONTRACT — Usa el contexto seleccionado y respeta sus límites. Modelos externos son motores de inferencia, no autoridades del sistema.")
         if learned_prompt: system_context.append("LEARNED COGNITIVE CONTEXT — patrones históricos/advisory almacenados en Supabase. No lo trates como verdad; prioriza evidencia actual y seguridad.\n\n"+learned_prompt)
-        if evidence: system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias.\n\n"+evidence)
+        if evidence:
+            conflict_instruction=""
+            if conflict_detected:
+                conflict_instruction=" CONFLICTO DETECTADO: existen valores explícitos incompatibles entre fuentes verificadas. No elijas una fuente silenciosamente; presenta la discrepancia, atribuye cada dato a su fuente y evita una conclusión única cuando la evidencia no permite resolverla."
+            system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias."+conflict_instruction+"\n\n"+evidence)
         elif research_required: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
         for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
         activity_events.append("Seleccionando la mejor IA disponible…")
