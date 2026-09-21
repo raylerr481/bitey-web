@@ -90,6 +90,26 @@ class ExecutiveEvaluator:
         elif evidence_required and not evidence_ok:
             reasons.append("evidence_provenance_missing")
 
+        # General web research must expose a lightweight claim-to-source
+        # trace. Providers are asked to use [S1], [S2], ... beside factual
+        # statements; the evaluator verifies that referenced source IDs exist.
+        # This does not attempt brittle sentence-level semantic matching, but it
+        # prevents an answer from presenting researched facts with no source link.
+        if evidence_required and evidence and task_class in {"general", "research"}:
+            source_ids = {
+                int(match)
+                for match in re.findall(r"(?im)^SOURCE\s+(\d+)\s*:", evidence)
+            }
+            references = {
+                int(match)
+                for match in re.findall(r"\[(?:S|Fuente\s*)(\d+)\]", text, re.I)
+            }
+            if source_ids and not references:
+                reasons.append("research_claim_source_reference_missing")
+            elif references and any(ref not in source_ids for ref in references):
+                invalid = sorted(ref for ref in references if ref not in source_ids)
+                reasons.append("invalid_source_reference:" + ",".join(map(str, invalid[:8])))
+
         # Conservative claim-to-evidence check: concrete numeric/date claims in
         # a factual answer must be traceable to the retrieved evidence. This
         # blocks unsupported figures, percentages, years and measurements without
