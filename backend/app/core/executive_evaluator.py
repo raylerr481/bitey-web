@@ -53,6 +53,7 @@ class ExecutiveEvaluator:
         answer: str,
         evidence: str = "",
         selected_tools: list[str] | None = None,
+        conflict_detected: bool = False,
     ) -> ExecutiveEvaluation:
         tools_known = selected_tools is not None
         tools = list(selected_tools or [])
@@ -84,6 +85,23 @@ class ExecutiveEvaluator:
             reasons.append("required_evidence_missing")
         elif evidence_required and not evidence_ok:
             reasons.append("evidence_provenance_missing")
+
+        # When verified sources contain an explicit factual conflict, the
+        # generated answer must acknowledge it rather than silently selecting
+        # one source as authoritative.
+        conflict_acknowledged = True
+        if conflict_detected and evidence_required:
+            conflict_acknowledged = any(
+                marker in lower_text
+                for marker in (
+                    "fuentes difieren", "fuentes discrepan", "según la fuente",
+                    "las fuentes", "discrepancia", "difieren", "discrepan",
+                    "sources disagree", "sources differ", "according to the source",
+                    "discrepancy", "conflicting sources",
+                )
+            )
+            if not conflict_acknowledged:
+                reasons.append("source_conflict_not_acknowledged")
 
         required_tools = list(self._get(state, "tool_priority", []) or [])
         tool_ok = True if not tools_known else all(tool in tools for tool in required_tools)
@@ -129,7 +147,7 @@ class ExecutiveEvaluator:
         provider_independent = True
         if not text:
             reasons.append("empty_generation")
-        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok and "general_domain_specialized_module_drift" not in reasons
+        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok and conflict_acknowledged and "general_domain_specialized_module_drift" not in reasons
         decision = "accept" if passed else "revise"
         return ExecutiveEvaluation(
             decision=decision,
