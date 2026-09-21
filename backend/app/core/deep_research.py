@@ -173,9 +173,14 @@ class DeepResearchEngine:
         except Exception:
             return []
 
+    @staticmethod
+    def _source_key(url: str) -> str:
+        """Normalize a source host so cross-checks can prefer independent publishers."""
+        return re.sub(r"^www\.", "", (httpx.URL(url).host or "").lower()).strip()
+
     @classmethod
     def _is_medical_authority(cls, url: str) -> bool:
-        host = re.sub(r"^www\.", "", (httpx.URL(url).host or "").lower())
+        host = cls._source_key(url)
         return any(host == domain or host.endswith("." + domain) for domain in cls.MEDICAL_AUTHORITY_DOMAINS)
 
     async def _search(self, client: httpx.AsyncClient, query: str, limit: int = 5, medical: bool = False) -> list[str]:
@@ -229,7 +234,24 @@ class DeepResearchEngine:
                             break
                     if len(urls) >= 8:
                         break
-            plan.urls = list(dict.fromkeys(urls))[:8]
+            # Prefer independent publisher hosts for the evidence set. Keep
+            # same-host pages only after distinct hosts have been exhausted.
+            unique_urls = list(dict.fromkeys(urls))
+            diverse_urls: list[str] = []
+            seen_hosts: set[str] = set()
+            for url in unique_urls:
+                host = self._source_key(url)
+                if host and host not in seen_hosts:
+                    diverse_urls.append(url)
+                    seen_hosts.add(host)
+                if len(diverse_urls) >= 8:
+                    break
+            for url in unique_urls:
+                if url not in diverse_urls:
+                    diverse_urls.append(url)
+                if len(diverse_urls) >= 8:
+                    break
+            plan.urls = diverse_urls[:8]
             if plan.urls and plan.research_passes == 0:
                 plan.research_passes = 1
             for url in plan.urls:
