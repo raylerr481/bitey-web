@@ -121,4 +121,10 @@ def test_native_model_does_not_bypass_required_evidence():
 
     assert "Un mercado es un sistema o espacio" not in answer
     assert "evidencia verificable suficiente" in answer
-\n\ndef test_orchestrator_normalizes_legacy_search_to_canonical_web_research():\n    from backend.app.core.tool_orchestrator import ToolOrchestrator\n    orchestrator = ToolOrchestrator()\n    result = orchestrator.cognitive_selection("qué es el mercado", {})\n    assert result["selected_tools"] == ["web_research"]\n
+
+    
+def test_orchestrator_normalizes_legacy_search_to_canonical_web_research():
+    from backend.app.core.tool_orchestrator import ToolOrchestrator
+    orchestrator = ToolOrchestrator()
+    result = orchestrator.cognitive_selection("qué es el mercado", {})
+    assert result["selected_tools"] == ["web_research"]
