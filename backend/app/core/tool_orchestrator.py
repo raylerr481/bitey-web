@@ -36,7 +36,8 @@ class ToolOrchestrator:
         self._tools: dict[str, ToolSpec] = {}
         self._cognition = CognitiveModel()
         self._brain = BiteyBrain()
-        # Canonical evidence tool. The legacy ``search`` name is retained as a\n        # compatibility alias because older utility paths may still request it.\n        self.register(ToolSpec("web_research", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))\n        self.register(ToolSpec("search", "Compatibility alias for Bitey web research.", ("web", "search", "research", "evidence"), self._search))
+        # Canonical evidence tool. The legacy ``search`` name is retained as a\n        # compatibility alias because older utility paths may still request it.
+        self.register(ToolSpec("web_research", "Buscador web general de Bitey mediante DuckDuckGo y recuperación segura de evidencia.", ("web", "search", "research", "evidence"), self._search))\n        self.register(ToolSpec("search", "Compatibility alias for Bitey web research.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
         self.register(ToolSpec("sbt_market", "Consulta el mercado SBT y ejecuta inteligencia técnica únicamente con datos verificables; no ejecuta órdenes.", ("trading", "market_intelligence", "market_data", "risk"), self._sbt_market))
         self.register(ToolSpec("calculator", "Calculadora local determinista para expresiones aritméticas simples; no requiere proveedor externo.", ("math", "calculation"), self._calculator))
@@ -74,7 +75,9 @@ class ToolOrchestrator:
         elif brain.evidence_required and "search" not in requested:
             requested.append("search")
 
-        # Normalize legacy evidence requests to the canonical tool name.\n        requested = ["web_research" if name == "search" else name for name in requested]\n        selected = [name for name in dict.fromkeys(requested) if name in self._tools]
+        # Normalize legacy evidence requests to the canonical tool name.
+        requested = ["web_research" if name == "search" else name for name in requested]
+        selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
             context.update({"cognition": cognitive.as_dict(), "_cognitive_state": cognitive, "bitey_brain": brain.as_dict(), "_bitey_brain_state": brain, "selected_tools": selected})
         return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected}
