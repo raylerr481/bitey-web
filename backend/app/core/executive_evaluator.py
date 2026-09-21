@@ -124,7 +124,7 @@ class ExecutiveEvaluator:
                 for term in ("no se ejecut", "no ejecutar", "bloquead", "no puedo ejecutar", "cannot execute")
             )
         )
-        verification_ok = safe_risk_refusal or (not verification_required or bool(evidence))
+        verification_ok = safe_risk_refusal or conceptual_fallback or (not verification_required or bool(evidence))
         if verification_required and not verification_ok:
             reasons.append("verification_requirement_not_satisfied")
 
