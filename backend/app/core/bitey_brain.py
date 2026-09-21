@@ -109,7 +109,9 @@ class BiteyBrain:
         else:
             t=[]
             if "external_evidence" in capabilities:
-                t.append("search")
+                # Main registers the evidence tool under this canonical name.
+                # Keep the executive decision aligned with the actual tool registry.
+                t.append("web_research")
         if "code_reasoning" in capabilities:t.append("code_reasoning")
         if context.get("workspace_files_required"):t.append("workspace_files")
         return list(dict.fromkeys(t))
