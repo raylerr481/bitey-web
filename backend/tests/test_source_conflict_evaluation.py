@@ -5,7 +5,7 @@ def _state():
     return {
         "task_class": "general",
         "evidence_required": True,
-        "tool_priority": ["search"],
+        "tool_priority": ["web_research"],
         "risk_level": "low",
         "execution_allowed": False,
         "verification_required": False,
@@ -22,7 +22,7 @@ def test_conflicting_verified_sources_require_acknowledgement():
         state=_state(),
         answer="La población es 10.",
         evidence=evidence,
-        selected_tools=["search"],
+        selected_tools=["web_research"],
         conflict_detected=True,
     )
     assert result.decision == "revise"
@@ -37,9 +37,9 @@ def test_conflicting_verified_sources_are_acknowledged():
     )
     result = evaluator.evaluate(
         state=_state(),
-        answer="Las fuentes difieren: una indica 10 y otra 12.",
+        answer="Las fuentes difieren: una indica 10 y otra 12. [S1] [S2]",
         evidence=evidence,
-        selected_tools=["search"],
+        selected_tools=["web_research"],
         conflict_detected=True,
     )
     assert result.decision == "accept"
@@ -50,9 +50,9 @@ def test_single_source_conflict_flag_is_not_required():
     evidence = "SOURCE 1: https://a.example\nCONTENT: Population: 10"
     result = evaluator.evaluate(
         state=_state(),
-        answer="La fuente consultada indica 10.",
+        answer="La fuente consultada indica 10. [S1]",
         evidence=evidence,
-        selected_tools=["search"],
+        selected_tools=["web_research"],
         conflict_detected=False,
     )
     assert result.decision == "accept"
@@ -63,9 +63,9 @@ def test_unsupported_numeric_claim_is_rejected():
     evidence = "SOURCE 1: https://a.example\nCONTENT: Population: 10"
     result = evaluator.evaluate(
         state=_state(),
-        answer="La población es 25.",
+        answer="La población es 25. [S1]",
         evidence=evidence,
-        selected_tools=["search"],
+        selected_tools=["web_research"],
     )
     assert result.decision == "revise"
     assert any(reason.startswith("unsupported_numeric_claim:") for reason in result.reasons)
@@ -78,7 +78,7 @@ def test_researched_general_answer_requires_source_reference():
         state=_state(),
         answer="La población es 10.",
         evidence=evidence,
-        selected_tools=["search"],
+        selected_tools=["web_research"],
     )
     assert result.decision == "revise"
     assert "research_claim_source_reference_missing" in result.reasons
@@ -91,6 +91,6 @@ def test_researched_general_answer_accepts_valid_source_reference():
         state=_state(),
         answer="La población es 10. [S1]",
         evidence=evidence,
-        selected_tools=["search"],
+        selected_tools=["web_research"],
     )
     assert result.decision == "accept"
