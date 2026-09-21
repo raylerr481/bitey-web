@@ -49,7 +49,7 @@ class EvaluationEngine:
         # Conceptual general-knowledge questions do not require a minimum answer
         # length. A concise definition can be fully correct without web evidence.
         conceptual = bool(re.search(
-            r"\\b(?:qu[eé]\\s+es|qu[eé]\\s+son|qu[eé]\\s+significa|definici[oó]n|define|explica|concepto|what\\s+is|what\\s+are|how\\s+does)\\b",
+            r"\b(?:qu[eé]\s+es|qu[eé]\s+son|qu[eé]\s+significa|definici[oó]n|define|explica|concepto|what\s+is|what\s+are|how\s+does)\b",
             user_message,
             re.I,
         )) and domain == "general"
