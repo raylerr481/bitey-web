@@ -98,12 +98,12 @@ class CloudflareAIProvider:
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
-        "strong_reasoning_synthesis":("ollama-local","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("bitey-native-cognitive-v1","ollama-local"),
-        "code_reasoning":("ollama-local","bitey-native-cognitive-v1"),
-        "guarded_analysis":("bitey-native-cognitive-v1","ollama-local"),
-        "fast_synthesis":("ollama-local","bitey-native-cognitive-v1"),
-        "synthesis":("ollama-local","bitey-native-cognitive-v1"),
+        "strong_reasoning_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "code_reasoning":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "guarded_analysis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "fast_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
     }
     def __init__(self) -> None:
         self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0; self._conversation_provider={}; self._register_from_environment()
@@ -172,12 +172,12 @@ class ProviderGateway:
         weather_evidence=domain=="weather" or "WEATHER SOURCE: Open-Meteo" in evidence_signal
         factual_evidence=evidence_required or bool(context.get("research_required") or context.get("research_state",{}).get("requires_web_research"))
         native=next((p for p in ordered if p.name=="bitey-native-cognitive-v1"),None)
-        if native and (evidence_required or weather_evidence or factual_evidence):
-            ordered=[native]+[p for p in ordered if p.name!=native.name]
-        else:
-            sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None
-            sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
-            if sticky: ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
+        # Research evidence must be synthesized by a real inference worker when
+        # one is healthy. The native model remains the final deterministic fallback.
+        sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None
+        sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
+        if sticky and sticky.name != "bitey-native-cognitive-v1":
+            ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
         max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","3")))
         for attempt,provider in enumerate(ordered[:max_providers],1):
             context["provider_attempts"].append({"provider":provider.name,"attempt":attempt})
