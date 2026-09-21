@@ -152,7 +152,14 @@ class NativeReasoningModel:
         if language=="en": lead,limit,confidence_line="I found relevant evidence for the question.","The points below are limited to what the retrieved sources support.",f"Evidence-grounded confidence: {confidence:.0%}."; risk_line=" Verify critical details before acting." if risk else ""
         elif language=="pt": lead,limit,confidence_line="Encontrei evidências relevantes para a pergunta.","Os pontos abaixo estão limitados ao que as fontes recuperadas sustentam.",f"Confiança baseada em evidências: {confidence:.0%}."; risk_line=" Confirme detalhes críticos antes de agir." if risk else ""
         else: lead,limit,confidence_line="Encontré evidencia relevante para la pregunta.","Los puntos siguientes se limitan a lo que respaldan las fuentes recuperadas.",f"Confianza basada en evidencia: {confidence:.0%}."; risk_line=" Verifica los detalles críticos antes de actuar." if risk else ""
-        bullets="\n".join(f"- {claim}" for claim in claims[:3]); return f"{lead}\n\n{bullets}\n\n{limit}{risk_line}\n\n{confidence_line}"
+        source_count = len(re.findall(r"(?im)^SOURCE\\s+(\\d+)\\s*:", evidence))
+        refs = [f"[S{i}]" for i in range(1, min(source_count, 3) + 1)]
+        bullets = []
+        for index, claim in enumerate(claims[:3]):
+            marker = refs[min(index, len(refs) - 1)] if refs else ""
+            bullets.append(f"- {claim} {marker}".rstrip())
+        bullet_text = "\n".join(bullets)
+        return f"{lead}\n\n{bullet_text}\n\n{limit}{risk_line}\n\n{confidence_line}"
 
     @staticmethod
     def _extract_claims(evidence: str, question: str) -> list[str]:
@@ -164,7 +171,9 @@ class NativeReasoningModel:
             words={t.lower() for t in re.findall(r"[\wÀ-ÿ]+",clean)}; score=float(len(q_tokens&words)*3)
             if re.search(r"\b20\d{2}\b",clean):score+=2
             if re.search(r"\b\d+(?:[.,]\d+)?\b",clean):score+=1.5
-            if score<8:continue
+            conceptual = bool(re.match(r"^(?:[¿?]\\s*)?(?:qué|que|cuál|cual|cómo|como)\\s+(?:es|son|significa|funciona)\\b", question, re.I))
+            minimum_score = 3 if conceptual else 8
+            if score < minimum_score:continue
             if len(clean)>360:clean=clean[:357].rsplit(" ",1)[0]+"..."
             key=re.sub(r"\W+"," ",clean.lower()).strip()
             if key not in seen:seen.add(key);candidates.append((score,clean))
