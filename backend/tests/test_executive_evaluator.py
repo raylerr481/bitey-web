@@ -29,7 +29,7 @@ class ExecutiveEvaluatorContractTests(unittest.TestCase):
 
     def test_compliant_output_is_accepted(self):
         state = decision("Investiga las opciones actuales para una API gratuita")
-        result = ExecutiveEvaluator().evaluate(state=state, answer="He comparado las opciones con evidencia disponible y verificada antes de presentar esta conclusión.", evidence="source A; source B", selected_tools=["search"])
+        result = ExecutiveEvaluator().evaluate(state=state, answer="He comparado las opciones con evidencia verificable antes de presentar esta conclusión. [S1]", evidence="SOURCE 1: https://example.org\nCONTENT: evidencia verificable sobre las opciones.", selected_tools=["search"])
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "accept")
         self.assertTrue(result.evidence_compliant)
@@ -45,3 +45,27 @@ class ExecutiveEvaluatorContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_general_answer_with_sbt_drift_is_rejected_for_revision(self):
+        state = decision("¿Qué es Bitcoin?")
+        result = ExecutiveEvaluator().evaluate(
+            state=state,
+            answer="Bitcoin es un activo que aquí analizaremos con SBT y señales de trading.",
+            evidence="SOURCE 1: https://example.org\nCONTENT: Bitcoin is a digital asset.",
+            selected_tools=["search"],
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("general_domain_specialized_module_drift", result.reasons)
+
+    def test_research_answer_requires_valid_source_reference(self):
+        state = decision("¿Qué es Bitcoin?")
+        evidence = "SOURCE 1: https://example.org\nCONTENT: Bitcoin is a digital asset."
+        result = ExecutiveEvaluator().evaluate(
+            state=state,
+            answer="Bitcoin es un activo digital. [S2]",
+            evidence=evidence,
+            selected_tools=["search"],
+        )
+        self.assertFalse(result.passed)
+        self.assertTrue(any(reason.startswith("invalid_source_reference:") for reason in result.reasons))
