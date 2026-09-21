@@ -28,7 +28,7 @@ class ToolOrchestrator:
     WEATHER_RE = re.compile(r"\b(temperatur\w*|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
     SEARCH_RE = re.compile(r"\b(busca|buscar|búsqueda|investiga|investigar|fuentes|compara|contrasta|search|research|latest|actual|hoy|noticias|news)\b", re.I)
     FRESH_RE = re.compile(r"\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\b", re.I)
-    WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|mercado|acciones|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?|who is|what is|how much|where|when|who|what|which)\b", re.I)
+    WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?|who is|what is|how much|where|when|who|what|which)\b", re.I)
     TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
     MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
 
