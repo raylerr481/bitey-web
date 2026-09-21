@@ -61,9 +61,29 @@ class ExecutiveEvaluator:
         lower_text = text.lower()
         task_class = str(self._get(state, "task_class", "general") or "general").lower()
         evidence_required = bool(self._get(state, "evidence_required", False))
-        evidence_ok = bool(evidence) if evidence_required else True
-        if evidence_required and not evidence_ok:
+
+        def evidence_has_provenance(value: str) -> bool:
+            # Evidence must contain a traceable source marker, not merely a
+            # model-written claim or search-engine discovery snippet.
+            if not value.strip():
+                return False
+            markers = (
+                ("SOURCE", "CONTENT"),
+                ("SOURCE", "EVIDENCE"),
+                ("WEATHER SOURCE", "OBSERVATION TIME"),
+                ("SBT verified market analysis", "Source:"),
+                ("Local deterministic calculation:", "="),
+            )
+            return any(
+                all(marker.lower() in value.lower() for marker in pair)
+                for pair in markers
+            )
+
+        evidence_ok = evidence_has_provenance(evidence) if evidence_required else True
+        if evidence_required and not evidence:
             reasons.append("required_evidence_missing")
+        elif evidence_required and not evidence_ok:
+            reasons.append("evidence_provenance_missing")
 
         required_tools = list(self._get(state, "tool_priority", []) or [])
         tool_ok = True if not tools_known else all(tool in tools for tool in required_tools)
