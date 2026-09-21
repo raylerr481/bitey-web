@@ -3,6 +3,7 @@ import asyncio
 import time
 from uuid import UUID, uuid4
 import os
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -188,7 +189,12 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
                 f"CONTENT: {item.get('page_evidence','')[:5000]}"
                 for i,item in enumerate(verified_search_results[:6],1)
             )
-        verified_source_count=len(verified_search_results)
+        verified_source_hosts = {
+            (urlparse(str(item.get("url") or "")).hostname or "").lower().removeprefix("www.")
+            for item in verified_search_results
+            if item.get("url")
+        }
+        verified_source_count=len(verified_source_hosts)
         general_research_crosscheck=(initial_domain == "general" and "search" in selected)
         if initial_brain.evidence_required and (not evidence or (general_research_crosscheck and verified_source_count < 2)):
             # Every substantive question needs verified evidence. General web
