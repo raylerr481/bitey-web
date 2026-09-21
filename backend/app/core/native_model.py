@@ -33,7 +33,8 @@ class NativeReasoningModel:
         frame = cognition["frame"]
         decision = cognition["decision"]
         evidence = str(context.get("evidence") or "").strip()
-        direct = self._direct_general_answer(user_message, frame)
+        # Substantive requests must honor evidence-first research; direct deterministic answers are conversational-only fallbacks.
+        direct = self._direct_general_answer(user_message, frame) if not bool(context.get("evidence_required") or context.get("research_required")) else ""
         if direct: return direct
         specialized = self._specialized_evidence_answer(user_message, evidence, frame)
         if specialized: return specialized
