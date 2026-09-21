@@ -182,7 +182,7 @@ class ExecutiveEvaluator:
         provider_independent = True
         if not text:
             reasons.append("empty_generation")
-        passed = bool(text) and evidence_ok and tool_ok and risk_ok and verification_ok and conflict_acknowledged and not any(reason.startswith("unsupported_numeric_claim:") for reason in reasons) and "general_domain_specialized_module_drift" not in reasons
+        source_reference_ok = not any(\n            reason in reasons\n            for reason in (\n                "research_claim_source_reference_missing",\n            )\n        ) and not any(reason.startswith("invalid_source_reference:") for reason in reasons)\n        numeric_claims_ok = not any(reason.startswith("unsupported_numeric_claim:") for reason in reasons)\n        specialized_drift_ok = "general_domain_specialized_module_drift" not in reasons\n        passed = (\n            bool(text)\n            and evidence_ok\n            and tool_ok\n            and risk_ok\n            and verification_ok\n            and conflict_acknowledged\n            and source_reference_ok\n            and numeric_claims_ok\n            and specialized_drift_ok\n        )
         decision = "accept" if passed else "revise"
         return ExecutiveEvaluation(
             decision=decision,
