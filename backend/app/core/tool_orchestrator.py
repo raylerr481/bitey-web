@@ -182,18 +182,26 @@ class ToolOrchestrator:
         # Prefer sources with fetched evidence and stronger source quality.
         enriched.sort(key=lambda item: (bool(item.get("evidence_verified")), float(item.get("source_quality", 0.0))), reverse=True)
         result["results"] = enriched
+        # Only fetched page content is evidence. Search snippets are discovery
+        # metadata and must never enter the evidence channel.
+        verified = [item for item in enriched if item.get("evidence_verified") and item.get("page_evidence")]
         evidence_blocks = []
-        for i, item in enumerate(enriched[:6], 1):
-            page = item.get("page_evidence") or item.get("snippet") or ""
+        for i, item in enumerate(verified[:6], 1):
             evidence_blocks.append(
                 f"SOURCE {i}: {item.get('url')}\n"
                 f"TITLE: {item.get('title', '')}\n"
                 f"SOURCE QUALITY: {item.get('source_quality', 0.0):.2f} ({item.get('source_category', 'unknown')})\n"
-                f"EVIDENCE VERIFIED: {bool(item.get('evidence_verified'))}\n"
-                f"CONTENT: {page[:5000]}"
+                f"EVIDENCE VERIFIED: true\n"
+                f"CONTENT: {str(item.get('page_evidence'))[:5000]}"
             )
         evidence = "\n\n".join(evidence_blocks)
-        return {"ok": bool(enriched), **result, "evidence": evidence}
+        return {
+            "ok": bool(enriched),
+            **result,
+            "evidence": evidence,
+            "verified_evidence_count": len(verified),
+            "discovery_result_count": len(enriched),
+        }
 
     @staticmethod
     def _weather_location(message: str) -> str:
