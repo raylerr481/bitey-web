@@ -176,8 +176,18 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
 
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
         evidence=tool_results.get("web_research",{}).get("evidence",""); search_results=tool_results.get("search",{}).get("results",[])
-        if search_results and not evidence:
-            evidence="\n\n".join(f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title','')}\nSNIPPET: {item.get('snippet','')}" for i,item in enumerate(search_results[:8],1))
+        # Search result snippets are discovery metadata, not verified evidence.
+        # Never promote a snippet into the evidence channel when page retrieval
+        # failed; otherwise Bitey could appear evidence-grounded without having
+        # actually verified the source content.
+        verified_search_results=[item for item in search_results if item.get("evidence_verified") and item.get("page_evidence")]
+        if verified_search_results and not evidence:
+            evidence="\n\n".join(
+                f"SOURCE {i}: {item.get('url')}\nTITLE: {item.get('title','')}\n"
+                f"SOURCE QUALITY: {item.get('source_quality',0.0):.2f}\n"
+                f"CONTENT: {item.get('page_evidence','')[:5000]}"
+                for i,item in enumerate(verified_search_results[:6],1)
+            )
         if not evidence and (plan.required or deep_plan.reasons):
             activity_events.append("Investigando y contrastando información…"); deep_plan=await deep_research.fetch(deep_plan); evidence=deep_research.evidence_context(deep_plan)
 
@@ -191,7 +201,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         ctx.update({
             "evidence_available": bool(evidence),
             "evidence": evidence,
-            "evidence_source_count": len(search_results) + tool_source_count,
+            "evidence_source_count": len(verified_search_results) + tool_source_count,
             "selected_tools": list(selected),
             "tool_results": tool_results,
             "research_required": research_required,
@@ -200,7 +210,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             "failed_tools": failed_tools,
         })
 
-        trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(search_results)+tool_source_count,"tool_evidence_count":tool_evidence_count,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
+        trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(verified_search_results)+tool_source_count,"tool_evidence_count":tool_evidence_count,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
 
         cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict()
         evaluated_domain=cognitive.intention.get("domain") or initial_domain or "general"; ctx["current_intent_domain"]=evaluated_domain
@@ -222,7 +232,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         elif research_required: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
         for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
         activity_events.append("Seleccionando la mejor IA disponible…")
-        provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(search_results)+tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
+        provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(verified_search_results)+tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
         answer=await providers.generate(messages=messages,context=provider_context)
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
         evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; activity_events.append(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
