@@ -227,6 +227,19 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             discovered=len(web_result.get("sources",[]) or web_result.get("results",[]) or [])
             if discovered:
                 emit_activity(f"Encontradas {discovered} fuentes; verificando contenido…")
+                verified=int(web_result.get("verified_evidence_count", 0) or 0)
+                hosts=int(web_result.get("verified_source_host_count", 0) or 0)
+                for source in (web_result.get("sources", []) or []):
+                    if isinstance(source, dict) and source.get("ok") and source.get("url"):
+                        host=urlparse(str(source["url"])).hostname or str(source["url"])
+                        host=host.removeprefix("www.")
+                        emit_activity(f"Verificando fuente: {host}…")
+                if verified:
+                    emit_activity(f"Evidencia validada: {verified} fuente(s), {hosts} dominio(s) independiente(s).")
+                else:
+                    emit_activity("Ninguna fuente pudo verificarse; la respuesta no debe presentar evidencia como confirmada.")
+                if web_result.get("conflict_detected"):
+                    emit_activity("Se detectaron posibles diferencias entre fuentes; contrastando antes de responder…")
             else:
                 emit_activity("La búsqueda web no encontró fuentes utilizables; verificando alternativas…")
         if "weather" in selected:
