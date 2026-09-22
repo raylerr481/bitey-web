@@ -76,7 +76,7 @@ def create_chat_v2_router(memory, providers: ProviderGateway, tools: ToolOrchest
             calculations = math_calculate(query) if re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query) else math_analyze(query)
             events.append("Aplicando modelo matemático determinista…")
 
-        if mode == "research" or (mode == "auto" and tools.needs_web_research(query, {"freshness_required": True})):
+        if mode == "research" or (mode == "auto" and tools.needs_web_research(query, {})):
             selected = ["web_research"]
             events.append("Investigando fuentes públicas…")
             result = await tools.execute(selected, message=query, context={"current_intent_domain": "research"})
