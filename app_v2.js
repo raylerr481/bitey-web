@@ -6,7 +6,7 @@ const messages=$('#messages'),form=$('#chat-form'),input=$('#prompt'),send=$('#s
 const state={conversationId:null,title:'Nueva conversación',mode:'auto',busy:false};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clean=v=>String(v??'').replace(/<think>[\\s\\S]*?<\\/think>/gi,'').replace(/<analysis>[\\s\\S]*?<\\/analysis>/gi,'').replace(/<reasoning>[\\s\\S]*?<\\/reasoning>/gi,'').trim();
-const renderText=v=>esc(v).replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\\n/g,'<br>');
+const renderText=v=>{const source=clean(v);const parts=source.split(/\`\`\`([\\s\\S]*?)\`\`\`/g);return parts.map((part,i)=>i%2===1?'<pre class="bitey-code"><code>'+esc(part.trim())+'</code></pre>':esc(part).replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\\n/g,'<br>')).join('')};
 const load=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'[]')}catch{return[]}};
 const save=()=>{if(!state.conversationId)return;const a=load().filter(x=>x.id!==state.conversationId);a.unshift({id:state.conversationId,title:state.title,updatedAt:Date.now()});localStorage.setItem(KEY,JSON.stringify(a.slice(0,100)));renderHistory()};
 function renderHistory(){if(!history)return;history.innerHTML='';for(const x of load()){const b=document.createElement('button');b.className='history-item'+(x.id===state.conversationId?' active':'');b.textContent=x.title||'Conversación';b.onclick=()=>openConversation(x.id);history.appendChild(b)}if(!history.children.length){const e=document.createElement('div');e.className='history-empty';e.textContent='Tus conversaciones aparecerán aquí.';history.appendChild(e)}}
