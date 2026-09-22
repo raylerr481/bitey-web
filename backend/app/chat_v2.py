@@ -34,6 +34,9 @@ class ChatV2Response(BaseModel):
     calculations: dict[str, Any] | None = None
     trace_id: str | None = None
     elapsed_ms: int
+    evidence_status: str = "not_required"
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    provider: dict[str, Any] = Field(default_factory=dict)
 
 
 def create_chat_v2_router(
@@ -95,6 +98,7 @@ def create_chat_v2_router(
         evidence = ""
         selected: list[str] = []
         conflict_detected = False
+        provider_meta: dict[str, Any] = {}
 
         history = await memory.history(cid)
         ctx: dict[str, Any] = {
@@ -155,6 +159,7 @@ def create_chat_v2_router(
             )
             wr = result.get("web_research", {}) if isinstance(result.get("web_research"), dict) else {}
             evidence = str(wr.get("evidence") or "")
+            conflict_detected = bool(wr.get("conflict_detected"))
             raw_sources = wr.get("sources") or wr.get("results") or []
 
             for item in raw_sources:
@@ -276,10 +281,11 @@ def create_chat_v2_router(
                 "evidence_source_count": evidence_source_count,
             }
             answer = await providers.generate(messages=messages, context=provider_context)
-            trace.provider = {
+            provider_meta = {
                 "available": providers.available(),
                 "selected": provider_context.get("provider_selected"),
             }
+            trace.provider = provider_meta
             emit("Evaluando respuesta…")
             evaluation = response_evaluator.evaluate(
                 user_message=query,
@@ -303,6 +309,12 @@ def create_chat_v2_router(
         trace_store.finish(trace, evaluation.decision)
         emit("Respuesta lista.")
 
+        evidence_status = (
+            "conflicting" if conflict_detected else
+            "verified" if evidence_source_count > 0 and bool(evidence) else
+            "no_evidence" if research_required else
+            "not_required"
+        )
         return ChatV2Response(
             conversation_id=cid,
             answer=answer,
@@ -313,6 +325,9 @@ def create_chat_v2_router(
             calculations=calculations,
             trace_id=trace.trace_id,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
+            evidence_status=evidence_status,
+            evaluation=evaluation.as_dict(),
+            provider=provider_meta,
         )
 
     return router
