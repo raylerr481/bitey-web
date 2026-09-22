@@ -168,7 +168,13 @@
       const trace = data?.traces?.[0];
       if (!trace) return;
       renderLiveTrace(trace);
-      if (trace.final_status && trace.final_status !== 'running') stopPolling();
+      if (trace.final_status && trace.final_status !== 'running') {
+        if (text) {
+          const statusLabel = trace.final_status === 'failed' ? 'Bitey no pudo completar la solicitud.' : 'Respuesta lista.';
+          text.textContent = statusLabel;
+        }
+        stopPolling();
+      }
     } catch (_) {}
   };
 
