@@ -150,6 +150,8 @@
   const renderLiveTrace = trace => {
     if (!trace) return;
     const list = Array.isArray(trace.activities) ? trace.activities : [];
+    const stageLabels = { ANALYZING: "Analizando", ROUTING: "Enrutando", SEARCHING_WEB: "Buscando en la web", FETCHING_SOURCE: "Verificando fuentes", VALIDATING_EVIDENCE: "Validando evidencia", REASONING: "Razonando", GENERATING: "Generando respuesta", EVALUATING: "Evaluando", DONE: "Completado", ERROR: "Error" };
+    if (activity) activity.dataset.cognitiveStage = trace.stage || "";
     if (list.length) renderEvents(list);
     const evidence = trace.evidence || {};
     const sources = Array.isArray(evidence.verified_sources) ? evidence.verified_sources : [];
@@ -177,7 +179,8 @@
       }
     }
     const last = list[list.length - 1];
-    if (last && text) text.textContent = sanitize(last);
+    const stageLabel = stageLabels[trace.stage] || "";
+    if (last && text) text.textContent = stageLabel ? `${stageLabel}: ${sanitize(last)}` : sanitize(last);
     if (elapsed && trace.created_at) {
       elapsed.textContent = `${Math.max(0, (Date.now() - new Date(trace.created_at).getTime()) / 1000).toFixed(1).replace('.', ',')} s`;
     }
