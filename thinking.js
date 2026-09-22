@@ -124,6 +124,31 @@
     if (!trace) return;
     const list = Array.isArray(trace.activities) ? trace.activities : [];
     if (list.length) renderEvents(list);
+    const evidence = trace.evidence || {};
+    const sources = Array.isArray(evidence.verified_sources) ? evidence.verified_sources : [];
+    if (events && sources.length) {
+      const sourceBox = document.createElement('div');
+      sourceBox.className = 'activity-sources';
+      const heading = document.createElement('div');
+      heading.className = 'activity-source-heading';
+      heading.textContent = `Fuentes verificadas: ${sources.length}`;
+      sourceBox.appendChild(heading);
+      sources.slice(0, 8).forEach((source, i) => {
+        const link = document.createElement('a');
+        link.className = 'activity-source';
+        link.href = source.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = `[S${i + 1}] ${source.title || source.host || source.url}`;
+        sourceBox.appendChild(link);
+      });
+      events.appendChild(sourceBox);
+      events.hidden = false;
+      if (toggle) {
+        toggle.hidden = false;
+        toggle.textContent = 'Ver actividad';
+      }
+    }
     const last = list[list.length - 1];
     if (last && text) text.textContent = sanitize(last);
     if (elapsed && trace.created_at) {
