@@ -49,10 +49,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Bitey IA — Cognitive Core", version="0.15.0", description="General-purpose extensible intelligence with independent executive cognition, Supabase canonical memory, local Ollama inference, free-first model routing, general web search, evidence, learning and evaluation.", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 app.include_router(workspace_router)
-chat_v2_router = create_chat_v2_router(memory, providers, tools, brain)
-app.include_router(chat_v2_router)
 
 context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_trace = CognitiveTraceStore(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
+
+chat_v2_router = create_chat_v2_router(memory, providers, tools, brain)
+app.include_router(chat_v2_router)
 
 modules.register(ModuleSpec("sbt", "Bitey IA integrated trading module for market intelligence, strategy and risk-aware workflows.", os.getenv("SBT_MODULE_URL"), ("trading", "market_intelligence", "strategy", "risk"), enabled=os.getenv("SBT_MODULE_ENABLED", "true").lower() != "false", metadata={"integration_type":"bitey_integrated","role":"integrated_specialized_module","owner":"bitey_ia","domain":"trading","execution_boundary":"sbt_risk_gate","live_trading":False}))
 
