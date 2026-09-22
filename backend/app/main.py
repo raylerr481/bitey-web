@@ -221,6 +221,18 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             selected=tools.select(payload.message,ctx)
         trace.tools={"selected":list(selected)}
         tool_results=await tools.execute(selected,message=payload.message,context=ctx)
+        if "web_research" in selected:
+            emit_activity("Buscando información en la web…")
+            web_result=tool_results.get("web_research",{}) if isinstance(tool_results.get("web_research",{}),dict) else {}
+            discovered=len(web_result.get("sources",[]) or web_result.get("results",[]) or [])
+            if discovered:
+                emit_activity(f"Encontradas {discovered} fuentes; verificando contenido…")
+            else:
+                emit_activity("La búsqueda web no encontró fuentes utilizables; verificando alternativas…")
+        if "weather" in selected:
+            emit_activity("Consultando datos meteorológicos actuales…")
+        if "calculator" in selected:
+            emit_activity("Calculando con herramienta local segura…")
         # Weather has a deterministic specialized source. Only fall back to
         # general web search when that source actually fails.
         recovered_tools=set()
