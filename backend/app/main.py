@@ -334,7 +334,13 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             "evidence_conflict_candidates": conflict_candidates[:12],
         })
 
-        trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_evidence_count":tool_evidence_count,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
+        web_evidence_result=tool_results.get("web_research",{}) if isinstance(tool_results.get("web_research",{}),dict) else {}
+        verified_sources=[
+            {"url":item.get("url"),"title":item.get("title"),"host":(urlparse(str(item.get("url"))).hostname or "").removeprefix("www.")}
+            for item in (web_evidence_result.get("sources",[]) or [])
+            if isinstance(item,dict) and item.get("ok") and item.get("url")
+        ]
+        trace.evidence={"available":bool(evidence),"required":research_required,"attempted":evidence_attempted,"failed_tools":failed_tools,"source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_evidence_count":tool_evidence_count,"verified_sources":verified_sources[:12],"conflict_detected":conflict_detected,"research_reasons":plan.reasons+[f"deep:{r}" for r in deep_plan.reasons]}
 
         cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict()
         evaluated_domain=cognitive.intention.get("domain") or initial_domain or "general"; ctx["current_intent_domain"]=evaluated_domain
