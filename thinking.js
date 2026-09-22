@@ -39,6 +39,17 @@
     const response = await nativeFetch(...args);
     const request = args[0];
     const url = typeof request === 'string' ? request : request?.url || '';
+    const isMessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && String(args[1]?.method || 'GET').toUpperCase() === 'POST';
+    if (isMessagePost) {
+      try {
+        const match = url.match(/\/api\/v1\/conversations\/([^/]+)\/messages$/);
+        const conversationId = decodeURIComponent(match?.[1] || '');
+        const body = typeof args[1]?.body === 'string' ? JSON.parse(args[1].body) : null;
+        const requestId = body?.metadata?.request_id;
+        if (conversationId && requestId) startLive(conversationId, requestId);
+      } catch (_) {}
+      return response;
+    }
     if (!url.includes('/api/v1/conversations/') || !url.endsWith('/messages')) return response;
     try {
       const clone = response.clone();
@@ -63,24 +74,12 @@
 
   if (!activity || !text) return;
 
-  const normalStages = [
-    'Bitey está analizando tu solicitud…',
-    'Bitey está organizando la información…',
-    'Bitey está preparando una respuesta útil…'
-  ];
-  const attachmentStages = [
-    'Bitey está revisando los archivos…',
-    'Bitey está analizando el contenido…',
-    'Bitey está relacionando la información…',
-    'Bitey está preparando una respuesta útil…'
-  ];
-
-  let timer = null;
-  let startedAt = 0;
-  let index = 0;
+  const normalLabel = 'Bitey está analizando tu solicitud…';
+  let pollTimer = null;
+  let liveRequestId = null;
+  let liveConversationId = null;
   let lastVisible = false;
-  const formatSeconds = ms => `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
-  const stop = () => { if (timer) clearInterval(timer); timer = null; };
+
   const resetEvents = () => {
     if (!events) return;
     events.innerHTML = '';
@@ -91,6 +90,14 @@
       toggle.setAttribute('aria-expanded', 'false');
     }
   };
+
+  const stopPolling = () => {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+    liveRequestId = null;
+    liveConversationId = null;
+  };
+
   const renderEvents = list => {
     if (!events || !Array.isArray(list) || !list.length) return;
     events.innerHTML = '';
@@ -105,37 +112,69 @@
       row.append(check, label);
       events.appendChild(row);
     });
-    if (toggle) toggle.hidden = false;
+    events.hidden = false;
+    if (toggle) {
+      toggle.hidden = false;
+      toggle.textContent = 'Ver actividad';
+      toggle.setAttribute('aria-expanded', 'false');
+    }
   };
-  window.BiteyThinking = { renderEvents };
-  const start = () => {
-    stop();
-    startedAt = performance.now();
-    index = 0;
-    const hasAttachments = !!document.querySelector('.attachment-chip');
-    const stages = hasAttachments ? attachmentStages : normalStages;
-    text.textContent = stages[0];
-    if (elapsed) elapsed.textContent = '0,0 s';
+
+  const renderLiveTrace = trace => {
+    if (!trace) return;
+    const list = Array.isArray(trace.activities) ? trace.activities : [];
+    if (list.length) renderEvents(list);
+    const last = list[list.length - 1];
+    if (last && text) text.textContent = sanitize(last);
+    if (elapsed && trace.created_at) {
+      elapsed.textContent = `${Math.max(0, (Date.now() - new Date(trace.created_at).getTime()) / 1000).toFixed(1).replace('.', ',')} s`;
+    }
+  };
+
+  const pollTrace = async () => {
+    if (!liveRequestId || !liveConversationId) return;
+    try {
+      const base = window.BITEY_API_BASE || 'https://bitey-ia-suprabrain.onrender.com';
+      const url = `${base}/api/v1/cognitive/traces?conversation_id=${encodeURIComponent(liveConversationId)}&request_id=${encodeURIComponent(liveRequestId)}&limit=1`;
+      const response = await nativeFetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!response.ok) return;
+      const data = await response.json();
+      const trace = data?.traces?.[0];
+      if (!trace) return;
+      renderLiveTrace(trace);
+      if (trace.final_status && trace.final_status !== 'running') stopPolling();
+    } catch (_) {}
+  };
+
+  const startLive = (conversationId, requestId) => {
+    stopPolling();
+    if (!conversationId || !requestId) return;
+    liveConversationId = conversationId;
+    liveRequestId = requestId;
+    if (text) text.textContent = normalLabel;
     resetEvents();
-    timer = setInterval(() => {
-      index = (index + 1) % stages.length;
-      text.textContent = stages[index];
-      if (elapsed) elapsed.textContent = formatSeconds(performance.now() - startedAt);
-    }, 250);
+    pollTrace();
+    pollTimer = setInterval(pollTrace, 350);
   };
-  const finish = ms => { stop(); if (elapsed) elapsed.textContent = formatSeconds(ms ?? (performance.now() - startedAt)); };
+
+  const finish = () => stopPolling();
+
+  window.BiteyThinking = { renderEvents, startLive, finish };
+
   const sync = () => {
     const visible = !activity.hidden;
-    if (visible && !lastVisible) start();
+    if (visible && !lastVisible && text) text.textContent = normalLabel;
     if (!visible && lastVisible) finish();
     lastVisible = visible;
   };
+
   toggle?.addEventListener('click', () => {
     const open = !!events?.hidden;
     if (events) events.hidden = !open;
     toggle.setAttribute('aria-expanded', String(open));
     toggle.textContent = open ? 'Ocultar actividad' : 'Ver actividad';
   });
+
   new MutationObserver(sync).observe(activity, { attributes: true, attributeFilter: ['hidden'] });
   sync();
 })();
