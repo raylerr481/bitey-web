@@ -132,3 +132,55 @@ Gemini API is not required.
 ## Principle
 
 > **Bitey IA Web is the central cognitive brain. BiteFixes Backend is the specialized BiteFixes enterprise AI/business backend. Both integrate with the same canonical Supabase memory/data instance, `bitefixes-backed`. Specialized modules remain separated by explicit contracts and must not create parallel ecosystem memory systems.**
+
+
+## ChatGPT-style interaction layer
+
+The web channel exposes a unified API under `/api/v2`:
+
+- `GET /api/v2/capabilities` — capability discovery for the client.
+- `POST /api/v2/chat` — multi-turn conversational orchestration.
+- Automatic routing between normal chat, public-web research, deterministic mathematics, and code-analysis mode.
+- Verified-source collection with explicit source metadata returned to the frontend.
+- Deterministic arithmetic/statistical calculations are kept outside the language model.
+- Provider failover remains behind `ProviderGateway`; external models are inference workers, not system authorities.
+- Public answers are sanitized and evaluated before being persisted.
+- The legacy `/api/v1` cognitive pipeline remains available for compatibility and specialized endpoints.
+
+The intended execution flow is:
+
+```text
+User message
+   │
+   ▼
+Intent + cognitive state
+   │
+   ├── mathematics ──► deterministic math engine
+   │
+   ├── freshness/research ──► web research ──► fetch/verify/contrast
+   │
+   ├── module domain ──► explicit specialized contract
+   │
+   └── general task
+          │
+          ▼
+     provider gateway
+          │
+          ▼
+   executive evaluation
+          │
+          ▼
+      public answer
+```
+
+Bitey must never treat a model's generated text as evidence. Current information comes from tools and retrieved sources; mathematical results come from deterministic functions; specialized modules remain bounded by explicit contracts.
+
+### Engineering guardrails
+
+- Keep technical identifiers in English.
+- Keep secrets and privileged Supabase credentials server-side.
+- Do not expose chain-of-thought or hidden model reasoning.
+- Do not enable arbitrary code execution by default.
+- Do not execute trading orders from Bitey IA Web.
+- Keep Qwen and Gemini out of the active free-provider routing policy.
+- Preserve the free-first/no-surprise-cost policy.
