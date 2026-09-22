@@ -45,8 +45,8 @@
         const match = url.match(/\/api\/v1\/conversations\/([^/]+)\/messages$/);
         const conversationId = decodeURIComponent(match?.[1] || '');
         const body = typeof args[1]?.body === 'string' ? JSON.parse(args[1].body) : null;
-        const requestId = body?.metadata?.request_id;
-        if (conversationId && requestId) startLive(conversationId, requestId);
+        const requestId = body?.metadata?.request_id || null;
+        if (conversationId) startLive(conversationId, requestId);
       } catch (_) {}
       return response;
     }
@@ -132,10 +132,11 @@
   };
 
   const pollTrace = async () => {
-    if (!liveRequestId || !liveConversationId) return;
+    if (!liveConversationId) return;
     try {
       const base = window.BITEY_API_BASE || 'https://bitey-ia-suprabrain.onrender.com';
-      const url = `${base}/api/v1/cognitive/traces?conversation_id=${encodeURIComponent(liveConversationId)}&request_id=${encodeURIComponent(liveRequestId)}&limit=1`;
+      const requestFilter = liveRequestId ? `&request_id=${encodeURIComponent(liveRequestId)}` : '';
+      const url = `${base}/api/v1/cognitive/traces?conversation_id=${encodeURIComponent(liveConversationId)}${requestFilter}&limit=1`;
       const response = await nativeFetch(url, { headers: { 'Accept': 'application/json' } });
       if (!response.ok) return;
       const data = await response.json();
