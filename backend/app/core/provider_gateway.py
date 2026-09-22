@@ -98,7 +98,7 @@ class CloudflareAIProvider:
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
-        "strong_reasoning_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "strong_reasoning_synthesis":("ollama-local","groq-free","deepseek-free","bitey-native-cognitive-v1"),
         "evidence_grounded_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
         "code_reasoning":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
         "guarded_analysis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
@@ -116,8 +116,7 @@ class ProviderGateway:
             model=os.getenv("GROQ_MODEL","openai/gpt-oss-120b")
             if can_use_external_free_provider("groq",model=model): self.register(OpenAICompatibleProvider("groq-free","https://api.groq.com/openai/v1",model,os.getenv("GROQ_API_KEY",""),int(os.getenv("GROQ_PRIORITY","50")),True))
         if env_true("OPENROUTER_ENABLED",False) and os.getenv("OPENROUTER_API_KEY"):
-            qwen=os.getenv("OPENROUTER_QWEN_MODEL","qwen/qwen3-4b:free"); deepseek=os.getenv("OPENROUTER_DEEPSEEK_MODEL","deepseek/deepseek-chat-v3-0324:free")
-            if can_use_external_free_provider("openrouter",model=qwen): self.register(OpenAICompatibleProvider("qwen-free","https://openrouter.ai/api/v1",qwen,os.getenv("OPENROUTER_API_KEY",""),60,True))
+            deepseek=os.getenv("OPENROUTER_DEEPSEEK_MODEL","deepseek/deepseek-chat-v3-0324:free")
             if env_true("DEEPSEEK_ENABLED",True) and can_use_external_free_provider("openrouter",model=deepseek): self.register(OpenAICompatibleProvider("deepseek-free","https://openrouter.ai/api/v1",deepseek,os.getenv("OPENROUTER_API_KEY",""),70,True))
     def _register_from_environment(self):
         if env_true("OLLAMA_ENABLED",True): self.register(OllamaProvider())
@@ -147,7 +146,7 @@ class ProviderGateway:
             priority=int(os.getenv("OPENROUTER_DISCOVERED_PRIORITY","90")); discovered=set()
             for item in data.get("data") or []:
                 model_id=str(item.get("id") or "")
-                if not self._is_free_model_id(model_id) or not openrouter_pricing_is_zero(item) or not self._is_chat_model(item): continue
+                if ("qwen" in model_id.lower() or "gemini" in model_id.lower()) or not self._is_free_model_id(model_id) or not openrouter_pricing_is_zero(item) or not self._is_chat_model(item): continue
                 name="openrouter-free-"+model_id.replace("/","-").replace(":","-"); self.register(OpenAICompatibleProvider(name,"https://openrouter.ai/api/v1",model_id,api_key,priority,True)); discovered.add(name); priority+=1
             for name in [n for n in self._providers if n.startswith("openrouter-free-") and n not in discovered]: self._providers.pop(name,None)
             self._openrouter_catalog_loaded=True; self._openrouter_catalog_loaded_at=time.monotonic()
