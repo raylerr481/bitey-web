@@ -1,1 +1,13 @@
 #bitey-mode{max-width:130px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:inherit;border-radius:10px;padding:7px 9px;font-size:12px}.bitey-sources{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)}.bitey-sources-title{width:100%;font-size:11px;opacity:.65}.bitey-sources a{font-size:12px;color:inherit;opacity:.78;text-decoration:none;border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:5px 8px}.bitey-sources a:hover{opacity:1}.activity-event{font-size:12px;opacity:.72;padding:2px 0}
+/* Activity status — clear progress without exposing internal reasoning */
+.activity{display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important;min-height:24px!important;margin:4px auto 2px!important;color:#8fa1ad!important;font-size:11px!important;letter-spacing:.01em!important}
+.thinking-dots{display:inline-flex!important;gap:4px!important;align-items:center!important}
+.thinking-dots i{display:block!important;width:5px!important;height:5px!important;border-radius:50%!important;background:#25c7dc!important;animation:biteyPulse 1.15s infinite!important}
+.thinking-dots i:nth-child(2){animation-delay:.15s!important}.thinking-dots i:nth-child(3){animation-delay:.3s!important}
+@keyframes biteyPulse{0%,80%,100%{opacity:.28;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}
+.activity-elapsed{font-variant-numeric:tabular-nums!important;color:#5f747f!important}
+.activity-toggle{border:1px solid rgba(255,255,255,.09)!important;background:rgba(255,255,255,.03)!important;color:#8396a0!important;border-radius:999px!important;padding:3px 8px!important;font-size:9px!important}
+.activity-events{width:min(760px,calc(100% - 44px))!important;margin:2px auto 7px!important;padding:7px 10px!important;border:1px solid rgba(255,255,255,.06)!important;border-radius:10px!important;background:rgba(255,255,255,.018)!important}
+.activity-event{display:flex!important;align-items:center!important;gap:7px!important;padding:3px 0!important;font-size:10px!important;color:#7e929d!important;opacity:1!important}
+.activity-event-dot{width:5px!important;height:5px!important;flex:0 0 5px!important;border-radius:50%!important;background:#25c7dc!important;opacity:.7!important}
+@media(max-width:760px){.activity{font-size:10px!important}.activity-events{width:calc(100% - 20px)!important}}
