@@ -35,18 +35,45 @@
   // Second public-output boundary: sanitize both new API responses and
   // responses loaded from conversation history.
   const nativeFetch = window.fetch.bind(window);
+  const createRequestId = () => {
+    try {
+      if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    } catch (_) {}
+    return 'req-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  };
+
   window.fetch = async (...args) => {
-    const response = await nativeFetch(...args);
     const request = args[0];
     const url = typeof request === 'string' ? request : request?.url || '';
-    const isMessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && String(args[1]?.method || 'GET').toUpperCase() === 'POST';
+    const isMessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && String(args[1]?.method || (request?.method || 'GET')).toUpperCase() === 'POST';
+    let messageRequestId = null;
+    let messageConversationId = null;
+
     if (isMessagePost) {
       try {
         const match = url.match(/\/api\/v1\/conversations\/([^/]+)\/messages$/);
-        const conversationId = decodeURIComponent(match?.[1] || '');
-        const body = typeof args[1]?.body === 'string' ? JSON.parse(args[1].body) : null;
-        const requestId = body?.metadata?.request_id || null;
-        if (conversationId) startLive(conversationId, requestId);
+        messageConversationId = decodeURIComponent(match?.[1] || '');
+        const init = args[1] || {};
+        if (typeof init.body === 'string') {
+          const body = JSON.parse(init.body);
+          const metadata = body && typeof body.metadata === 'object' && body.metadata !== null ? { ...body.metadata } : {};
+          messageRequestId = metadata.request_id || createRequestId();
+          metadata.request_id = messageRequestId;
+          body.metadata = metadata;
+          args[1] = { ...init, body: JSON.stringify(body) };
+        }
+        if (!messageRequestId) messageRequestId = createRequestId();
+        if (messageConversationId) startLive(messageConversationId, messageRequestId);
+      } catch (_) {}
+    }
+
+    const response = await nativeFetch(...args);
+    if (isMessagePost) {
+      try {
+        const responseRequestId = messageRequestId;
+        if (messageConversationId && responseRequestId && liveRequestId !== responseRequestId) {
+          startLive(messageConversationId, responseRequestId);
+        }
       } catch (_) {}
       return response;
     }
