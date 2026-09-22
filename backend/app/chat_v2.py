@@ -127,7 +127,32 @@ def create_chat_v2_router(memory, providers: ProviderGateway, tools: ToolOrchest
             "cost_mode": "free_only",
             "bitey_brain": brain.think(query, {}).as_dict(),
         }
-        answer = await providers.generate(messages=messages, context=context)
+        # Pure mathematical requests are answered from the deterministic engine.
+        # Do not spend an LLM call or risk changing an exact numeric result.
+        if calculations is not None and (mode == "math" or re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)):
+            if calculations.get("ok"):
+                op = calculations.get("operation", "calculation")
+                result = calculations.get("result")
+                if op == "arithmetic":
+                    answer = f"Resultado: {result}"
+                elif op == "mean":
+                    answer = f"Promedio: {result}"
+                elif op == "median":
+                    answer = f"Mediana: {result}"
+                elif op == "percentage":
+                    answer = f"Porcentaje: {result}%"
+                elif op == "cagr":
+                    answer = f"CAGR: {result * 100:.4f}%"
+                elif op == "probability":
+                    answer = f"Probabilidad: {result * 100:.4f}%"
+                elif op == "sum":
+                    answer = f"Suma: {result}"
+                else:
+                    answer = f"Resultado: {result}"
+            else:
+                answer = "No pude calcular esa expresión de forma segura. Reformúlala con una expresión matemática compatible."
+        else:
+            answer = await providers.generate(messages=messages, context=context)
         await memory.append(cid, {"role": "assistant", "content": answer})
         events.append("Respuesta verificada y preparada.")
         return ChatV2Response(
