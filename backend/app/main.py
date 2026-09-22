@@ -194,9 +194,9 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         cognitive_trace.emit(trace, label)
     ctx={}
     try:
-        context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
+        context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); emit_activity("Identificando intención y contexto…")
         initial_cognitive=cognition.process(payload.message,ctx,evidence_available=False); ctx["cognition"]=initial_cognitive.as_dict()
-        initial_domain=initial_cognitive.intention.get("domain","general"); ctx["current_intent_domain"]=initial_domain; activity_events.append(f"Intención actual: {initial_domain}…")
+        initial_domain=initial_cognitive.intention.get("domain","general"); ctx["current_intent_domain"]=initial_domain; emit_activity(f"Intención actual: {initial_domain}…")
 
         # Run the executive brain before tool selection. This makes the
         # evidence-first contract authoritative even when the base cognitive
@@ -210,7 +210,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         if initial_domain != "general":
             learned_memory=await cognitive_memory.retrieve(payload.message,ctx); ctx["learned_cognitive_context"]={"summary":learned_memory.get("summary"),"counts":learned_memory.get("counts",{}),"available":learned_memory.get("available",False)}
             learned_prompt=cognitive_memory.compact_for_prompt(learned_memory)
-            if learned_prompt: activity_events.append("Recuperando patrones cognitivos aprendidos desde Supabase…")
+            if learned_prompt: emit_activity("Recuperando patrones cognitivos aprendidos desde Supabase…")
         else: ctx["learned_cognitive_context"]={"summary":"","counts":{},"available":False,"suppressed":"general_domain_boundary"}
 
         # The Brain owns tool policy. The legacy orchestrator remains available
@@ -232,7 +232,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
                 if fallback["web_research"].get("ok"):
                     recovered_tools.add("weather")
             emit_activity("La fuente meteorológica falló; activando búsqueda web de respaldo…")
-        if selected: activity_events.append("Consultando herramientas relevantes…")
+        if selected: emit_activity("Consultando herramientas relevantes…")
 
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
         evidence=tool_results.get("web_research",{}).get("evidence",""); search_results=tool_results.get("web_research",{}).get("results",[])
@@ -315,7 +315,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         evaluated_domain=cognitive.intention.get("domain") or initial_domain or "general"; ctx["current_intent_domain"]=evaluated_domain
         emit_activity(f"Dominio cognitivo verificado: {evaluated_domain}…")
         brain_state=brain.think(payload.message,ctx); ctx["bitey_brain"]=brain_state.as_dict()
-        trace.decision={"intention":cognitive.intention,"domain":evaluated_domain,"reasoning_mode":brain_state.reasoning_mode,"model_role":brain_state.model_role,"risk_level":brain_state.risk_level,"plan":cognitive.plan,"goals":brain_state.goals,"constraints":brain_state.constraints,"tool_priority":brain_state.tool_priority,"decision_fingerprint":brain_state.decision_fingerprint}; activity_events.append(f"Bitey Brain: {brain_state.reasoning_mode}…")
+        trace.decision={"intention":cognitive.intention,"domain":evaluated_domain,"reasoning_mode":brain_state.reasoning_mode,"model_role":brain_state.model_role,"risk_level":brain_state.risk_level,"plan":cognitive.plan,"goals":brain_state.goals,"constraints":brain_state.constraints,"tool_priority":brain_state.tool_priority,"decision_fingerprint":brain_state.decision_fingerprint}; emit_activity(f"Bitey Brain: {brain_state.reasoning_mode}…")
         domain=evaluated_domain
         resolved_modules=modules.resolve_for_domain(domain)
         if resolved_modules:
@@ -341,7 +341,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
         answer=await providers.generate(messages=messages,context=provider_context)
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
-        evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence,conflict_detected=conflict_detected); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; activity_events.append(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
+        evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence,conflict_detected=conflict_detected); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
         if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
         elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
         await memory.append(conversation_id,{"role":"assistant","content":answer})
