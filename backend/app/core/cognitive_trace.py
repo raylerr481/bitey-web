@@ -22,6 +22,8 @@ class CognitiveTrace:
     evaluation: dict[str, Any] = field(default_factory=dict)
     revision: dict[str, Any] = field(default_factory=dict)
     final_status: str = "running"
+    stage: str = "ANALYZING"
+    stage_history: list[dict[str, str]] = field(default_factory=list)
 
     @staticmethod
     def hash_message(message: str) -> str:
@@ -42,6 +44,8 @@ class CognitiveTrace:
             "evaluation": self.evaluation,
             "revision": self.revision,
             "final_status": self.final_status,
+            "stage": self.stage,
+            "stage_history": list(self.stage_history),
         }
 
 
@@ -65,10 +69,48 @@ class CognitiveTraceStore:
     def get(self, trace_id: str) -> CognitiveTrace | None:
         return self._items.get(trace_id)
 
+    def set_stage(self, trace: CognitiveTrace, stage: str) -> None:
+        normalized = str(stage or "").strip().upper()
+        if not normalized:
+            return
+        if trace.stage != normalized:
+            trace.stage = normalized
+            trace.stage_history.append({"stage": normalized, "at": datetime.now(timezone.utc).isoformat()})
+            self._items[trace.trace_id] = trace
+            self._trim()
+
+    @staticmethod
+    def stage_for_activity(activity: str) -> str:
+        label = str(activity or "").lower()
+        if "identificando" in label or "analizando" in label:
+            return "ANALYZING"
+        if "intención" in label or "dominio cognitivo" in label:
+            return "ROUTING"
+        if "buscando" in label or "investigando" in label or "búsqueda" in label:
+            return "SEARCHING_WEB"
+        if "fuente:" in label or "verificando contenido" in label or "verificando fuente" in label:
+            return "FETCHING_SOURCE"
+        if "evidencia" in label or "contrastando" in label or "contrastar" in label:
+            return "VALIDATING_EVIDENCE"
+        if "brain:" in label or "módulo" in label or "patrones cognitivos" in label:
+            return "REASONING"
+        if "seleccionando la mejor ia" in label:
+            return "GENERATING"
+        if "evaluando respuesta" in label:
+            return "EVALUATING"
+        if "respuesta lista" in label:
+            return "DONE"
+        if "no pudo completar" in label:
+            return "ERROR"
+        return ""
+
     def emit(self, trace: CognitiveTrace, activity: str) -> None:
         label = str(activity or "").strip()
         if not label:
             return
+        stage = self.stage_for_activity(label)
+        if stage:
+            self.set_stage(trace, stage)
         if not trace.activities or trace.activities[-1] != label:
             trace.activities.append(label)
         self._items[trace.trace_id] = trace
@@ -76,6 +118,7 @@ class CognitiveTraceStore:
 
     def finish(self, trace: CognitiveTrace, status: str) -> None:
         trace.final_status = status
+        self.set_stage(trace, "DONE" if status in {"accept", "revise"} else "ERROR")
         self._items[trace.trace_id] = trace
         self._trim()
 
