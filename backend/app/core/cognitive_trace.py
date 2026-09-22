@@ -14,6 +14,7 @@ class CognitiveTrace:
     conversation_id: str | None = None
     request_id: str | None = None
     message_hash: str = ""
+    activities: list[str] = field(default_factory=list)
     decision: dict[str, Any] = field(default_factory=dict)
     tools: dict[str, Any] = field(default_factory=dict)
     evidence: dict[str, Any] = field(default_factory=dict)
@@ -33,6 +34,7 @@ class CognitiveTrace:
             "conversation_id": self.conversation_id,
             "request_id": self.request_id,
             "message_hash": self.message_hash,
+            "activities": list(self.activities),
             "decision": self.decision,
             "tools": self.tools,
             "evidence": self.evidence,
@@ -63,15 +65,31 @@ class CognitiveTraceStore:
     def get(self, trace_id: str) -> CognitiveTrace | None:
         return self._items.get(trace_id)
 
+    def emit(self, trace: CognitiveTrace, activity: str) -> None:
+        label = str(activity or "").strip()
+        if not label:
+            return
+        if not trace.activities or trace.activities[-1] != label:
+            trace.activities.append(label)
+        self._items[trace.trace_id] = trace
+        self._trim()
+
     def finish(self, trace: CognitiveTrace, status: str) -> None:
         trace.final_status = status
         self._items[trace.trace_id] = trace
         self._trim()
 
-    def recent(self, conversation_id: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
+    def recent(
+        self,
+        conversation_id: str | None = None,
+        request_id: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
         items = list(self._items.values())
         if conversation_id:
             items = [item for item in items if item.conversation_id == conversation_id]
+        if request_id:
+            items = [item for item in items if item.request_id == request_id]
         items.sort(key=lambda item: item.created_at, reverse=True)
         return [item.snapshot() for item in items[: max(1, min(limit, 100))]]
 
