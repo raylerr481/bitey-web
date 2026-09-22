@@ -20,3 +20,4 @@ class MessageResponse(BaseModel):
     selected_provider: str | None = None
     elapsed_ms: int | None = None
     activity_events: list[str] = Field(default_factory=list)
+    trace_id: str | None = None
