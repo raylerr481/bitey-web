@@ -149,7 +149,7 @@
 
   const startLive = (conversationId, requestId) => {
     stopPolling();
-    if (!conversationId || !requestId) return;
+    if (!conversationId) return;
     liveConversationId = conversationId;
     liveRequestId = requestId;
     if (text) text.textContent = normalLabel;
