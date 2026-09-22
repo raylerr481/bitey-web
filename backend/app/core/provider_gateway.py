@@ -99,7 +99,7 @@ class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
         "strong_reasoning_synthesis":("ollama-local","groq-free","deepseek-free","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("ollama-local","groq-free","deepseek-free","bitey-native-cognitive-v1"),
         "code_reasoning":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
         "guarded_analysis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
         "fast_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
