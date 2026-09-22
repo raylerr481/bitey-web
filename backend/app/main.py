@@ -133,8 +133,8 @@ async def cognitive_trace_detail(trace_id: str) -> dict:
     return {"found":True,"trace":trace.snapshot()}
 
 @app.get("/api/v1/cognitive/traces")
-async def cognitive_trace_recent(conversation_id: str | None = None, limit: int = 20) -> dict:
-    return {"traces": cognitive_trace.recent(conversation_id=conversation_id, limit=limit)}
+async def cognitive_trace_recent(conversation_id: str | None = None, request_id: str | None = None, limit: int = 20) -> dict:
+    return {"traces": cognitive_trace.recent(conversation_id=conversation_id, request_id=request_id, limit=limit)}
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
@@ -188,6 +188,10 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     try: UUID(conversation_id)
     except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available(),elapsed_ms=int((time.perf_counter()-started)*1000),activity_events=["Validando la conversación…"])
     trace=cognitive_trace.start(payload.message,conversation_id,request_id=str(payload.metadata.get("request_id") or "") or None)
+    cognitive_trace.emit(trace, activity_events[0])
+    def emit_activity(label: str) -> None:
+        activity_events.append(label)
+        cognitive_trace.emit(trace, label)
     ctx={}
     try:
         context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); activity_events.append("Identificando intención y contexto…")
@@ -227,7 +231,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
                 tool_results["web_research"]=fallback["web_research"]
                 if fallback["web_research"].get("ok"):
                     recovered_tools.add("weather")
-            activity_events.append("La fuente meteorológica falló; activando búsqueda web de respaldo…")
+            emit_activity("La fuente meteorológica falló; activando búsqueda web de respaldo…")
         if selected: activity_events.append("Consultando herramientas relevantes…")
 
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
@@ -256,9 +260,9 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             # research also gets a cross-check pass when the first discovery
             # round yields fewer than two independently fetched sources.
             if evidence:
-                activity_events.append("La primera investigación obtuvo evidencia limitada; ejecutando una segunda pasada para contrastarla…")
+                emit_activity("La primera investigación obtuvo evidencia limitada; ejecutando una segunda pasada para contrastarla…")
             else:
-                activity_events.append("La primera búsqueda no produjo evidencia verificable; ejecutando una segunda investigación…")
+                emit_activity("La primera búsqueda no produjo evidencia verificable; ejecutando una segunda investigación…")
             deep_plan=await deep_research.fetch(deep_plan)
             deep_evidence=deep_research.evidence_context(deep_plan)
             if deep_evidence:
@@ -274,7 +278,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
                 else:
                     evidence=deep_evidence
         elif not evidence and (plan.required or deep_plan.reasons):
-            activity_events.append("Investigando y contrastando información…")
+            emit_activity("Investigando y contrastando información…")
             deep_plan=await deep_research.fetch(deep_plan)
             evidence=deep_research.evidence_context(deep_plan)
 
@@ -309,14 +313,14 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
 
         cognitive=cognition.evaluate(initial_cognitive,evidence_available=bool(evidence)); ctx["cognition"]=cognitive.as_dict()
         evaluated_domain=cognitive.intention.get("domain") or initial_domain or "general"; ctx["current_intent_domain"]=evaluated_domain
-        activity_events.append(f"Dominio cognitivo verificado: {evaluated_domain}…")
+        emit_activity(f"Dominio cognitivo verificado: {evaluated_domain}…")
         brain_state=brain.think(payload.message,ctx); ctx["bitey_brain"]=brain_state.as_dict()
         trace.decision={"intention":cognitive.intention,"domain":evaluated_domain,"reasoning_mode":brain_state.reasoning_mode,"model_role":brain_state.model_role,"risk_level":brain_state.risk_level,"plan":cognitive.plan,"goals":brain_state.goals,"constraints":brain_state.constraints,"tool_priority":brain_state.tool_priority,"decision_fingerprint":brain_state.decision_fingerprint}; activity_events.append(f"Bitey Brain: {brain_state.reasoning_mode}…")
         domain=evaluated_domain
         resolved_modules=modules.resolve_for_domain(domain)
         if resolved_modules:
             ctx["module_routing"]={"domain":domain,"selected":[m.name for m in resolved_modules],"integrated":[m.name for m in resolved_modules if m.integration_type == "bitey_integrated"]}
-            activity_events.append("Activando el módulo integrado de trading de Bitey…" if any(m.name == "sbt" for m in resolved_modules) else "Seleccionando el módulo especializado adecuado…")
+            emit_activity("Activando el módulo integrado de trading de Bitey…" if any(m.name == "sbt" for m in resolved_modules) else "Seleccionando el módulo especializado adecuado…")
         history=await memory.history(conversation_id); await memory.append(conversation_id,{"role":"user","content":payload.message}); messages=history+[{"role":"user","content":payload.message}]
         ctx["user_query"]=payload.message; ctx["current_message"]=payload.message; ctx["goals"]=brain_state.goals; ctx["constraints"]=brain_state.constraints
         bounded_context=build_context("selected-provider",ctx)
@@ -333,7 +337,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             system_context.append("TOOL EVIDENCE — información pública recuperada por Bitey. Usa evidencia, no inventes. Señala contradicciones y separa hechos de inferencias."+evidence_citation_instruction+conflict_instruction+"\n\n"+evidence)
         elif research_required: system_context.append("La investigación solicitada no recuperó evidencia utilizable. Decláralo y no inventes información.")
         for system_message in reversed(system_context): messages.insert(0,{"role":"system","content":system_message})
-        activity_events.append("Seleccionando la mejor IA disponible…")
+        emit_activity("Seleccionando la mejor IA disponible…")
         provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
         answer=await providers.generate(messages=messages,context=provider_context)
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
@@ -343,7 +347,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         await memory.append(conversation_id,{"role":"assistant","content":answer})
         if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"brain":brain_state.as_dict(),"selected_modules":[m.name for m in resolved_modules],"learned_context_available":learned_memory.get("available",False),"evaluation":evaluation.as_dict()},source="conversation",confidence=min(.8,max(.2,evaluation.confidence)))
         elapsed_ms=int((time.perf_counter()-started)*1000); cognitive_trace.finish(trace,evaluation.decision)
-        return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=research_required,research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events)
+        return MessageResponse(conversation_id=conversation_id,answer=answer,research_required=research_required,research_reasons=plan.reasons+[f"deep:{r}" for r in deep_plan.reasons],providers=providers.available(),elapsed_ms=elapsed_ms,activity_events=activity_events,trace_id=trace.trace_id)
     except Exception:
         cognitive_trace.finish(trace,"failed")
         raise
