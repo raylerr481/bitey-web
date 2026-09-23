@@ -74,3 +74,9 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
  .composer .send-button{font-size:13px!important}
  #bitey-mode{font-size:8px!important}
 }
+
+/* 2026-09-23: force composer to span the available chat canvas */
+.chat-area > .composer-wrap{width:100%!important;padding-left:0!important;padding-right:0!important}
+.chat-area > .composer-wrap > .composer{display:block!important;width:calc(100% - 24px)!important;max-width:none!important;margin-left:12px!important;margin-right:12px!important}
+.chat-area > .composer-wrap > .composer-hint,.chat-area > .composer-wrap > .disclaimer{width:100%!important}
+@media(max-width:760px){.chat-area > .composer-wrap > .composer{width:calc(100% - 10px)!important;margin-left:5px!important;margin-right:5px!important}}
