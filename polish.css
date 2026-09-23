@@ -22,3 +22,17 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 #bitey-mode.bitey-mode{position:absolute!important;left:12px!important;bottom:7px!important;width:auto!important;max-width:72px!important;height:24px!important;min-height:24px!important;padding:2px 7px!important;margin:0!important;z-index:4!important;font-size:10px!important;border-radius:7px!important;box-sizing:border-box!important}
 .composer textarea{padding-bottom:31px!important}
 @media(max-width:760px){.composer-main{gap:3px!important}.composer textarea{padding-bottom:29px!important}.composer .composer-tool,.composer .send-button{flex-basis:29px!important;width:29px!important;min-width:29px!important;height:29px!important}#bitey-mode.bitey-mode{left:8px!important;bottom:6px!important;max-width:66px!important;height:22px!important;min-height:22px!important;font-size:9px!important}}
+
+/* Composer controls: keep icon glyphs readable against the dark composer. */
+.composer .composer-tool,
+.composer .send-button,
+#attach-button,
+#voice-button,
+#send{color:#17313b!important;-webkit-text-fill-color:#17313b!important;background:#dceff3!important;border:1px solid #4d7f8c!important;text-shadow:none!important;opacity:1!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;font-weight:800!important}
+.composer .composer-tool:hover,
+#attach-button:hover,
+#voice-button:hover{color:#08242d!important;-webkit-text-fill-color:#08242d!important;background:#bfe4ea!important}
+.composer .send-button,
+#send{color:#fff!important;-webkit-text-fill-color:#fff!important;background:linear-gradient(135deg,var(--bitey-blue),var(--bitey-cyan))!important;border-color:#34758a!important}
+.composer .send-button:hover,
+#send:hover{color:#fff!important;-webkit-text-fill-color:#fff!important}
