@@ -90,6 +90,7 @@ def create_chat_v2_router(
             trace_store.emit(trace, label)
 
         emit("Analizando tu solicitud…")
+        trace_store.set_stage(trace, "ANALYZING")
         calculations: dict[str, Any] | None = None
         sources: list[dict[str, Any]] = []
         evidence = ""
@@ -104,6 +105,7 @@ def create_chat_v2_router(
         }
 
         brain_state = brain.think(query, ctx)
+        emit("Enrutando la solicitud según intención y capacidades…")
         ctx["bitey_brain"] = brain_state.as_dict()
         ctx["evidence_required"] = brain_state.evidence_required
         ctx["freshness_required"] = brain_state.freshness_required
@@ -129,7 +131,8 @@ def create_chat_v2_router(
                 if re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)
                 else math_analyze(query)
             )
-            emit("Aplicando modelo matemático determinista…")
+            emit("Aplicando cálculo determinista…")
+            trace_store.set_stage(trace, "REASONING")
 
         # Explicit research always enters the evidence gate. Auto mode follows
         # the executive brain; chat mode remains conversational unless the
@@ -268,7 +271,8 @@ def create_chat_v2_router(
             elif research_required:
                 system += "\nRESEARCH FAILURE: no usable evidence was verified. State that limitation and do not invent current facts."
             messages.insert(0, {"role": "system", "content": system})
-            emit("Seleccionando el modelo disponible y preparando la respuesta…")
+            emit("Generando respuesta con el proveedor disponible…")
+            trace_store.set_stage(trace, "GENERATING")
             provider_context = {
                 **ctx,
                 "cost_mode": "free_only",
@@ -291,7 +295,8 @@ def create_chat_v2_router(
 
         ctx["evaluation"] = evaluation.as_dict()
         trace.evaluation = evaluation.as_dict()
-        emit(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
+        emit("Evaluando respuesta y controles de calidad…")
+        trace_store.set_stage(trace, "EVALUATING")
 
         if evaluation.decision == "reject":
             answer = "La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida."
