@@ -80,3 +80,18 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 .chat-area > .composer-wrap > .composer{display:block!important;width:calc(100% - 24px)!important;max-width:none!important;margin-left:12px!important;margin-right:12px!important}
 .chat-area > .composer-wrap > .composer-hint,.chat-area > .composer-wrap > .disclaimer{width:100%!important}
 @media(max-width:760px){.chat-area > .composer-wrap > .composer{width:calc(100% - 10px)!important;margin-left:5px!important;margin-right:5px!important}}
+
+
+/* 2026-09-23: expanded inner message field — controls stay compact at the far right */
+.composer-main{display:flex!important;width:100%!important;gap:4px!important;}
+.composer textarea{flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:none!important;margin:0!important;}
+.composer .composer-tool,.composer .send-button{width:30px!important;height:30px!important;min-width:30px!important;flex:0 0 30px!important;border-radius:8px!important;}
+.composer .composer-tool{font-size:11px!important;padding:0!important;}
+.composer .send-button{font-size:13px!important;padding:0!important;}
+@media(max-width:760px){
+ .composer-main{gap:3px!important;}
+ .composer textarea{flex-basis:0!important;}
+ .composer .composer-tool,.composer .send-button{width:29px!important;height:29px!important;min-width:29px!important;flex-basis:29px!important;border-radius:7px!important;}
+ .composer .composer-tool{font-size:10px!important;}
+ .composer .send-button{font-size:12px!important;}
+}
