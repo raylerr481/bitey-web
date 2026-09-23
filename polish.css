@@ -55,3 +55,8 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 .composer .send-button:hover,
 #send:hover{background:linear-gradient(135deg,#1ba8ce,#38d2e4)!important;color:#fff!important;-webkit-text-fill-color:#fff!important}
 @media(max-width:760px){.composer .composer-tool,.composer .send-button,#attach-button,#voice-button,#send{width:27px!important;min-width:27px!important;max-width:27px!important;height:27px!important;min-height:27px!important;max-height:27px!important;flex-basis:27px!important;font-size:13px!important;border-radius:7px!important}}
+
+/* Attachment glyph: explicit paperclip, centered and visually distinct. */
+#attach-button{font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif!important;font-size:15px!important;line-height:1!important;letter-spacing:0!important}
+#voice-button{font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif!important;font-size:14px!important;line-height:1!important}
+#send{font-family:inherit!important;font-size:15px!important;line-height:1!important}
