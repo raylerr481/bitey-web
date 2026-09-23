@@ -73,3 +73,19 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 .composer textarea:focus{outline:0!important;box-shadow:none!important}
 .composer .composer-tool,.composer .send-button{transition:background .15s ease,border-color .15s ease,transform .1s ease!important}
 .composer .composer-tool:active,.composer .send-button:active{transform:scale(.96)!important}
+
+/* Final ChatGPT-style composer proportions. */
+.composer{border-radius:24px!important;padding:8px 10px!important;min-height:68px!important;background:rgba(255,255,255,.98)!important;border:1px solid #d9e1e7!important;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 28px rgba(20,40,50,.07)!important}
+.composer-main{min-height:54px!important;gap:6px!important}
+.composer textarea{min-height:52px!important;height:52px!important;padding:13px 10px 13px 12px!important;font-size:15px!important;line-height:1.45!important;color:#202123!important}
+.composer textarea::placeholder{color:#8b9299!important;opacity:1!important}
+.composer .composer-tool,#attach-button,#voice-button,.composer .send-button,#send{width:32px!important;min-width:32px!important;height:32px!important;min-height:32px!important;max-width:32px!important;max-height:32px!important;flex:0 0 32px!important;border-radius:50%!important;border:0!important}
+#attach-button,#voice-button{background:transparent!important;color:#5f6368!important;-webkit-text-fill-color:#5f6368!important}
+#attach-button:hover,#voice-button:hover{background:#f1f3f4!important;color:#202123!important;-webkit-text-fill-color:#202123!important}
+.composer .send-button,#send{background:#202123!important;color:#fff!important;border:0!important}
+.composer .send-button:hover,#send:hover{background:#111!important}
+.composer .composer-tool svg,#send svg{width:18px!important;height:18px!important}
+#send svg{width:16px!important;height:16px!important}
+.composer-hint{display:none!important}
+.disclaimer{font-size:9px!important;padding-top:4px!important}
+@media(max-width:760px){.composer{width:calc(100% - 8px)!important;margin-left:4px!important;margin-right:4px!important;border-radius:22px!important;padding:7px 8px!important}.composer-main{min-height:50px!important}.composer textarea{height:48px!important;min-height:48px!important;padding:11px 8px!important}.composer .composer-tool,#attach-button,#voice-button,.composer .send-button,#send{width:30px!important;min-width:30px!important;height:30px!important;min-height:30px!important;flex-basis:30px!important}.composer .composer-tool svg,#send svg{width:17px!important;height:17px!important}}
