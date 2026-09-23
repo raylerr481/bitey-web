@@ -89,3 +89,69 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 .composer-hint{display:none!important}
 .disclaimer{font-size:9px!important;padding-top:4px!important}
 @media(max-width:760px){.composer{width:calc(100% - 8px)!important;margin-left:4px!important;margin-right:4px!important;border-radius:22px!important;padding:7px 8px!important}.composer-main{min-height:50px!important}.composer textarea{height:48px!important;min-height:48px!important;padding:11px 8px!important}.composer .composer-tool,#attach-button,#voice-button,.composer .send-button,#send{width:30px!important;min-width:30px!important;height:30px!important;min-height:30px!important;flex-basis:30px!important}.composer .composer-tool svg,#send svg{width:17px!important;height:17px!important}}
+
+
+/* Final composer stabilization: one dominant writing surface, compact controls, no width theft. */
+.chat-area > .composer-wrap > .composer{
+  position:relative!important;
+  width:min(1320px,calc(100% - 28px))!important;
+  max-width:1320px!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+  box-sizing:border-box!important;
+}
+.composer-main{
+  width:100%!important;
+  min-width:0!important;
+  min-height:54px!important;
+  display:flex!important;
+  align-items:flex-end!important;
+  gap:5px!important;
+}
+.composer textarea{
+  order:1!important;
+  flex:1 1 auto!important;
+  width:0!important;
+  min-width:0!important;
+  max-width:none!important;
+  box-sizing:border-box!important;
+  overflow-y:auto!important;
+}
+.composer #attach-button,
+.composer #voice-button,
+.composer #send{
+  order:2!important;
+  flex:0 0 30px!important;
+  width:30px!important;
+  min-width:30px!important;
+  max-width:30px!important;
+  height:30px!important;
+  min-height:30px!important;
+  max-height:30px!important;
+}
+.composer #bitey-mode{
+  position:absolute!important;
+  left:12px!important;
+  bottom:8px!important;
+  z-index:5!important;
+}
+@media(max-width:760px){
+  .chat-area > .composer-wrap > .composer{
+    width:calc(100% - 8px)!important;
+    margin-left:4px!important;
+    margin-right:4px!important;
+  }
+  .composer-main{gap:3px!important}
+  .composer #attach-button,
+  .composer #voice-button,
+  .composer #send{
+    flex-basis:29px!important;
+    width:29px!important;
+    min-width:29px!important;
+    max-width:29px!important;
+    height:29px!important;
+    min-height:29px!important;
+    max-height:29px!important;
+  }
+  .composer #bitey-mode{left:8px!important;bottom:6px!important}
+}
