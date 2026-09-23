@@ -201,9 +201,11 @@
     if (!liveConversationId && !liveRequestId) return;
     try {
       const base = window.BITEY_API_BASE || 'https://bitey-ia-suprabrain.onrender.com';
-      const requestFilter = liveRequestId ? `&request_id=${encodeURIComponent(liveRequestId)}` : '';
-      const conversationFilter = liveConversationId ? `conversation_id=${encodeURIComponent(liveConversationId)}&` : '';
-      const url = `${base}/api/v1/cognitive/traces?${conversationFilter}${requestFilter.slice(1)}&limit=1`;
+      const params = new URLSearchParams();
+      if (liveConversationId) params.set('conversation_id', liveConversationId);
+      if (liveRequestId) params.set('request_id', liveRequestId);
+      params.set('limit', '1');
+      const url = `${base}/api/v1/cognitive/traces?${params.toString()}`;
       const response = await nativeFetch(url, { headers: { 'Accept': 'application/json' } });
       if (!response.ok) return;
       const data = await response.json();
@@ -222,8 +224,8 @@
 
   const startLive = (conversationId, requestId) => {
     stopPolling();
-    if (!conversationId) return;
-    liveConversationId = conversationId;
+    if (!conversationId && !requestId) return;
+    liveConversationId = conversationId || null;
     liveRequestId = requestId;
     if (text) text.textContent = normalLabel;
     resetEvents();
