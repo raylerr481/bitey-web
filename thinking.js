@@ -45,14 +45,17 @@
   window.fetch = async (...args) => {
     const request = args[0];
     const url = typeof request === 'string' ? request : request?.url || '';
-    const isMessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && String(args[1]?.method || (request?.method || 'GET')).toUpperCase() === 'POST';
+    const method = String(args[1]?.method || (request?.method || 'GET')).toUpperCase();
+    const isV1MessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && method === 'POST';
+    const isV2ChatPost = /\/api\/v2\/chat$/.test(url) && method === 'POST';
+    const isMessagePost = isV1MessagePost || isV2ChatPost;
     let messageRequestId = null;
     let messageConversationId = null;
 
     if (isMessagePost) {
       try {
         const match = url.match(/\/api\/v1\/conversations\/([^/]+)\/messages$/);
-        messageConversationId = decodeURIComponent(match?.[1] || '');
+        messageConversationId = match ? decodeURIComponent(match[1] || '') : null;
         const init = args[1] || {};
         if (typeof init.body === 'string') {
           const body = JSON.parse(init.body);
@@ -63,7 +66,8 @@
           args[1] = { ...init, body: JSON.stringify(body) };
         }
         if (!messageRequestId) messageRequestId = createRequestId();
-        if (messageConversationId) startLive(messageConversationId, messageRequestId);
+        if (isV1MessagePost && messageConversationId) startLive(messageConversationId, messageRequestId);
+        if (isV2ChatPost) startLive(null, messageRequestId);
       } catch (_) {}
     }
 
@@ -71,7 +75,14 @@
     if (isMessagePost) {
       try {
         const responseRequestId = messageRequestId;
-        if (messageConversationId && responseRequestId && liveRequestId !== responseRequestId) {
+        if (isV2ChatPost && responseRequestId) {
+          try {
+            const clone = response.clone();
+            const data = await clone.json();
+            const responseConversationId = data?.conversation_id || messageConversationId;
+            if (responseConversationId) startLive(responseConversationId, responseRequestId);
+          } catch (_) {}
+        } else if (messageConversationId && responseRequestId && liveRequestId !== responseRequestId) {
           startLive(messageConversationId, responseRequestId);
         }
       } catch (_) {}
@@ -187,11 +198,12 @@
   };
 
   const pollTrace = async () => {
-    if (!liveConversationId) return;
+    if (!liveConversationId && !liveRequestId) return;
     try {
       const base = window.BITEY_API_BASE || 'https://bitey-ia-suprabrain.onrender.com';
       const requestFilter = liveRequestId ? `&request_id=${encodeURIComponent(liveRequestId)}` : '';
-      const url = `${base}/api/v1/cognitive/traces?conversation_id=${encodeURIComponent(liveConversationId)}${requestFilter}&limit=1`;
+      const conversationFilter = liveConversationId ? `conversation_id=${encodeURIComponent(liveConversationId)}&` : '';
+      const url = `${base}/api/v1/cognitive/traces?${conversationFilter}${requestFilter.slice(1)}&limit=1`;
       const response = await nativeFetch(url, { headers: { 'Accept': 'application/json' } });
       if (!response.ok) return;
       const data = await response.json();
