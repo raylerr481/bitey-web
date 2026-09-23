@@ -60,3 +60,16 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 #attach-button{font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif!important;font-size:15px!important;line-height:1!important;letter-spacing:0!important}
 #voice-button{font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif!important;font-size:14px!important;line-height:1!important}
 #send{font-family:inherit!important;font-size:15px!important;line-height:1!important}
+
+
+/* ChatGPT-like composer controls: stable vector icons, no emoji-font dependency. */
+.composer .composer-tool svg,#send svg{width:16px!important;height:16px!important;display:block!important;fill:none!important;stroke:currentColor!important;stroke-width:1.9!important;stroke-linecap:round!important;stroke-linejoin:round!important;pointer-events:none!important}
+#send svg{width:15px!important;height:15px!important;stroke-width:2!important}
+#attach-button,#voice-button{font-size:0!important;line-height:0!important}
+#attach-button,#voice-button,#send{font-family:inherit!important}
+.composer{overflow:visible!important}
+.composer-main{min-height:64px!important}
+.composer textarea{border:0!important;outline:0!important;background:transparent!important;resize:none!important;scrollbar-width:thin!important}
+.composer textarea:focus{outline:0!important;box-shadow:none!important}
+.composer .composer-tool,.composer .send-button{transition:background .15s ease,border-color .15s ease,transform .1s ease!important}
+.composer .composer-tool:active,.composer .send-button:active{transform:scale(.96)!important}
