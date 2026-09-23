@@ -57,20 +57,20 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
  .site-footer{gap:9px!important;font-size:9px!important;padding-bottom:6px!important}
 }
 
-/* Final composer pass: message field is primary, controls stay compact */
-.composer{max-width:1040px!important;width:calc(100% - 34px)!important;padding:8px 9px!important}
-.composer-main{min-height:70px!important;gap:7px!important;align-items:flex-end!important}
+/* Final composer pass: full-width workspace, message field remains dominant */
+.composer{max-width:1320px!important;width:calc(100% - 28px)!important;padding:8px 9px!important}
+.composer-main{min-height:70px!important;gap:6px!important;align-items:flex-end!important}
 .composer textarea{min-height:64px!important;max-height:190px!important;padding:9px 6px!important;font-size:15px!important;line-height:1.5!important}
-.composer .composer-tool,.composer .send-button,#bitey-mode{width:38px!important;height:38px!important;min-width:38px!important;flex:0 0 38px!important;border-radius:10px!important}
-.composer .composer-tool{font-size:13px!important;padding:0!important}
-.composer .send-button{font-size:15px!important;padding:0!important}
-#bitey-mode{font-size:9px!important;padding:0 4px!important}
+.composer .composer-tool,.composer .send-button,#bitey-mode{width:34px!important;height:34px!important;min-width:34px!important;flex:0 0 34px!important;border-radius:9px!important}
+.composer .composer-tool{font-size:12px!important;padding:0!important}
+.composer .send-button{font-size:14px!important;padding:0!important}
+#bitey-mode{font-size:8px!important;padding:0 3px!important}
 @media(max-width:760px){
- .composer{width:calc(100% - 12px)!important;padding:6px 6px 7px!important}
+ .composer{width:calc(100% - 10px)!important;padding:6px 6px 7px!important}
  .composer-main{min-height:62px!important;gap:5px!important}
  .composer textarea{min-height:56px!important;font-size:15px!important;padding:7px 4px!important}
- .composer .composer-tool,.composer .send-button,#bitey-mode{width:36px!important;height:36px!important;min-width:36px!important;flex-basis:36px!important;border-radius:9px!important}
- .composer .composer-tool{font-size:12px!important}
- .composer .send-button{font-size:14px!important}
+ .composer .composer-tool,.composer .send-button,#bitey-mode{width:34px!important;height:34px!important;min-width:34px!important;flex-basis:34px!important;border-radius:8px!important}
+ .composer .composer-tool{font-size:11px!important}
+ .composer .send-button{font-size:13px!important}
  #bitey-mode{font-size:8px!important}
 }
