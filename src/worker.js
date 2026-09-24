@@ -535,6 +535,16 @@ async function recoverToolEvidence(message, requestId) {
     };
 
     for (const step of plan.steps || []) {
+      const dependency = (plan.dependencies || []).find(item => item.tool === step.tool);
+      const unmet = (dependency?.depends_on || []).filter(depTool => {
+        const result = executions.find(item => item.tool === depTool);
+        return !result || result.status === 'failed';
+      });
+      if (unmet.length) {
+        record(step.tool, 'blocked', step.purpose);
+        continue;
+      }
+
       const success = await executeTool(step.tool, step.purpose);
       if (!success && step.tool === 'weather' && !attempted.has('web_search')) {
         await executeTool('web_search', 'usar búsqueda web como respaldo meteorológico', 'weather');
