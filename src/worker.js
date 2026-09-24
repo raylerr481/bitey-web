@@ -438,7 +438,7 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
     'Primero comprende la intención y después revisa la respuesta preliminar contra la evidencia.',
     'Para afirmaciones verificables, exige respaldo en las fuentes seleccionadas cuando la ruta requiere investigación.',
     'Compara las fuentes y no combines afirmaciones incompatibles. Si hay conflicto relevante, indícalo y prioriza la fuente de mayor autoridad y actualidad.',
-    'La respuesta no se considera terminada si existe una contradicción relevante sin reconocer, una parte importante de la pregunta sin responder o una afirmación externa sin respaldo.';
+    'La respuesta no se considera terminada si existe una contradicción relevante sin reconocer, una parte importante de la pregunta sin responder o una afirmación externa sin respaldo.',
     'Elimina afirmaciones no sustentadas, duplicadas, irrelevantes o demasiado especulativas.',
     'No conviertas una inferencia en un hecho. Distingue hechos, estimaciones e incertidumbre.',
     'Si no hay evidencia suficiente para una consulta que requiere información externa, dilo claramente en vez de completar los huecos con conocimiento no verificado.',
