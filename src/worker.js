@@ -5,7 +5,7 @@ const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
 const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en este momento. Inténtalo nuevamente en unos momentos.';
 const WEATHER_RE = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i;
-const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|mejores|recomendaciones|recomienda|gratuita|gratuito|gratuitas|gratuitos|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
+const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;\nconst FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;\nconst RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -3) + '|' + FRESHNESS_RE.source.slice(2, -3) + ')', 'i');
 
 export default {
   async fetch(request, env) {
@@ -98,7 +98,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId) {
     return null;
   }
   const message = String(payload?.message || '').trim();
-  if (!message || (!WEATHER_RE.test(message) && !RESEARCH_RE.test(message))) return null;
+  if (!message || !shouldResearch(message)) return null;
   const evidence = await recoverToolEvidence(message, requestId);
   const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
   if (!sources.length) return null;
@@ -110,7 +110,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId) {
   }
   if (Array.isArray(body?.sources) && body.sources.length) return null;
   body.sources = sources;
-  if (RESEARCH_RE.test(message)) {
+  if (shouldResearch(message)) {
     body.research_required = true;
     if (!Array.isArray(body.research_reasons) || !body.research_reasons.length) body.research_reasons = ['evidence_recovery'];
   }
@@ -154,7 +154,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
   const evidenceInstruction = combinedEvidence
     ? `EVIDENCIA RECUPERADA POR BITEY:\n${combinedEvidence}\n\nUsa esta evidencia para responder. No inventes datos y no menciones herramientas internas.`
-    : (RESEARCH_RE.test(message) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
+    : (shouldResearch(message) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
   const sourceInstruction = sources.length
     ? `FUENTES CONSULTADAS:\n${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('\n')}\n\nCuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No inventes referencias.`
     : '';
@@ -263,17 +263,26 @@ async function recoverSearch(message, requestId) {
   return null;
 }
 
+function shouldResearch(message = '') {
+  const text = String(message || '').trim();
+  if (!text || WEATHER_RE.test(text)) return false;
+  if (EXPLICIT_RESEARCH_RE.test(text)) return true;
+  if (FRESHNESS_RE.test(text)) return true;
+  const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
+  return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
 function isRelevantSearchSource(query, source) {
   const q = String(query || '').toLowerCase();
   const haystack = String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '');
   const normalized = haystack.toLowerCase();
-  const tokens = q.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').match(/[a-z0-9]{3,}/g) || [];
+  const tokens = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z0-9]{3,}/g) || [];
   const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también']);
   const meaningful = [...new Set(tokens.filter(t => !stop.has(t)))];
   if (!meaningful.length) return true;
   let score = 0;
   for (const token of meaningful) {
-    const plain = token.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+    const plain = token.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     if (normalized.includes(token) || normalized.includes(plain)) score++;
   }
   const threshold = meaningful.length <= 2 ? 1 : Math.max(2, Math.ceil(meaningful.length * 0.35));
