@@ -137,6 +137,7 @@ export function selectTools({ language = {}, route = {}, message = '', context =
   const candidates = [];
   const parts = new Set(intentEval.intent_parts || [intent]);
 
+  if (intent === 'time' || domains.has('time') || parts.has('time')) candidates.push('time');
   if (intent === 'weather' || domains.has('weather')) candidates.push('weather');
   if (isCalculation(message, intent, domains) || parts.has('calculation')) candidates.push('calculator');
   if (intent === 'code' || domains.has('code') || parts.has('code')) candidates.push('code_reasoning');
@@ -173,6 +174,7 @@ export function buildToolActivity(plan) {
   const primary = TOOL_DEFINITIONS[plan?.primary];
   if (!primary) return 'Análisis directo seleccionado.';
   const labels = {
+    time: 'Consulta de hora actual iniciada mediante reloj determinista.',
     weather: 'Consulta meteorológica verificada iniciada.',
     web_search: 'Búsqueda web seleccionada para recopilar evidencia.',
     calculator: 'Cálculo determinista seleccionado.',
@@ -184,6 +186,7 @@ export function buildToolActivity(plan) {
 
 export function toolLabel(id) {
   return ({
+    time: 'hora actual',
     weather: 'meteorología',
     web_search: 'búsqueda web',
     calculator: 'cálculo',
@@ -199,6 +202,7 @@ function isCalculation(message, intent, domains) {
 }
 
 function buildReason(primary, intent, domains) {
+  if (primary === 'time') return 'time_intent';
   if (primary === 'weather') return 'weather_intent';
   if (primary === 'calculator') return 'deterministic_calculation';
   if (primary === 'code_reasoning') return 'code_domain';
@@ -229,6 +233,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
     if (!steps.some(step => step.tool === tool)) steps.push({ order: steps.length + 1, tool, purpose });
   };
 
+  if (base.primary === 'time') add('time', 'obtener la hora actual de la ubicación solicitada');
   if (base.primary === 'weather') add('weather', 'obtener datos meteorológicos actuales');
   if (base.selected.includes('web_search') || route.research_required) add('web_search', 'recopilar y contrastar evidencia externa');
   if (base.selected.includes('calculator') || language.intent === 'calculation') add('calculator', 'realizar cálculos deterministas');
@@ -242,7 +247,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
 
   if (!steps.length) add('model_reasoning', 'sintetizar la respuesta con razonamiento directo');
 
-  const dependencyOrder = ['weather', 'web_search', 'calculator', 'code_reasoning', 'model_reasoning'];
+  const dependencyOrder = ['time', 'weather', 'web_search', 'calculator', 'code_reasoning', 'model_reasoning'];
   const orderedSteps = steps
     .slice()
     .sort((a, b) => dependencyOrder.indexOf(a.tool) - dependencyOrder.indexOf(b.tool))
