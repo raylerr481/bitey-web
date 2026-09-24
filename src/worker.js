@@ -419,6 +419,41 @@ function buildAnswerRecoveryPlan(validation, route = {}) {
   };
 }
 
+function validateAnswerClaims(answer, sources = [], route = {}) {
+  const text = String(answer || '').trim();
+  const claims = [];
+  const numericPattern = /(?:R\$|US\$|€|£|\$|\b\d+(?:[.,]\d+)?\s*%|\b\d+(?:[.,]\d+)?\s*(?:°C|km\/h|GB|TB|MB|USD|BRL|EUR))/gi;
+  for (const match of text.matchAll(numericPattern)) {
+    const value = match[0];
+    const start = Math.max(0, match.index - 120);
+    const end = Math.min(text.length, match.index + value.length + 120);
+    claims.push({ type: 'numeric', value, context: text.slice(start, end).replace(/\s+/g, ' ').trim() });
+  }
+
+  const citationIds = extractCitationIds(text);
+  const sourceText = sources.map((source, index) => ({
+    id: '[S' + (index + 1) + ']',
+    text: String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '')
+  }));
+  const unsupported = [];
+  for (const claim of claims) {
+    if (!route?.research_required) continue;
+    const contextTokens = meaningfulQueryTokens(claim.context).filter(token => token.length >= 4).slice(0, 10);
+    const supported = sourceText.some(source => {
+      const normalized = normalizeSearchText(source.text);
+      const hits = contextTokens.filter(token => normalized.includes(token)).length;
+      return hits >= Math.min(2, Math.max(1, Math.ceil(contextTokens.length * 0.2)));
+    });
+    if (!supported) unsupported.push(claim);
+  }
+  return {
+    checked: claims.length > 0,
+    claim_count: claims.length,
+    unsupported_numeric_claims: unsupported.slice(0, 10),
+    unsupported_count: unsupported.length
+  };
+}
+
 function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const text = String(answer || '').trim();
   const citations = extractCitationIds(text);
@@ -431,10 +466,12 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const contradictionWarning = Boolean(route?.evidence_contradictions > 0) &&
     !/\b(conflict|contradic|discrep|difier|difer|no coinciden|fuentes? indican|según|segun|incertidumbre)\b/i.test(text);
   const coverage = assessAnswerCoverage(question, text, route);
+  const claimValidation = validateAnswerClaims(text, sources, route);
+  const unsupportedNumericClaims = claimValidation.unsupported_count > 0;
   const finalGate = {
     non_empty: text.length > 0,
     citations_valid: invalidCitations.length === 0,
-    evidence_supported: !unsupportedResearchAnswer,
+    evidence_supported: !unsupportedResearchAnswer && !unsupportedNumericClaims,
     coverage_valid: coverage.valid,
     contradictions_acknowledged: !contradictionWarning
   };
@@ -446,7 +483,8 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     evidence_available: hasEvidence,
     unsupported_research_answer: unsupportedResearchAnswer,
     contradiction_warning: contradictionWarning,
-    answer_coverage: coverage
+    answer_coverage: coverage,
+    claim_validation: claimValidation
   };
 }
 
