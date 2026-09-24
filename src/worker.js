@@ -459,7 +459,7 @@ function extractStructuredClaim(text) {
   const normalized = normalizeSearchText(raw);
   const frame = extractClaimFrame(raw);
   const currencyMatches = raw.match(/(?:R\\$|US\\$|USD|BRL|EUR|€|£|\\$)/gi) || [];
-  const currencies = [...new Set(currencyMatches.map(value => normalizeSearchText(value)))];
+  const currencies = [...new Set(currencyMatches.map(value => { const v = normalizeSearchText(value); return /^(?:r\\$|brl)$/.test(v) ? 'brl' : /^(?:us\\$|\\$|usd)$/.test(v) ? 'usd' : /^(?:€|eur)$/.test(v) ? 'eur' : /^(?:£|gbp)$/.test(v) ? 'gbp' : v; }))];
   const unitMatches = raw.match(/(?:%|porcentaje|°C|\\bC\\b|km\\/h|mph|GB|TB|MB|USD|BRL|EUR|R\\$|US\\$|acciones?|shares?|unidades?|mes(?:es)?|años?|años?|d[ií]as?)/gi) || [];
   const units = [...new Set(unitMatches.map(value => normalizeSearchText(value)))];
   const dates = [...raw.matchAll(/\\b(?:20\\d{2}(?:[-/]\\d{1,2}(?:[-/]\\d{1,2})?)?|\\d{1,2}\\/\\d{1,2}\\/20\\d{2})\\b/g)].map(match => match[0]);
@@ -474,7 +474,7 @@ function extractStructuredClaim(text) {
         index: match.index || 0
       };
     })
-    .filter(item => Number.isFinite(item.value));
+    .filter(item => {\n      if (!Number.isFinite(item.value)) return false;\n      if (item.currency || item.unit) return true;\n      const nearby = normalized.slice(Math.max(0, item.index - 48), Math.min(normalized.length, item.index + 48));\n      return /\\b(?:precio|valor|coste|costo|cotiza|cotizacion|temperatura|humedad|viento|rendimiento|rentabilidad|dividendo|acciones?|shares?|unidades?|porcentaje|tasa|salario|sueldo|capital|ingresos|ventas|crecimiento|aumento|disminucion|distancia|velocidad|capacidad|memoria|almacenamiento|version|price|value|cost|temperature|humidity|wind|yield|dividend|units|rate|salary|revenue|sales|growth|distance|speed|capacity|memory|storage|version)\\b/i.test(nearby);\n    });
   const attributes = [...new Set(
     meaningfulQueryTokens(raw).filter(token =>
       /^(?:precio|valor|coste|costo|cotiza|cotizacion|temperatura|humedad|viento|rendimiento|rentabilidad|dividendo|acciones|shares|unidades|poblacion|poblacion|fecha|hora|edad|porcentaje|tasa|salario|sueldo|capital|ingresos|ventas|crecimiento|aumento|disminucion|distancia|velocidad|capacidad|memoria|almacenamiento|version|precio|price|value|cost|temperature|humidity|wind|yield|dividend|shares|units|date|time|rate|salary|revenue|sales|growth|distance|speed|capacity|memory|storage|version)$/i.test(token)
@@ -533,7 +533,7 @@ function semanticClaimSupport(claim, source) {
   const lexicalSupported = subjectScore >= 0.25 && (predicateScore >= 0.15 || totalScore >= 0.3);
   const valueRequired = claimData.numeric_values.length > 0;
   const valueSupported = !valueRequired || numeric.compatible;
-  const supported = lexicalSupported && entityMatch && currencyMatch && unitMatch && valueSupported && temporalMatch;
+  const attributeMatch = claimData.attributes.length\n    ? claimData.attributes.some(attribute => sourceData.attributes.includes(attribute) || sourceSet.has(attribute))\n    : true;\n  const supported = lexicalSupported && entityMatch && attributeMatch && currencyMatch && unitMatch && valueSupported && temporalMatch;
   return {
     supported,
     subject_score: Number(subjectScore.toFixed(3)),
