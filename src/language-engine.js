@@ -177,11 +177,18 @@ export function resolveContext(message = '', history = []) {
   const recentUserText = userItems.slice(-4).map(item => String(item.content || '')).join(' ');
   const topicTokens = meaningfulContextTokens(recentUserText);
   const inheritedEntities = extractContextEntities(recentUserText);
+  const inheritedLocations = extractContextLocations(recentUserText);
   const inheritedDomains = context.domains || [];
+  const inheritedValues = extractContextValues(recentUserText);
   const needsTopic = references.includes('prior_context') || references.includes('follow_up') ||
     /\b(cu[aá]nto|quanto|how much|how long|cu[aá]nto tiempo|quanto tempo|how much time)\b/i.test(value);
-  const searchQuery = needsTopic && topicTokens.length
-    ? [current.normalized, topicTokens.slice(0, 8).join(' ')].filter(Boolean).join(' ').trim()
+  const searchQuery = needsTopic && (topicTokens.length || inheritedEntities.length || inheritedLocations.length)
+    ? [
+        current.normalized,
+        inheritedEntities.slice(0, 4).join(' '),
+        inheritedLocations.slice(0, 2).join(' '),
+        topicTokens.slice(0, 8).join(' ')
+      ].filter(Boolean).join(' ').trim()
     : current.normalized;
 
   const explicitReference = references.includes('prior_context') || references.includes('follow_up');
@@ -196,9 +203,10 @@ export function resolveContext(message = '', history = []) {
 
   return {
     references,
-    inherited_locations: context.entities?.locations || [],
+    inherited_locations: inheritedLocations.length ? inheritedLocations : (context.entities?.locations || []),
     inherited_domains: inheritedDomains,
     inherited_entities: inheritedEntities,
+    inherited_values: inheritedValues,
     recent_topic_terms: topicTokens.slice(0, 12),
     search_query: searchQuery,
     context_turns: items.length,
@@ -208,6 +216,8 @@ export function resolveContext(message = '', history = []) {
       explicit_reference: explicitReference,
       usable: usableInheritedContext,
       inherited_entity_count: inheritedEntities.length,
+      inherited_location_count: inheritedLocations.length,
+      inherited_value_count: inheritedValues.length,
       inherited_domain_count: inheritedDomains.length,
       topic_term_count: topicTokens.length
     }
@@ -225,6 +235,38 @@ function meaningfulContextTokens(text = '') {
     String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
       .match(/[a-z0-9][a-z0-9._/-]{2,}/g)?.filter(token => !stop.has(token)) || []
   )];
+}
+
+function extractContextLocations(text = '') {
+  const value = String(text || '');
+  const locations = [];
+  const patterns = [
+    /\b(?:esteio|porto alegre|canoas|s[aã]o leopoldo|novo hamburgo|gramado|caxias do sul|rio grande do sul|s[aã]o paulo|rio de janeiro|brasil)\b/ig,
+    /\b(?:em|en|in)\s+([A-ZÁÉÍÓÚÃÕÇ][\p{L}]+(?:\s+[A-ZÁÉÍÓÚÃÕÇ][\p{L}]+){0,3})/gu
+  ];
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      const item = String(match[1] || match[0]).trim().replace(/^(em|en|in)\s+/i, '');
+      if (item && !locations.some(existing => existing.toLowerCase() === item.toLowerCase())) locations.push(item);
+    }
+  }
+  return locations;
+}
+
+function extractContextValues(text = '') {
+  const value = String(text || '');
+  const values = [];
+  const patterns = [
+    /\b(?:R\$|US\$|€|£)\s?\d{1,3}(?:[.\s]\d{3})*(?:,\d+)?\b/gi,
+    /\b\d+(?:[.,]\d+)?\s?(?:%|reais|d[oó]lares|usd|brl|eur|€|gb|tb|mb|kg|km|anos|meses|dias)\b/gi
+  ];
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      const item = String(match[0] || '').trim();
+      if (item && !values.includes(item)) values.push(item);
+    }
+  }
+  return values;
 }
 
 function extractContextEntities(text = '') {
