@@ -1,12 +1,14 @@
 import biteyWorker from './worker.js';
+import { analyzeLanguage } from './language-engine.js';
 
 const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
 const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
 
 function isResearchRequest(message) {
-  const text = String(message || '').trim();
+  const language = analyzeLanguage(message);
+  const text = language.normalized || String(message || '').trim();
   if (!text) return false;
-  if (/\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i.test(text)) return false;
+  if (language.intent === 'weather' || /\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o|previsao)\b/i.test(text) && !/\b(cu[aá]nto\s+tiempo|quanto\s+tempo|how\s+long|demora|duraci[oó]n|duração)\b/i.test(text)) return false;
   if (EXPLICIT_RESEARCH_RE.test(text) || FRESHNESS_RE.test(text)) return true;
   const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
   return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
@@ -33,7 +35,9 @@ export default {
     }
     let payload;
     try { payload = await request.clone().json(); } catch (_) { return biteyWorker.fetch(request, env, ctx); }
-    const message = String(payload?.message || '').trim();
+    const rawMessage = String(payload?.message || '').trim();
+    const language = analyzeLanguage(rawMessage);
+    const message = language.normalized || rawMessage;
     const researchRequested = isResearchRequest(message);
     const response = await biteyWorker.fetch(request, env, ctx);
     if (!researchRequested || !response.ok) return response;
@@ -45,11 +49,11 @@ export default {
     }
     const evidence = await searchEvidence(message);
     const sources = (Array.isArray(evidence?.sources) ? evidence.sources : []).filter(source => isRelevantSource(message, source));
-    return withResearchContract(response, body, sources, evidence?.method || 'unavailable-free-only');
+    return withResearchContract(response, body, sources, evidence?.method || 'unavailable-free-only', language);
   }
 };
 
-function withResearchContract(response, body, sources, method) {
+function withResearchContract(response, body, sources, method, language = null) {
   const headers = new Headers(response.headers);
   headers.set('Content-Type', 'application/json; charset=utf-8');
   headers.set('Cache-Control', 'no-store');
@@ -59,7 +63,8 @@ function withResearchContract(response, body, sources, method) {
     ...body,
     research_required: true,
     research_reasons: Array.isArray(body.research_reasons) && body.research_reasons.length ? body.research_reasons : ['research_requested'],
-    sources
+    sources,
+    ...(language ? { language: { detected: language.language, normalized: language.normalized, corrections: language.corrections, intent: language.intent, entities: language.entities } } : {})
   }), { status: response.status, statusText: response.statusText, headers });
 }
 
