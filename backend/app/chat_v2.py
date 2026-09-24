@@ -156,9 +156,14 @@ def create_chat_v2_router(
                     "requires_web_research": True,
                 },
             )
-            wr = result.get("web_research", {}) if isinstance(result.get("web_research"), dict) else {}
-            evidence = str(wr.get("evidence") or "")
-            raw_sources = wr.get("sources") or wr.get("results") or []
+            evidence_parts = []
+            raw_sources = []
+            for tool_name, tool_payload in result.items():
+                if isinstance(tool_payload, dict):
+                    if tool_payload.get("evidence"):
+                        evidence_parts.append(f"{tool_name}: {tool_payload.get('evidence')}")
+                    raw_sources.extend(tool_payload.get("sources") or tool_payload.get("results") or [])
+            evidence = "\\n\\n".join(evidence_parts)
 
             for item in raw_sources:
                 if isinstance(item, dict) and item.get("ok") and item.get("url"):
