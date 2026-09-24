@@ -208,7 +208,22 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
     'Respuesta preliminar revisada antes de entregar.'
   ];
 
-  if (env.AI) {
+  // Specialized deterministic tools can produce a complete answer without requiring
+  // model synthesis. Never replace a valid tool result with a generic failure.
+  const specializedToolAnswer = buildSpecializedToolAnswer(evidence, route, message);
+  if (specializedToolAnswer) {
+    body.answer = specializedToolAnswer;
+    body.answer_validation = {
+      valid: true,
+      citation_count: 0,
+      invalid_citations: [],
+      evidence_available: true,
+      specialized_tool_answer: true,
+      unsupported_research_answer: false,
+      contradiction_warning: false
+    };
+    body.activity_events.push('Respuesta final validada por la herramienta especializada.');
+  } else if (env.AI) {
     const synthesized = await synthesizeWithEvidence({
       env, message, originalAnswer: String(body?.answer || ''),
       evidenceText, sources, requestId, route, evidenceAnalysis: evidence?.evidence_analysis || null
@@ -229,6 +244,35 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   headers.set('X-Bitey-Edge', 'cloudflare-ai-research-synthesis');
   headers.set('X-Bitey-Request-Id', requestId);
   return new Response(JSON.stringify(body), { status: upstream.status, statusText: upstream.statusText, headers });
+}
+
+function buildSpecializedToolAnswer(evidence, route, message) {
+  const executed = evidence?.tool_execution?.executed || [];
+  const successful = executed.find(item => item.tool === 'time' && item.status === 'success')
+    || executed.find(item => item.tool === 'weather' && item.status === 'success')
+    || executed.find(item => item.tool === 'calculator' && item.status === 'success');
+  if (!successful) return '';
+  const evidenceText = String(evidence?.text || '');
+  if (successful.tool === 'time') {
+    const location = evidenceText.match(/LOCATION:\s*(.+)/i)?.[1]?.trim() || 'la ubicación solicitada';
+    const time = evidenceText.match(/HOUR:\s*([0-9]{2}:[0-9]{2}:[0-9]{2})/i)?.[1];
+    const date = evidenceText.match(/CURRENT TIME:\s*(.+)/i)?.[1]?.trim();
+    if (!time) return '';
+    return `Ahora mismo en ${location} son las **${time}**.${date ? ` Fecha y hora local: ${date}.` : ''}`;
+  }
+  if (successful.tool === 'weather') {
+    const location = evidenceText.match(/LOCATION:\s*(.+)/i)?.[1]?.trim() || 'la ubicación solicitada';
+    const temperature = evidenceText.match(/TEMPERATURE:\s*([^\n]+)/i)?.[1]?.trim();
+    const apparent = evidenceText.match(/APPARENT TEMPERATURE:\s*([^\n]+)/i)?.[1]?.trim();
+    const observation = evidenceText.match(/OBSERVATION TIME:\s*([^\n]+)/i)?.[1]?.trim();
+    if (!temperature) return '';
+    return `Ahora en ${location}: **${temperature}**. Temperatura aparente: **${apparent || 'no disponible'}**.${observation ? ` Observación: ${observation}.` : ''}`;
+  }
+  if (successful.tool === 'calculator') {
+    const line = evidenceText.match(/CALCULATOR:\s*(.+)/i)?.[1]?.trim();
+    return line ? `El resultado es **${line.split('=').pop().trim()}**.` : '';
+  }
+  return '';
 }
 
 function extractCitationIds(text) {
