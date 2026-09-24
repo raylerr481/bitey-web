@@ -842,10 +842,10 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       const dependency = (plan.dependencies || []).find(item => item.tool === step.tool);
       const unmet = (dependency?.depends_on || []).filter(depTool => {
         const result = executions.find(item => item.tool === depTool);
-        return !result || result.status === 'failed';
+        return !result || result.status === 'failed' || result.status === 'rejected' || result.status === 'blocked';
       });
       if (unmet.length) {
-        record(step.tool, 'blocked', step.purpose);
+        record(step.tool, 'blocked', step.purpose, null, { unmet_dependencies: unmet });
         continue;
       }
 
@@ -857,6 +857,50 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       } else if (!success && step.tool === 'code_reasoning' && !attempted.has('model_reasoning')) {
         await executeTool('model_reasoning', 'usar razonamiento del modelo como respaldo técnico', 'code_reasoning');
       }
+    }
+
+    // Bounded adaptive recovery: if the primary evidence step failed, reformulate
+    // the request once with inherited context instead of silently falling through.
+    const verificationPolicy = plan.verification_policy || {};
+    const maxReplans = Math.min(2, Number(verificationPolicy.max_replans || 0));
+    let replansUsed = 0;
+    while (
+      replansUsed < maxReplans &&
+      verificationPolicy.replan_on_failure &&
+      !executions.some(item => item.tool === 'web_search' && item.status === 'success') &&
+      executions.some(item => item.tool === 'web_search' && ['failed','blocked'].includes(item.status))
+    ) {
+      replansUsed += 1;
+      const contextTerms = [
+        ...(Array.isArray(contextMemory?.inherited_entities) ? contextMemory.inherited_entities : []),
+        ...(Array.isArray(contextMemory?.inherited_locations) ? contextMemory.inherited_locations : [])
+      ].filter(Boolean).slice(0, 6);
+      const retryQuery = [message, contextTerms.join(' ')].filter(Boolean).join(' ');
+      const retry = await recoverSearch(retryQuery, requestId);
+      if (!retry) {
+        executions.push({
+          tool: 'web_search_retry',
+          status: 'failed',
+          purpose: 'reformular la investigación tras un fallo de evidencia',
+          fallback_for: 'web_search',
+          replan: replansUsed
+        });
+        continue;
+      }
+      if (retry.text) {
+        evidenceParts.push(retry.text);
+        workingContext.evidence.push(retry.text);
+      }
+      sources.push(...(retry.sources || []));
+      workingContext.sources.push(...(retry.sources || []));
+      executions.push({
+        tool: 'web_search_retry',
+        status: 'success',
+        purpose: 'reformular la investigación tras un fallo de evidencia',
+        fallback_for: 'web_search',
+        replan: replansUsed,
+        context_keys: contextKeys()
+      });
     }
 
     const successful = executions.filter(item => item.status === 'success');
