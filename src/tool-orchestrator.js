@@ -42,6 +42,12 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const normalizedIntent = String(language.intent || route.intent || 'question').toLowerCase();
   const conceptual = CONCEPTUAL_RE.test(lower);
   const greeting = GREETING_RE.test(lower);
+  const contextReferences = Array.isArray(context?.references) ? context.references : [];
+  const contextEntities = Array.isArray(context?.inherited_entities) ? context.inherited_entities : [];
+  const contextLocations = Array.isArray(context?.inherited_locations) ? context.inherited_locations : [];
+  const contextValues = Array.isArray(context?.inherited_values) ? context.inherited_values : [];
+  const contextFollowup = contextReferences.includes('follow_up') || contextReferences.includes('prior_context');
+  const contextHasData = Boolean(contextEntities.length || contextLocations.length || contextValues.length);
 
   const signals = {
     current: FRESHNESS_RE.test(lower),
@@ -57,7 +63,11 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     price_query: PRICE_QUERY_RE.test(lower),
     code: normalizedIntent === 'code' || domains.has('code') || /\b(código|code|python|javascript|typescript|sql|api|bug|error|github|stack trace)\b/i.test(lower),
     comparison: normalizedIntent === 'comparison' || /\b(compara|comparar|comparativa|comparativas|versus|\bvs\.?\b|diferencia|alternativas|opciones)\b/i.test(lower),
-    context_followup: Array.isArray(context?.references) && context.references.length > 0,
+    context_followup: contextFollowup,
+    context_has_data: contextHasData,
+    context_has_values: contextValues.length > 0,
+    context_has_entity: contextEntities.length > 0,
+    context_has_location: contextLocations.length > 0,
     long_or_complex: text.length > 240 || DEEP_RE.test(lower),
     multi_task: MULTI_TASK_RE.test(lower) && text.length > 80
   };
@@ -68,6 +78,21 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     signals.current = true;
     signals.calculation = false;
   }
+
+  // A short follow-up such as "¿y cuánto cuesta?" inherits the subject from
+  // the previous user turn. Treat it as current-information only when the
+  // inherited context actually contains a subject/value that can resolve it.
+  const contextualPriceFollowup = contextFollowup &&
+    PRICE_QUERY_RE.test(lower) &&
+    contextHasData;
+  const contextualQuantityFollowup = contextFollowup &&
+    QUANTITY_CALCULATION_RE.test(lower) &&
+    contextHasData;
+  if (contextualPriceFollowup && !EXPLICIT_CALCULATION_RE.test(lower)) {
+    signals.current = true;
+    signals.calculation = false;
+  }
+  if (contextualQuantityFollowup) signals.calculation = true;
 
   signals.entity_lookup = CURRENT_ENTITY_RE.test(lower) && !conceptual;
   signals.fresh_entity_lookup = signals.entity_lookup && (
@@ -129,6 +154,9 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const confidence = Math.max(0.58, Math.min(0.99, 0.74 + activeSignals * 0.03 - ambiguityPenalty));
 
   const intentParts = [];
+  if (contextualPriceFollowup) intentParts.push('contextual_price_lookup');
+  if (contextualQuantityFollowup) intentParts.push('contextual_quantity_calculation');
+  if (contextHasData) intentParts.push('context_memory');
   if (externalEvidenceRequired) intentParts.push('external_evidence');
   if (signals.current) intentParts.push('current_information');
   if (signals.time) intentParts.push('time');
@@ -163,6 +191,10 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
       tool_count_hint: toolNeed === 'none' ? 0 : 1,
       conceptual_direct_answer: conceptual && !externalEvidenceRequired,
       context_aware: signals.context_followup,
+      context_data_available: contextHasData,
+      context_entities: contextEntities,
+      context_locations: contextLocations,
+      context_values: contextValues,
       ambiguity_detected: ambiguityReasons.length > 0,
       clarification_needed: ambiguityReasons.length > 0 && confidence < 0.72
     },
@@ -208,7 +240,13 @@ export function selectTools({ language = {}, route = {}, message = '', context =
   const reasoning = {
     ...(intentEval.reasoning || {}),
     tool_count_hint: toolCountHint,
-    selected_tools: unique
+    selected_tools: unique,
+    context_inputs: {
+      entities: Array.isArray(context?.inherited_entities) ? context.inherited_entities : [],
+      locations: Array.isArray(context?.inherited_locations) ? context.inherited_locations : [],
+      values: Array.isArray(context?.inherited_values) ? context.inherited_values : [],
+      references: Array.isArray(context?.references) ? context.references : []
+    }
   };
 
   return {
@@ -267,12 +305,22 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
   const text = String(message || '').toLowerCase();
   const evalSignals = base.intent_evaluation?.signals || {};
   const reasoning = base.intent_evaluation?.reasoning || {};
+  const contextData = {
+    entities: Array.isArray(context?.inherited_entities) ? context.inherited_entities : [],
+    locations: Array.isArray(context?.inherited_locations) ? context.inherited_locations : [],
+    values: Array.isArray(context?.inherited_values) ? context.inherited_values : []
+  };
   const steps = [];
   const add = (tool, purpose) => {
     if (!steps.some(step => step.tool === tool)) steps.push({order:steps.length+1,tool,purpose});
   };
 
   if (base.primary === 'time') add('time','obtener la hora actual de la ubicación solicitada');
+  if (reasoning.context_aware && contextData.entities.length) {
+    // Preserve the inherited subject as planner metadata rather than silently
+    // rewriting the user's original message.
+    if (!base.reasoning.context_subject) base.reasoning.context_subject = contextData.entities.slice(0, 4);
+  }
   if (base.primary === 'weather') add('weather','obtener datos meteorológicos actuales');
   if (base.selected.includes('web_search')) add('web_search','recopilar y contrastar evidencia externa');
   if (base.selected.includes('calculator')) add('calculator','realizar cálculos deterministas');
@@ -335,6 +383,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
           : 'multi_tool_dependency')
         : 'single_tool_or_direct_reasoning'
     },
+    context_inputs: contextData,
     execution_policy:'execute_in_order_and_report_actual_results'
   };
 }
