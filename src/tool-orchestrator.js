@@ -267,7 +267,12 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
   if (base.selected.includes('code_reasoning')) add('code_reasoning','analizar código y resultados técnicos');
 
   const comparisonTask = /\b(compara|comparar|comparativa|contrasta|versus|vs\.?)\b/i.test(text);
-  const derivationTask = /\b(calcula|calcular|cu[aá]nto|cu[aá]ntas|porcentaje|roi|retorno|rentabilidad|inversi[oó]n|recuperar|recuperaci[oó]n|mensual|anual|por d[ií]a|coste|costo|precio)\b/i.test(text);
+  // A comparison of prices is still a research task; it is not automatically
+  // a calculation. Only add the calculator when the user asks for arithmetic,
+  // quantities, ROI/returns, or another derived numeric result.
+  const derivationTask = EXPLICIT_CALCULATION_RE.test(text)
+    || QUANTITY_CALCULATION_RE.test(text)
+    || /\b(roi|retorno|rentabilidad|inversi[oó]n|recuperar|recuperaci[oó]n|mensual|anual|por d[ií]a|porcentaje)\b/i.test(text);
   const multiTask = Boolean(
     evalSignals.multi_task ||
     comparisonTask ||
