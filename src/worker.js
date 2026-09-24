@@ -544,33 +544,53 @@ function specializedFallbackBlocked(capability, requestId) {
 function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto').toLowerCase().trim();\n  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {\n  const guidance = {\n    auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',\n    chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',\n    research: 'Prioriza investigación externa, evidencia y comparación de fuentes cuando sea relevante. No presentes datos no verificados como hechos.',\n    math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',\n    code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'\n  }[normalizeInteractionMode(mode)];\n  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto', context = {}) {
   const text = String(message || '').trim();
   const analyzed = language || analyzeLanguage(text);
-  const hasQuestion = /[?¿]|\\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\\b/i.test(text);
-  const current = FRESHNESS_RE.test(text) || WEATHER_RE.test(text);
-  const explicitResearch = EXPLICIT_RESEARCH_RE.test(text);
-  const comparison = /\\b(compara|comparar|comparativa|diferencia|mejor|alternativas|opciones|versus|vs\\.?|contrasta)\\b/i.test(text);
+  const hasQuestion = /[?¿]|\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\b/i.test(text);
   const trivial = /^(hola|holi|hey|buenas|gracias|ok|okay|ad[ií]os|chao|bye|buenos d[ií]as|buenas tardes|buenas noches)[!. ]*$/i.test(text);
   const selectedMode = normalizeInteractionMode(mode);
-  const intentEvaluation = evaluateIntent({ language: analyzed, route: { intent: analyzed.intent, mode: selectedMode }, message: text, context });\n  const research = !trivial && (selectedMode === 'research' || (selectedMode !== 'chat' && (current || explicitResearch || comparison || intentEvaluation.should_research)));
-  const intent = analyzed.intent === 'weather' ? 'weather'
+  const intentEvaluation = evaluateIntent({
+    language: analyzed,
+    route: { intent: analyzed.intent, mode: selectedMode },
+    message: text,
+    context
+  });
+
+  // The intent evaluator is the single source of truth for research necessity.
+  // This prevents route logic from triggering web search for conceptual/direct questions.
+  const research = !trivial && (
+    selectedMode === 'research' ||
+    (selectedMode !== 'chat' && Boolean(intentEvaluation.reasoning?.external_evidence))
+  );
+  const comparison = Boolean(intentEvaluation.signals?.comparison);
+  const intent = intentEvaluation.intent === 'weather' ? 'weather'
+    : intentEvaluation.intent === 'time' ? 'time'
     : comparison ? 'comparison'
-    : current ? 'current_information'
+    : intentEvaluation.intent === 'current_information' ? 'current_information'
     : hasQuestion ? 'question' : 'conversation';
+
   const routeBase = {
     intent,
     specialized: specialized || 'general',
     research_attempted: research,
     research_required: research,
     comparison_required: comparison,
-    evidence_method: evidenceMethod
+    evidence_method: evidenceMethod,
+    reasoning_level: intentEvaluation.reasoning_level,
+    reasoning: intentEvaluation.reasoning
   };
-  const toolPlan = selectTools({ language: analyzed, route: { ...routeBase, mode: selectedMode }, message: text, context });
+  const toolPlan = selectTools({
+    language: analyzed,
+    route: { ...routeBase, mode: selectedMode, research_required: research },
+    message: text,
+    context
+  });
+
   return {
     ...routeBase,
     intent_evaluation: intentEvaluation,
     tool_plan: toolPlan,
     reasons: research
-      ? [current ? 'current_or_external_information' : 'explicit_research_or_comparison']
-      : ['direct_reasoning_or_conversation'],
+      ? [intentEvaluation.reasoning?.external_evidence ? 'external_evidence_required' : 'explicit_research_mode']
+      : [intentEvaluation.reasoning?.conceptual_direct_answer ? 'conceptual_direct_reasoning' : 'direct_reasoning_or_conversation'],
     tool_step: buildToolActivity(toolPlan)
   };
 }
