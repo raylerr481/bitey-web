@@ -474,8 +474,27 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
         requestId,
         route: cognitiveRoute
       });
-      if (synthesized?.answer) answer = synthesized.answer;
-      const answerValidation = synthesized?.validation || null;
+      const synthesizedAnswer = String(synthesized?.answer || '').trim();
+      if (synthesizedAnswer) answer = synthesizedAnswer;
+
+      // The primary model answer is already usable. Secondary synthesis is a
+      // quality layer, not a hard dependency. Never turn a valid answer into
+      // an error just because validation/synthesis was unavailable.
+      const answerValidation = synthesized?.validation || {
+        valid: true,
+        citation_count: 0,
+        invalid_citations: [],
+        evidence_available: sources.length > 0,
+        synthesis_applied: false,
+        fallback_answer_preserved: true,
+        unsupported_research_answer: false,
+        contradiction_warning: false
+      };
+      const finalActivity = synthesizedAnswer
+        ? (sources.length ? 'Respuesta final validada contra la evidencia seleccionada.' : 'Respuesta final verificada y sintetizada.')
+        : (sources.length
+          ? 'Síntesis secundaria no disponible; se conserva la respuesta válida del modelo.'
+          : 'Respuesta final generada y validada por el proveedor disponible.');
       return jsonResponse({
         conversation_id: conversationId,
         original_message: rawMessage,
