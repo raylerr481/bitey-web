@@ -162,11 +162,49 @@ async function tryRealAiFallback(upstream, request, env, requestId, origin) {
     // A valid answer must be trusted even when the backend omits provider metadata.
     // Provider metadata is diagnostic, not a requirement for a usable response.
     degraded = degraded || !answer || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
-    if (!degraded) return await enrichSuccessfulResponse(upstream, request, requestId, env);
+    if (!degraded) {
+      const enriched = await enrichSuccessfulResponse(upstream, request, requestId, env);
+      if (enriched) return enriched;
+      // Enrichment is optional. Never discard a valid backend answer because
+      // research/synthesis/metadata enrichment failed.
+      if (isUsableBackendAnswer(upstreamBody?.answer)) {
+        return preserveUpstreamResponse(upstream, requestId, 'backend-answer-preserved');
+      }
+    }
   } catch (_) {
     degraded = true;
+    // If parsing/enrichment failed but the upstream response is still a valid
+    // JSON answer, preserve it instead of replacing it with a generic fallback.
+    if (isUsableBackendAnswer(upstreamBody?.answer)) {
+      return preserveUpstreamResponse(upstream, requestId, 'backend-answer-preserved-after-enrichment-error');
+    }
+  }
+  if (isUsableBackendAnswer(upstreamBody?.answer)) {
+    return preserveUpstreamResponse(upstream, requestId, 'backend-answer-preserved');
   }
   return runRealAiFallback(request, env, requestId, new Error(`backend_status_${upstream.status}`), origin, upstreamBody);
+}
+
+function isUsableBackendAnswer(answer) {
+  const text = String(answer || '').trim();
+  if (!text) return false;
+  if (text === NO_PROVIDER_ANSWER || text === LEGACY_NO_PROVIDER_ANSWER) return false;
+  if (text.includes(NO_PROVIDER_ANSWER) || text.includes(LEGACY_NO_PROVIDER_ANSWER)) return false;
+  if (/^Ahora mismo no puedo completar esta consulta/i.test(text)) return false;
+  if (/^No pude obtener una respuesta de Bitey IA/i.test(text)) return false;
+  return text.length > 0;
+}
+
+function preserveUpstreamResponse(upstream, requestId, source = 'backend-answer-preserved') {
+  const headers = new Headers(upstream.headers);
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Bitey-Edge', source);
+  headers.set('X-Bitey-Request-Id', requestId);
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers
+  });
 }
 
 async function enrichSuccessfulResponse(upstream, request, requestId, env) {
