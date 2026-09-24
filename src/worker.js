@@ -454,21 +454,101 @@ function extractClaimFrame(text) {
   return { subject, predicate, tokens: distinctive };
 }
 
-function semanticClaimSupport(claim, source) {
-  const claimFrame = extractClaimFrame(claim);
-  const sourceFrame = extractClaimFrame(source);
-  const sourceSet = new Set(sourceFrame.tokens);
-  const subjectHits = claimFrame.subject.filter(token => sourceSet.has(token)).length;
-  const predicateHits = claimFrame.predicate.filter(token => sourceSet.has(token)).length;
-  const totalHits = claimFrame.tokens.filter(token => sourceSet.has(token)).length;
-  const subjectScore = claimFrame.subject.length ? subjectHits / claimFrame.subject.length : 0;
-  const predicateScore = claimFrame.predicate.length ? predicateHits / claimFrame.predicate.length : 0;
-  const totalScore = claimFrame.tokens.length ? totalHits / claimFrame.tokens.length : 0;
+function extractStructuredClaim(text) {
+  const raw = String(text || '');
+  const normalized = normalizeSearchText(raw);
+  const frame = extractClaimFrame(raw);
+  const currencyMatches = raw.match(/(?:R\\$|US\\$|USD|BRL|EUR|€|£|\\$)/gi) || [];
+  const currencies = [...new Set(currencyMatches.map(value => normalizeSearchText(value)))];
+  const unitMatches = raw.match(/(?:%|porcentaje|°C|\\bC\\b|km\\/h|mph|GB|TB|MB|USD|BRL|EUR|R\\$|US\\$|acciones?|shares?|unidades?|mes(?:es)?|años?|años?|d[ií]as?)/gi) || [];
+  const units = [...new Set(unitMatches.map(value => normalizeSearchText(value)))];
+  const dates = [...raw.matchAll(/\\b(?:20\\d{2}(?:[-/]\\d{1,2}(?:[-/]\\d{1,2})?)?|\\d{1,2}\\/\\d{1,2}\\/20\\d{2})\\b/g)].map(match => match[0]);
+  const numericValues = [...raw.matchAll(/(?:R\\$|US\\$|USD|BRL|EUR|€|£|\\$)?\\s*(-?\\d+(?:[.,]\\d+)?)(?:\\s*(%|°C|C|km\\/h|mph|GB|TB|MB))?/gi)]
+    .map(match => {
+      const rawNumber = String(match[1] || '').replace(/\\.(?=\\d{3}(?:\\D|$))/g, '').replace(',', '.');
+      return {
+        value: Number(rawNumber),
+        raw: match[0].trim(),
+        currency: normalizeSearchText(match[0].match(/R\\$|US\\$|USD|BRL|EUR|€|£|\\$/i)?.[0] || ''),
+        unit: normalizeSearchText(match[2] || ''),
+        index: match.index || 0
+      };
+    })
+    .filter(item => Number.isFinite(item.value));
+  const attributes = [...new Set(
+    meaningfulQueryTokens(raw).filter(token =>
+      /^(?:precio|valor|coste|costo|cotiza|cotizacion|temperatura|humedad|viento|rendimiento|rentabilidad|dividendo|acciones|shares|unidades|poblacion|poblacion|fecha|hora|edad|porcentaje|tasa|salario|sueldo|capital|ingresos|ventas|crecimiento|aumento|disminucion|distancia|velocidad|capacidad|memoria|almacenamiento|version|precio|price|value|cost|temperature|humidity|wind|yield|dividend|shares|units|date|time|rate|salary|revenue|sales|growth|distance|speed|capacity|memory|storage|version)$/i.test(token)
+    )
+  )];
   return {
-    supported: subjectScore >= 0.25 && (predicateScore >= 0.15 || totalScore >= 0.3),
+    normalized,
+    subject: frame.subject,
+    predicate: frame.predicate,
+    tokens: frame.tokens,
+    entities: [...new Set(frame.tokens.filter(token => /^(?:meta|apple|google|microsoft|openai|nvidia|amazon|tesla|rtx|iphone|bitcoin|ethereum|brasil|brazil|esteio|porto|alegre|cloudflare|supabase|github|wordpress)$/i.test(token)))],
+    currencies,
+    units,
+    dates,
+    numeric_values: numericValues,
+    attributes
+  };
+}
+
+function numericClaimCompatible(claimValues, sourceValues) {
+  if (!claimValues.length) return { compatible: true, matched: 0, compared: 0 };
+  let matched = 0;
+  for (const claim of claimValues) {
+    const candidates = sourceValues.filter(source =>
+      (!claim.currency || !source.currency || claim.currency === source.currency) &&
+      (!claim.unit || !source.unit || claim.unit === source.unit)
+    );
+    const exact = candidates.some(source => {
+      const tolerance = Math.max(0.01, Math.abs(claim.value) * 0.01);
+      return Math.abs(claim.value - source.value) <= tolerance;
+    });
+    if (exact) matched++;
+  }
+  return {
+    compatible: matched === claimValues.length,
+    matched,
+    compared: claimValues.length
+  };
+}
+
+function semanticClaimSupport(claim, source) {
+  const claimData = extractStructuredClaim(claim);
+  const sourceData = extractStructuredClaim(source);
+  const sourceSet = new Set(sourceData.tokens);
+  const subjectHits = claimData.subject.filter(token => sourceSet.has(token)).length;
+  const predicateHits = claimData.predicate.filter(token => sourceSet.has(token)).length;
+  const totalHits = claimData.tokens.filter(token => sourceSet.has(token)).length;
+  const subjectScore = claimData.subject.length ? subjectHits / claimData.subject.length : 0;
+  const predicateScore = claimData.predicate.length ? predicateHits / claimData.predicate.length : 0;
+  const totalScore = claimData.tokens.length ? totalHits / claimData.tokens.length : 0;
+  const entityMatch = !claimData.entities.length || claimData.entities.some(entity => sourceData.entities.includes(entity) || sourceSet.has(entity));
+  const currencyMatch = !claimData.currencies.length || claimData.currencies.some(currency => sourceData.currencies.includes(currency));
+  const unitMatch = !claimData.units.length || claimData.units.some(unit => sourceData.units.includes(unit));
+  const numeric = numericClaimCompatible(claimData.numeric_values, sourceData.numeric_values);
+  const temporalMatch = !claimData.dates.length || claimData.dates.some(date => sourceData.dates.includes(date) || sourceData.normalized.includes(normalizeSearchText(date)));
+  const lexicalSupported = subjectScore >= 0.25 && (predicateScore >= 0.15 || totalScore >= 0.3);
+  const valueRequired = claimData.numeric_values.length > 0;
+  const valueSupported = !valueRequired || numeric.compatible;
+  const supported = lexicalSupported && entityMatch && currencyMatch && unitMatch && valueSupported && temporalMatch;
+  return {
+    supported,
     subject_score: Number(subjectScore.toFixed(3)),
     predicate_score: Number(predicateScore.toFixed(3)),
-    lexical_score: Number(totalScore.toFixed(3))
+    lexical_score: Number(totalScore.toFixed(3)),
+    entity_match: entityMatch,
+    attribute_match: claimData.attributes.length
+      ? claimData.attributes.some(attribute => sourceData.attributes.includes(attribute) || sourceSet.has(attribute))
+      : true,
+    value_match: valueSupported,
+    value_matches: numeric.matched,
+    value_compared: numeric.compared,
+    unit_match: unitMatch,
+    currency_match: currencyMatch,
+    temporal_match: temporalMatch
   };
 }
 
@@ -524,7 +604,9 @@ function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = n
 
 function detectClaimConflicts(answer, sources = []) {
   const text = String(answer || '').trim();
-  const sentences = text.split(/(?<=[.!?¿])\\s+/).map(s => s.replace(/\\[S\\d+\\]/g, '').trim()).filter(s => s.length >= 30);
+  const sentences = text.split(/(?<=[.!?¿])\\s+/)
+    .map(s => s.replace(/\\[S\\d+\\]/g, '').trim())
+    .filter(s => s.length >= 30);
   const sourceTexts = sources.slice(0, 8).map((source, index) => ({
     id: '[S' + (index + 1) + ']',
     text: String(source?.title || '') + ' ' + String(source?.snippet || '')
@@ -532,31 +614,42 @@ function detectClaimConflicts(answer, sources = []) {
   const conflicts = [];
   for (const sentence of sentences) {
     const ids = extractCitationIds(sentence);
-    if (!ids.length) continue;
-    const claimTokens = meaningfulQueryTokens(sentence).filter(t => t.length >= 4).slice(0, 14);
-    const numericValues = [...sentence.matchAll(/(?:R\\$|US\\$|€|£|\\$)?\\s*\\d+(?:[.,]\\d+)?/g)].map(m => normalizeSearchText(m[0]));
+    if (ids.length < 2) continue;
     const citedSources = ids.map(id => sourceTexts.find(source => source.id === id)).filter(Boolean);
     if (citedSources.length < 2) continue;
-    const sourceNumbers = citedSources.map(source => ({
-      id: source.id,
-      values: [...source.text.matchAll(/(?:R\\$|US\\$|€|£|\\$)?\\s*\\d+(?:[.,]\\d+)?/g)].map(m => normalizeSearchText(m[0]))
-    }));
-    const distinct = [...new Set(sourceNumbers.flatMap(item => item.values).filter(Boolean))];
-    if (distinct.length > 1 && numericValues.length > 0) {
-      conflicts.push({
-        claim: sentence.slice(0, 240),
-        sources: sourceNumbers,
-        reason: 'cited_sources_contain_different_numeric_values'
-      });
+    const claimData = extractStructuredClaim(sentence);
+    const sourceData = citedSources.map(source => ({ id: source.id, data: extractStructuredClaim(source.text) }));
+
+    const comparable = sourceData.filter(item => {
+      const lexical = semanticClaimSupport(sentence, item.data.normalized);
+      return lexical.entity_match && lexical.attribute_match && lexical.subject_score >= 0.2;
+    });
+
+    if (claimData.numeric_values.length && comparable.length >= 2) {
+      const mismatching = comparable.filter(item => !numericClaimCompatible(claimData.numeric_values, item.data.numeric_values).compatible);
+      if (mismatching.length && mismatching.length < comparable.length) {
+        conflicts.push({
+          claim: sentence.slice(0, 240),
+          sources: comparable.map(item => item.id),
+          reason: 'same_claim_has_different_supported_values',
+          diagnostics: {
+            claim_values: claimData.numeric_values,
+            mismatching_sources: mismatching.map(item => ({ id: item.id, values: item.data.numeric_values }))
+          }
+        });
+      }
     }
-    const sourceFrames = citedSources.map(source => extractClaimFrame(source.text));
-    const overlap = sourceFrames.map(frame => frame.tokens.filter(token => claimTokens.includes(token)).length);
-    if (overlap.length >= 2 && Math.max(...overlap) > 0 && Math.min(...overlap) === 0) {
-      conflicts.push({
-        claim: sentence.slice(0, 240),
-        sources: citedSources.map(source => source.id),
-        reason: 'claim_supported_by_non_overlapping_cited_sources'
-      });
+
+    const sourceFrames = comparable.map(item => item.data);
+    if (sourceFrames.length >= 2) {
+      const overlap = sourceFrames.map(frame => frame.tokens.filter(token => claimData.tokens.includes(token)).length);
+      if (Math.max(...overlap) > 0 && Math.min(...overlap) === 0) {
+        conflicts.push({
+          claim: sentence.slice(0, 240),
+          sources: comparable.map(item => item.id),
+          reason: 'claim_supported_by_non_overlapping_cited_sources'
+        });
+      }
     }
   }
   return conflicts.slice(0, 10);
