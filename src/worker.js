@@ -447,6 +447,56 @@ function semanticClaimSupport(claim, source) {
   };
 }
 
+function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = null) {
+  const sourceNodes = sources.slice(0, 8).map((source, index) => ({
+    id: 'source_' + (index + 1),
+    citation: '[S' + (index + 1) + ']',
+    title: String(source?.title || 'Fuente'),
+    url: String(source?.url || ''),
+    authority: Number(source?.authority || 0),
+    freshness: Number(source?.freshness || 0)
+  }));
+  const claimNodes = String(answer || '')
+    .split(/(?<=[.!?¿])\\s+/)
+    .map(sentence => sentence.trim())
+    .filter(sentence => sentence.length >= 30)
+    .slice(0, 30)
+    .map((sentence, index) => {
+      const citations = extractCitationIds(sentence);
+      const frame = extractClaimFrame(sentence);
+      return {
+        id: 'claim_' + (index + 1),
+        text: sentence.slice(0, 280),
+        subject: frame.subject,
+        predicate: frame.predicate,
+        citations,
+        source_ids: citations.map(id => 'source_' + id.replace(/\\D/g, '')).filter(id => sourceNodes.some(source => source.id === id))
+      };
+    });
+  const edges = [];
+  for (const claim of claimNodes) {
+    for (const sourceId of claim.source_ids) {
+      edges.push({ from: claim.id, to: sourceId, relation: 'supported_by' });
+    }
+  }
+  const questionFrame = extractClaimFrame(question);
+  return {
+    version: 1,
+    question: {
+      text: String(question || '').slice(0, 500),
+      subject: questionFrame.subject,
+      predicate: questionFrame.predicate
+    },
+    nodes: { claims: claimNodes, sources: sourceNodes },
+    edges,
+    evidence_quality: evidenceAnalysis ? {
+      selected: Number(evidenceAnalysis.selected || 0),
+      contradictions: Number(evidenceAnalysis.contradictions || 0),
+      consistency_checked: Boolean(evidenceAnalysis.consistency_checked)
+    } : null
+  };
+}
+
 function detectClaimConflicts(answer, sources = []) {
   const text = String(answer || '').trim();
   const sentences = text.split(/(?<=[.!?¿])\\s+/).map(s => s.replace(/\\[S\\d+\\]/g, '').trim()).filter(s => s.length >= 30);
@@ -583,6 +633,7 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const coverage = assessAnswerCoverage(question, text, route);
   const claimValidation = validateAnswerClaims(text, sources, route);
   const claimConflicts = detectClaimConflicts(text, sources);
+  const evidenceGraph = buildEvidenceGraph(question, text, sources, route?.evidence_analysis);
   const unsupportedClaims = claimValidation.unsupported_count > 0;
   const unsupportedCitations = claimValidation.unsupported_citations?.length > 0;
   const finalGate = {
@@ -602,7 +653,8 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     contradiction_warning: contradictionWarning,
     answer_coverage: coverage,
     claim_validation: claimValidation,
-    claim_conflicts: claimConflicts
+    claim_conflicts: claimConflicts,
+    evidence_graph: evidenceGraph
   };
 }
 
