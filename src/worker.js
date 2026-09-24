@@ -1119,6 +1119,26 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       attempted.add(tool);
     };
 
+    const dependencyResult = (tool) => executions.find(item => item.tool === tool && item.status === 'success' && item.result_valid === true);
+
+    const validateToolOutput = (tool, output = {}) => {
+      const text = String(output?.text || '').trim();
+      const sourceCount = Array.isArray(output?.sources) ? output.sources.length : 0;
+      if (tool === 'time' || tool === 'weather') return text.length > 0;
+      if (tool === 'web_search') return text.length > 0 || sourceCount > 0;
+      if (tool === 'calculator') return Boolean(output?.verification?.valid);
+      return true;
+    };
+
+    const markResult = (tool, valid, details = {}) => {
+      const item = [...executions].reverse().find(entry => entry.tool === tool);
+      if (item) {
+        item.result_valid = Boolean(valid);
+        item.validation = details;
+      }
+      return Boolean(valid);
+    };
+
     const executeTool = async (tool, purpose, fallbackFor = null) => {
       if (attempted.has(tool)) return false;
       if (tool === 'time') {
@@ -1128,7 +1148,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.evidence.push(time.text);
         workingContext.sources.push(...(time.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        return true;
+        return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }), { non_empty_text: Boolean(String(time.text || '').trim()) });
       }
       if (tool === 'weather') {
         const weather = await recoverWeather(message, requestId);
@@ -1141,7 +1161,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.evidence.push(weather.text);
         workingContext.sources.push(...(weather.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        return true;
+        return markResult(tool, validateToolOutput(tool, { text: weather.text, sources: weather.sources }), { non_empty_text: Boolean(String(weather.text || '').trim()), source_count: (weather.sources || []).length });
       }
       if (tool === 'calculator') {
         const calculation = calculateExpression(contextForTool());
@@ -1168,7 +1188,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
           ...contextForTool(),
           verification: verification.checks
         });
-        return true;
+        return markResult(tool, validateToolOutput(tool, { text: derived.text, verification }), { verification_valid: Boolean(verification?.valid) });
       }
       if (tool === 'web_search') {
         const search = await recoverSearch(contextForTool(false), requestId);
@@ -1183,7 +1203,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         sources.push(...(search.sources || []));
         workingContext.sources.push(...(search.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        return true;
+        return markResult(tool, validateToolOutput(tool, { text: search.text, sources: search.sources }), { non_empty_text: Boolean(String(search.text || '').trim()), source_count: (search.sources || []).length });
       }
       if (tool === 'code_reasoning') {
         record(tool, 'delegated', purpose, fallbackFor);
@@ -1199,8 +1219,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
     for (const step of plan.steps || []) {
       const dependency = (plan.dependencies || []).find(item => item.tool === step.tool);
       const unmet = (dependency?.depends_on || []).filter(depTool => {
-        const result = executions.find(item => item.tool === depTool);
-        return !result || result.status === 'failed' || result.status === 'rejected' || result.status === 'blocked';
+        const result = dependencyResult(depTool);
+        return !result;
       });
       if (unmet.length) {
         record(step.tool, 'blocked', step.purpose, null, { unmet_dependencies: unmet });
@@ -1269,8 +1289,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         if (attempted.has(pending.tool)) continue;
         const pendingDependency = (plan.dependencies || []).find(item => item.tool === pending.tool);
         const stillUnmet = (pendingDependency?.depends_on || []).filter(depTool => {
-          const result = executions.find(item => item.tool === depTool && item.status === 'success');
-          return !result;
+          return !dependencyResult(depTool);
         });
         if (stillUnmet.length) continue;
         await executeTool(pending.tool, pending.purpose);
@@ -1303,6 +1322,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         executed: executions,
         context: contextSummary,
         status: successful.length ? 'success' : (usable.length ? 'degraded' : 'failed'),
+        verified_results: executions.filter(item => item.result_valid === true).map(item => item.tool),
+        invalid_results: executions.filter(item => item.status === 'success' && item.result_valid === false).map(item => item.tool),
         fallback_used: executions.some(item => Boolean(item.fallback_for))
       }
     };
