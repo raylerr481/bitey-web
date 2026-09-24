@@ -98,7 +98,9 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   if (!request || !upstream.ok) return null;
   let payload;
   try { payload = await request.clone().json(); } catch (_) { return null; }
-  const message = String(payload?.message || '').trim();
+  const rawMessage = String(payload?.message || '').trim();
+  const language = analyzeLanguage(rawMessage);
+  const message = language.normalized || rawMessage;
   if (!message) return null;
   let body;
   try { body = JSON.parse(await upstream.clone().text()); } catch (_) { return null; }
@@ -112,7 +114,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   const evidenceText = String(evidence?.text || '').trim();
 
   const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none');
-  body.cognitive_route = route;
+  body.cognitive_route = { ...route, language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   body.research_attempted = route.research_attempted;
   body.research_required = route.research_required;
   body.research_reasons = route.reasons;
@@ -222,7 +224,9 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
     console.error('Bitey edge fallback could not parse request', { requestId, error: String(error) });
     return null;
   }
-  const message = String(payload?.message || '').trim();
+  const rawMessage = String(payload?.message || '').trim();
+  const language = analyzeLanguage(rawMessage);
+  const message = language.normalized || rawMessage;
   const conversationId = String(request.url).match(/conversations\/([^/]+)\/messages/)?.[1] || '';
   if (!message) return null;
 
@@ -245,7 +249,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
   const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
-  const cognitiveRoute = planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none');
+  const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none'), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
   const evidenceInstruction = combinedEvidence
@@ -286,6 +290,8 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
       const answerValidation = synthesized?.validation || null;
       return jsonResponse({
         conversation_id: conversationId,
+        original_message: rawMessage,
+        language: { detected: language.language, normalized: language.normalized, corrections: language.corrections },
         answer,
         cognitive_route: cognitiveRoute,
         research_attempted: cognitiveRoute.research_attempted,
