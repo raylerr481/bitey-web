@@ -124,13 +124,13 @@ function detectLanguage(text) {
 }
 
 function detectDomains(text) {
-  const value = String(text || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+  const value = String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const ranked = [];
   for (const [domain, terms] of Object.entries(DOMAIN_LEXICON)) {
     let score = 0;
     for (const term of terms) {
       const normalizedTerm = term.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
-      if (value.split(/\\s+/).includes(normalizedTerm) || value.includes(' ' + normalizedTerm + ' ')) score++;
+      if (value.split(/\s+/).includes(normalizedTerm) || value.includes(' ' + normalizedTerm + ' ')) score++;
     }
     if (score) ranked.push({ domain, score, confidence: Math.min(0.99, 0.55 + score * 0.12) });
   }
@@ -147,6 +147,23 @@ function detectIntent(text) {
   if (/\b(busca|buscar|investiga|investigar|fuentes|search|research)\b/i.test(value)) return 'research';
   if (/\b(c[oó]digo|programa|programar|bug|error|javascript|python|html|css|api)\b/i.test(value)) return 'code';
   return /[?¿]/.test(value) ? 'question' : 'conversation';
+}
+
+export function resolveContext(message = '', history = []) {
+  const current = analyzeLanguage(message);
+  const items = Array.isArray(history) ? history.filter(item => item && (item.role === 'user' || item.role === 'assistant')).slice(-8) : [];
+  const contextText = items.map(item => String(item.content || '')).join(' ');
+  const context = analyzeLanguage(contextText);
+  const references = [];
+  const value = current.normalized.toLowerCase();
+  if (/\b(aqu[ií]|all[ií]|allá|isso|isto|ese|esa|ese precio|esa empresa|that|there|it|this)\b/i.test(value)) references.push('prior_context');
+  if (/\b(ahora|hoy|mañana|manana|ayer|agora|hoje|amanhã|ontem|today|tomorrow|yesterday)\b/i.test(value)) references.push('temporal');
+  return {
+    references,
+    inherited_locations: context.entities?.locations || [],
+    inherited_domains: context.domains || [],
+    confidence: references.length && (context.entities?.locations?.length || context.domains?.length) ? 0.9 : 0.55
+  };
 }
 
 function extractEntities(text) {
