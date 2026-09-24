@@ -399,6 +399,26 @@ function assessAnswerCoverage(question, answer, route = {}) {
   };
 }
 
+function buildAnswerRecoveryPlan(validation, route = {}) {
+  const missing = Array.isArray(validation?.answer_coverage?.missing_parts)
+    ? validation.answer_coverage.missing_parts
+    : [];
+  const gate = validation?.final_gate || {};
+  const actions = [];
+  if (!gate.evidence_supported || missing.includes('current_information')) actions.push('refresh_external_evidence');
+  if (missing.includes('calculation_result')) actions.push('verify_or_recalculate');
+  if (missing.includes('comparison_coverage')) actions.push('expand_comparison_evidence');
+  if (validation?.contradiction_warning) actions.push('resolve_source_conflict');
+  if (missing.some(item => /^part_/.test(item))) actions.push('cover_missing_question_part');
+  return {
+    needed: actions.length > 0,
+    actions: [...new Set(actions)],
+    max_steps: Math.min(3, Math.max(1, actions.length)),
+    research_required: actions.some(action => ['refresh_external_evidence','expand_comparison_evidence','resolve_source_conflict'].includes(action)),
+    deterministic_required: actions.includes('verify_or_recalculate')
+  };
+}
+
 function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const text = String(answer || '').trim();
   const citations = extractCitationIds(text);
@@ -462,6 +482,9 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
     const answer = extractAiText(response);
     let validation = validateSynthesizedAnswer(answer, sources, route, message);
     if (validation.valid) return { answer, validation };
+
+    const recoveryPlan = buildAnswerRecoveryPlan(validation, route);
+    validation.recovery_plan = recoveryPlan;
 
     // One bounded repair pass: improve coverage without starting a new research loop.
     // The same evidence and sources are reused; no hidden reasoning is exposed.
