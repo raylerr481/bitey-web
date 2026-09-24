@@ -235,6 +235,8 @@ export function getToolRegistry() {
 export function buildCompoundPlan({ language = {}, route = {}, message = '', context = {} } = {}) {
   const base = selectTools({ language, route, message, context });
   const text = String(message || '').toLowerCase();
+  const evalSignals = base.intent_evaluation?.signals || {};
+  const reasoning = base.intent_evaluation?.reasoning || {};
   const steps = [];
   const add = (tool, purpose) => {
     if (!steps.some(step => step.tool === tool)) steps.push({order:steps.length+1,tool,purpose});
@@ -246,29 +248,42 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
   if (base.selected.includes('calculator')) add('calculator','realizar cálculos deterministas');
   if (base.selected.includes('code_reasoning')) add('code_reasoning','analizar código y resultados técnicos');
 
-  // Compound work is only created when the intent evaluation actually says
-  // multiple tasks/tools are warranted. Avoid the old behavior of adding web
-  // search + calculator merely because a question contains a price/cost word.
-  const compoundSignals = /\b(compara|comparar|comparativa|contrasta|calcula|roi|inversi[oó]n|recuperar|versus|vs\.?)\b/i.test(text);
-  const shouldAddCompoundTools = base.intent_evaluation?.signals?.multi_task || base.intent_evaluation?.intent === 'comparison';
-  if (compoundSignals && shouldAddCompoundTools) {
-    if (base.intent_evaluation?.reasoning?.external_evidence && !steps.some(step => step.tool === 'web_search')) {
-      add('web_search','obtener evidencia para la comparación');
+  // Adaptive compound planning: add a second tool only when the task contains
+  // a real dependency between evidence and computation/reasoning.
+  const comparisonTask = /\b(compara|comparar|comparativa|contrasta|versus|vs\.?)\b/i.test(text);
+  const derivationTask = /\b(calcula|calcular|cu[aá]nto|cu[aá]ntas|porcentaje|roi|retorno|rentabilidad|inversi[oó]n|recuperar|recuperaci[oó]n|mensual|anual|por d[ií]a|coste|costo|precio)\b/i.test(text);
+  const multiTask = Boolean(
+    evalSignals.multi_task ||
+    comparisonTask ||
+    (reasoning.external_evidence && derivationTask && /\b(y|adem[aá]s|tamb[ié]n|para|con|cu[aá]nto)\b/i.test(text))
+  );
+
+  if (multiTask) {
+    if (reasoning.external_evidence && !steps.some(step => step.tool === 'web_search')) {
+      add('web_search','recopilar evidencia externa necesaria para los datos de entrada');
     }
-    if (!steps.some(step => step.tool === 'calculator') && /\b(calcula|roi|inversi[oó]n|recuperar)\b/i.test(text)) {
-      add('calculator','calcular magnitudes derivadas');
+    if (derivationTask && !steps.some(step => step.tool === 'calculator')) {
+      add('calculator','calcular magnitudes derivadas a partir de los datos disponibles');
+    }
+    if ((comparisonTask || evalSignals.comparison) && !steps.some(step => step.tool === 'web_search') && reasoning.external_evidence) {
+      add('web_search','contrastar las alternativas antes de sintetizar');
     }
   }
 
   if (!steps.length) add('model_reasoning','sintetizar la respuesta con razonamiento directo');
 
   const dependencyOrder = ['time','weather','web_search','calculator','code_reasoning','model_reasoning'];
-  const orderedSteps = steps.slice().sort((a,b)=>dependencyOrder.indexOf(a.tool)-dependencyOrder.indexOf(b.tool)).map((step,index)=>({...step,order:index+1}));
+  const orderedSteps = steps
+    .slice()
+    .sort((a,b)=>dependencyOrder.indexOf(a.tool)-dependencyOrder.indexOf(b.tool))
+    .map((step,index)=>({...step,order:index+1}));
 
   const dependencies = orderedSteps.map(step => {
     const dependsOn = [];
     if (step.tool === 'calculator' && orderedSteps.some(item=>item.tool==='web_search')) dependsOn.push('web_search');
-    if (step.tool === 'model_reasoning' && orderedSteps.length > 1) dependsOn.push(...orderedSteps.filter(item=>item.tool!=='model_reasoning').map(item=>item.tool));
+    if (step.tool === 'model_reasoning' && orderedSteps.length > 1) {
+      dependsOn.push(...orderedSteps.filter(item=>item.tool!=='model_reasoning').map(item=>item.tool));
+    }
     return {step:step.order,tool:step.tool,depends_on:[...new Set(dependsOn)]};
   });
 
@@ -278,6 +293,15 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
     compound: orderedSteps.length > 1,
     steps: orderedSteps,
     dependencies,
+    reasoning: {
+      ...(base.reasoning || {}),
+      tool_count_hint: orderedSteps.filter(step => step.tool !== 'model_reasoning').length,
+      compound_reason: orderedSteps.length > 1
+        ? (steps.some(step => step.tool === 'calculator') && steps.some(step => step.tool === 'web_search')
+          ? 'evidence_then_deterministic_calculation'
+          : 'multi_tool_dependency')
+        : 'single_tool_or_direct_reasoning'
+    },
     execution_policy:'execute_in_order_and_report_actual_results'
   };
 }
