@@ -321,21 +321,37 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   if (conversationId) history = await loadConversationHistory(origin, conversationId, requestId);
   const isolatedHistory = filterConversationHistory(history, capability);
   const contextualMemory = resolveContext(message, isolatedHistory);
+  const contextualQuery = String(contextualMemory.search_query || message).trim();
   const contextInstruction = contextualMemory.references.length
     ? `CONTEXTO CONVERSACIONAL RELEVANTE: ${JSON.stringify(contextualMemory)}. Usa este contexto solo cuando corresponda a la consulta actual; no inventes referentes.`
     : '';
   const compactHistory = isolatedHistory.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
 
   const mode = normalizeInteractionMode(payload?.mode);
-  const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language, mode);
+  const preliminaryRoute = planCognitiveRoute(contextualQuery, 'general', [], 'none', language, mode);
   const evidence = preliminaryRoute.research_required
-    ? await recoverToolEvidence(message, requestId)
+    ? await recoverToolEvidence(contextualQuery, requestId)
     : { text: '', sources: [], method: 'not-required' };
   const backendEvidenceCapability = String(upstreamBody?.capability || upstreamBody?.routing || upstreamBody?.['x-bitey-capability'] || '').trim();
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
   const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
-  const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none', language, mode), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
+  const cognitiveRoute = {
+    ...planCognitiveRoute(contextualQuery, 'general', sourcesFromEvidence, evidence?.method || 'none', language, mode),
+    language: language.language,
+    normalized_message: language.normalized,
+    corrections: language.corrections,
+    conversation_context: {
+      references: contextualMemory.references,
+      inherited_locations: contextualMemory.inherited_locations,
+      inherited_domains: contextualMemory.inherited_domains,
+      inherited_entities: contextualMemory.inherited_entities,
+      recent_topic_terms: contextualMemory.recent_topic_terms,
+      context_turns: contextualMemory.context_turns,
+      confidence: contextualMemory.confidence,
+      contextual_query: contextualQuery !== message ? contextualQuery : null
+    }
+  };
   if (evidence?.evidence_analysis) cognitiveRoute.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   if (evidence?.tool_execution) cognitiveRoute.tool_execution = evidence.tool_execution;
