@@ -483,9 +483,25 @@ async function recoverToolEvidence(message, requestId) {
     const sources = [];
     const executions = [];
     const attempted = new Set();
+    let workingContext = {
+      original_message: message,
+      evidence: [],
+      sources: []
+    };
 
-    const record = (tool, status, purpose, fallbackFor = null) => {
-      executions.push({ tool, status, purpose, ...(fallbackFor ? { fallback_for: fallbackFor } : {}) });
+    const contextForTool = () => {
+      const evidenceText = workingContext.evidence.filter(Boolean).join('\n\n');
+      return [message, evidenceText].filter(Boolean).join('\n\n');
+    };
+
+    const record = (tool, status, purpose, fallbackFor = null, inputContext = null) => {
+      executions.push({
+        tool,
+        status,
+        purpose,
+        ...(inputContext ? { input_context: inputContext } : {}),
+        ...(fallbackFor ? { fallback_for: fallbackFor } : {})
+      });
       attempted.add(tool);
     };
 
@@ -499,28 +515,35 @@ async function recoverToolEvidence(message, requestId) {
         }
         evidenceParts.push(weather.text);
         sources.push(...(weather.sources || []));
-        record(tool, 'success', purpose, fallbackFor);
+        workingContext.evidence.push(weather.text);
+        workingContext.sources.push(...(weather.sources || []));
+        record(tool, 'success', purpose, fallbackFor, contextForTool());
         return true;
       }
       if (tool === 'calculator') {
-        const calculation = calculateExpression(message);
+        const calculation = calculateExpression(contextForTool());
         if (!calculation) {
           record(tool, 'failed', purpose, fallbackFor);
           return false;
         }
         evidenceParts.push(calculation.text);
-        record(tool, 'success', purpose, fallbackFor);
+        workingContext.evidence.push(calculation.text);
+        record(tool, 'success', purpose, fallbackFor, contextForTool());
         return true;
       }
       if (tool === 'web_search') {
-        const search = await recoverSearch(message, requestId);
+        const search = await recoverSearch(contextForTool(), requestId);
         if (!search) {
           record(tool, 'failed', purpose, fallbackFor);
           return false;
         }
-        if (search.text) evidenceParts.push(search.text);
+        if (search.text) {
+          evidenceParts.push(search.text);
+          workingContext.evidence.push(search.text);
+        }
         sources.push(...(search.sources || []));
-        record(tool, 'success', purpose, fallbackFor);
+        workingContext.sources.push(...(search.sources || []));
+        record(tool, 'success', purpose, fallbackFor, contextForTool());
         return true;
       }
       if (tool === 'code_reasoning') {
