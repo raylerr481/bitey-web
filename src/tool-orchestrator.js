@@ -22,11 +22,17 @@ const TOOL_DEFINITIONS = {
 
 const GREETING_RE = /^(hola|hi|hello|olá|oi|buenas?)(?:[!,.\s].*)?$/i;
 const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|contrasta|search|research)\b/i;
-const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|news|noticias?|precio(?:s)?|cotización|cotiza|cuánto cuesta|recent|recently|recentemente)\b/i;
+const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|news|noticias?|precio(?:s)?|cuánto cuesta|cotización|cotiza|recent|recently|recentemente)\b/i;
 const CURRENT_ENTITY_RE = /\b(qué|que|quién|quien|where|who|when|cuál|cual)\b/i;
 const CONCEPTUAL_RE = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
 const DEEP_RE = /\b(paso a paso|analiza|analizar|análisis|analisis|planifica|planificar|diseña|diseñar|arquitectura|profundo|profundamente|detalladamente|deep|complex|audita|auditar|revisa|revisar)\b/i;
 const MULTI_TASK_RE = /\b(y además|y tambien|y también|además|también|tambien|then|also|and)\b/i;
+
+// Keep price/value questions in the current-information lane. A phrase such as
+// "¿cuánto cuesta...?" asks for an external value, not arithmetic by itself.
+const PRICE_QUERY_RE = /\b(cu[aá]nto\s+(?:cuesta|vale|valen|costar[aá]?|sale)|precio(?:s)?|cotizaci[oó]n|cotiza|valor(?:\s+actual)?|how\s+much\s+(?:does|is)|price)\b/i;
+const EXPLICIT_CALCULATION_RE = /(?:cu[aá]nto\s+es|calcula(?:r)?|calculate|compute|porcentaje|roi|retorno|rentabilidad|suma|resta|multiplica|divide|operaci[oó]n\s+matem[aá]tica|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i;
+const QUANTITY_CALCULATION_RE = /\b(cu[aá]ntas?|how\s+many)\s+(?:acciones|unidades|meses|a[nñ]os|d[ií]as|porciones|lotes|unidades)\b/i;
 
 export function evaluateIntent({ language = {}, route = {}, message = '', context = {} } = {}) {
   const text = String(message || '').trim();
@@ -42,7 +48,13 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     time: normalizedIntent === 'time' || domains.has('time') || /\b(hora|horario|time)\b/i.test(lower) || /\bqu[eé]\s+tiempo\s+es\b/i.test(lower),
     weather: domains.has('weather') || normalizedIntent === 'weather' || /\b(clima|weather|forecast|previs[aã]o|temperatura)\b/i.test(lower),
     research: EXPLICIT_RESEARCH_RE.test(lower),
-    calculation: /(?:cuánto es|cu[aá]nto|calcula|calcular|calculate|compute|porcentaje|roi|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i.test(lower) || normalizedIntent === 'calculation' || domains.has('math'),
+    // Do not use "cuánto" alone as a calculator trigger: price/value questions
+    // require live evidence. Arithmetic, ROI and explicit quantity calculations do.
+    calculation: EXPLICIT_CALCULATION_RE.test(lower)
+      || QUANTITY_CALCULATION_RE.test(lower)
+      || normalizedIntent === 'calculation'
+      || domains.has('math'),
+    price_query: PRICE_QUERY_RE.test(lower),
     code: normalizedIntent === 'code' || domains.has('code') || /\b(código|code|python|javascript|typescript|sql|api|bug|error|github|stack trace)\b/i.test(lower),
     comparison: normalizedIntent === 'comparison' || /\b(compara|comparar|comparativa|comparativas|versus|\bvs\.?\b|diferencia|alternativas|opciones)\b/i.test(lower),
     context_followup: Array.isArray(context?.references) && context.references.length > 0,
@@ -50,9 +62,13 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     multi_task: MULTI_TASK_RE.test(lower) && text.length > 80
   };
 
-  // "where/who/when" alone are not freshness signals. They need an entity/current
-  // context to justify external evidence. This prevents conceptual questions from
-  // falling into generic web search.
+  // Price queries are explicitly current-information requests unless the user
+  // also supplied a real arithmetic operation.
+  if (signals.price_query && !EXPLICIT_CALCULATION_RE.test(lower) && !QUANTITY_CALCULATION_RE.test(lower)) {
+    signals.current = true;
+    signals.calculation = false;
+  }
+
   signals.entity_lookup = CURRENT_ENTITY_RE.test(lower) && !conceptual;
   signals.fresh_entity_lookup = signals.entity_lookup && (
     signals.current || /\b(ahora|actual|actualmente|latest|today|recent)\b/i.test(lower)
@@ -73,8 +89,6 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const explicitResearchMode = explicitMode === 'investigación' || explicitMode === 'research';
   const explicitMathMode = explicitMode === 'matemática' || explicitMode === 'math';
   const explicitCodeMode = explicitMode === 'código' || explicitMode === 'code';
-  // Named-entity questions usually need external grounding, while conceptual
-  // definitions remain direct unless the user explicitly asks for research.
   const entityEvidenceRequired = signals.entity_lookup && !conceptual;
   const externalEvidenceRequired = explicitResearchMode
     || signals.research
@@ -101,7 +115,6 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   else if (explicitCodeMode || signals.code) toolNeed = 'code_reasoning';
   else if (externalEvidenceRequired) toolNeed = 'web_search';
 
-  // Explicit UI modes are hard overrides, while Auto remains evidence-driven.
   if (explicitMathMode) toolNeed = 'calculator';
   if (explicitCodeMode) toolNeed = 'code_reasoning';
   if (explicitResearchMode) toolNeed = 'web_search';
@@ -219,7 +232,7 @@ export function toolLabel(id) {
 function isCalculation(message, intent, domains) {
   if (intent === 'calculation') return true;
   if (domains.has('math')) return true;
-  return /(?:cu[aá]nto es|calcula|calcular|calculate|compute|suma|resta|multiplica|divide|porcentaje|%|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i.test(String(message || ''));
+  return EXPLICIT_CALCULATION_RE.test(String(message || '')) || QUANTITY_CALCULATION_RE.test(String(message || ''));
 }
 
 function buildReason(primary, intent, domains, intentEval = {}) {
@@ -253,8 +266,6 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
   if (base.selected.includes('calculator')) add('calculator','realizar cálculos deterministas');
   if (base.selected.includes('code_reasoning')) add('code_reasoning','analizar código y resultados técnicos');
 
-  // Adaptive compound planning: add a second tool only when the task contains
-  // a real dependency between evidence and computation/reasoning.
   const comparisonTask = /\b(compara|comparar|comparativa|contrasta|versus|vs\.?)\b/i.test(text);
   const derivationTask = /\b(calcula|calcular|cu[aá]nto|cu[aá]ntas|porcentaje|roi|retorno|rentabilidad|inversi[oó]n|recuperar|recuperaci[oó]n|mensual|anual|por d[ií]a|coste|costo|precio)\b/i.test(text);
   const multiTask = Boolean(
