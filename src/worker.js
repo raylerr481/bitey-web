@@ -159,8 +159,9 @@ async function tryRealAiFallback(upstream, request, env, requestId, origin) {
     const raw = await upstream.clone().text();
     try { upstreamBody = JSON.parse(raw); } catch (_) {}
     const answer = String(upstreamBody?.answer || '').trim();
-    const providers = Array.isArray(upstreamBody?.providers) ? upstreamBody.providers : [];
-    degraded = degraded || !answer || !providers.length || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
+    // A valid answer must be trusted even when the backend omits provider metadata.
+    // Provider metadata is diagnostic, not a requirement for a usable response.
+    degraded = degraded || !answer || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
     if (!degraded) return await enrichSuccessfulResponse(upstream, request, requestId, env);
   } catch (_) {
     degraded = true;
