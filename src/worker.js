@@ -1121,6 +1121,29 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
 
     const dependencyResult = (tool) => executions.find(item => item.tool === tool && item.status === 'success' && item.result_valid === true);
 
+    const validateSemanticToolOutput = (tool, output = {}, originalMessage = message) => {
+      const text = String(output?.text || '').trim();
+      const sourceText = [
+        text,
+        ...(Array.isArray(output?.sources) ? output.sources.map(source => String(source?.title || '') + ' ' + String(source?.snippet || source?.description || '')) : [])
+      ].join(' ');
+      const queryFrame = extractClaimFrame(originalMessage);
+      const resultFrame = extractClaimFrame(sourceText);
+      const resultSet = new Set(resultFrame.tokens);
+      const matched = queryFrame.tokens.filter(token => resultSet.has(token)).length;
+      const coverage = queryFrame.tokens.length ? matched / queryFrame.tokens.length : 0;
+      const explicitEntity = queryFrame.subject.some(token => resultSet.has(token));
+      const semanticMinimum = tool === 'web_search' ? 0.18 : 0.10;
+      const valid = text.length > 0 && (coverage >= semanticMinimum || explicitEntity);
+      return {
+        valid,
+        query_term_coverage: Number(coverage.toFixed(3)),
+        explicit_entity_match: explicitEntity,
+        matched_terms: matched,
+        query_terms: queryFrame.tokens.length
+      };
+    };
+
     const validateToolOutput = (tool, output = {}) => {
       const text = String(output?.text || '').trim();
       const sourceCount = Array.isArray(output?.sources) ? output.sources.length : 0;
@@ -1148,7 +1171,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.evidence.push(time.text);
         workingContext.sources.push(...(time.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }), { non_empty_text: Boolean(String(time.text || '').trim()) });
+        const semantic = validateSemanticToolOutput(tool, { text: time.text, sources: time.sources });
+        return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }) && semantic.valid, { non_empty_text: Boolean(String(time.text || '').trim()), semantic });
       }
       if (tool === 'weather') {
         const weather = await recoverWeather(message, requestId);
@@ -1161,7 +1185,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.evidence.push(weather.text);
         workingContext.sources.push(...(weather.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        return markResult(tool, validateToolOutput(tool, { text: weather.text, sources: weather.sources }), { non_empty_text: Boolean(String(weather.text || '').trim()), source_count: (weather.sources || []).length });
+        const semantic = validateSemanticToolOutput(tool, { text: weather.text, sources: weather.sources });
+        return markResult(tool, validateToolOutput(tool, { text: weather.text, sources: weather.sources }) && semantic.valid, { non_empty_text: Boolean(String(weather.text || '').trim()), source_count: (weather.sources || []).length, semantic });
       }
       if (tool === 'calculator') {
         const calculation = calculateExpression(contextForTool());
@@ -1203,7 +1228,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         sources.push(...(search.sources || []));
         workingContext.sources.push(...(search.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        return markResult(tool, validateToolOutput(tool, { text: search.text, sources: search.sources }), { non_empty_text: Boolean(String(search.text || '').trim()), source_count: (search.sources || []).length });
+        const semantic = validateSemanticToolOutput(tool, { text: search.text, sources: search.sources });
+        return markResult(tool, validateToolOutput(tool, { text: search.text, sources: search.sources }) && semantic.valid, { non_empty_text: Boolean(String(search.text || '').trim()), source_count: (search.sources || []).length, semantic });
       }
       if (tool === 'code_reasoning') {
         record(tool, 'delegated', purpose, fallbackFor);
