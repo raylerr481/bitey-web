@@ -406,6 +406,7 @@ function buildAnswerRecoveryPlan(validation, route = {}) {
   const gate = validation?.final_gate || {};
   const actions = [];
   if (!gate.evidence_supported || missing.includes('current_information')) actions.push('refresh_external_evidence');
+  if (validation?.claim_validation?.unsupported_factual_claims?.length) actions.push('remove_or_support_claims');
   if (missing.includes('calculation_result')) actions.push('verify_or_recalculate');
   if (missing.includes('comparison_coverage')) actions.push('expand_comparison_evidence');
   if (validation?.contradiction_warning) actions.push('resolve_source_conflict');
@@ -430,30 +431,53 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
     claims.push({ type: 'numeric', value, context: text.slice(start, end).replace(/\s+/g, ' ').trim() });
   }
 
-  const citationIds = extractCitationIds(text);
+  // For research answers, also inspect factual sentences that do not contain numbers.
+  // This catches unsupported names, dates, features, legal/policy statements, etc.
+  const sentences = text
+    .split(/(?<=[.!?¿])\s+/)
+    .map(item => item.replace(/\[S\d+\]/g, '').trim())
+    .filter(item => item.length >= 35);
+  const factualPattern = /\b(es|son|fue|fueron|tiene|tienen|incluye|incluyen|permite|requiere|ofrece|ofrecen|cuenta con|consiste en|se encuentra|opera|cotiza|vende|lanz[oó]|anunci[oó]|establece|indica|seg[uú]n|is|are|was|were|has|have|includes|allows|requires|offers|launched|announced)\b/i;
+  for (const sentence of sentences) {
+    if (!factualPattern.test(sentence)) continue;
+    if (/^(?:por ejemplo|en resumen|en general|por tanto|por lo tanto|esto significa|la respuesta)/i.test(sentence)) continue;
+    claims.push({ type: 'factual', value: sentence.slice(0, 180), context: sentence });
+  }
+
   const sourceText = sources.map((source, index) => ({
     id: '[S' + (index + 1) + ']',
     text: String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '')
   }));
-  const unsupported = [];
-  for (const claim of claims) {
-    if (!route?.research_required) continue;
-    const contextTokens = meaningfulQueryTokens(claim.context).filter(token => token.length >= 4).slice(0, 10);
-    const supported = sourceText.some(source => {
-      const normalized = normalizeSearchText(source.text);
-      const hits = contextTokens.filter(token => normalized.includes(token)).length;
-      return hits >= Math.min(2, Math.max(1, Math.ceil(contextTokens.length * 0.2)));
-    });
-    if (!supported) unsupported.push(claim);
+  const unsupportedNumeric = [];
+  const unsupportedFactual = [];
+  if (route?.research_required) {
+    for (const claim of claims) {
+      const contextTokens = meaningfulQueryTokens(claim.context)
+        .filter(token => token.length >= 4)
+        .slice(0, 14);
+      if (!contextTokens.length) continue;
+      const supported = sourceText.some(source => {
+        const normalized = normalizeSearchText(source.text);
+        const hits = contextTokens.filter(token => normalized.includes(token)).length;
+        const threshold = claim.type === 'numeric'
+          ? Math.min(2, Math.max(1, Math.ceil(contextTokens.length * 0.2)))
+          : Math.min(4, Math.max(2, Math.ceil(contextTokens.length * 0.28)));
+        return hits >= threshold;
+      });
+      if (!supported) {
+        if (claim.type === 'numeric') unsupportedNumeric.push(claim);
+        else unsupportedFactual.push(claim);
+      }
+    }
   }
   return {
     checked: claims.length > 0,
     claim_count: claims.length,
-    unsupported_numeric_claims: unsupported.slice(0, 10),
-    unsupported_count: unsupported.length
+    unsupported_numeric_claims: unsupportedNumeric.slice(0, 10),
+    unsupported_factual_claims: unsupportedFactual.slice(0, 10),
+    unsupported_count: unsupportedNumeric.length + unsupportedFactual.length
   };
 }
-
 function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const text = String(answer || '').trim();
   const citations = extractCitationIds(text);
@@ -467,11 +491,11 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     !/\b(conflict|contradic|discrep|difier|difer|no coinciden|fuentes? indican|según|segun|incertidumbre)\b/i.test(text);
   const coverage = assessAnswerCoverage(question, text, route);
   const claimValidation = validateAnswerClaims(text, sources, route);
-  const unsupportedNumericClaims = claimValidation.unsupported_count > 0;
+  const unsupportedClaims = claimValidation.unsupported_count > 0;
   const finalGate = {
     non_empty: text.length > 0,
     citations_valid: invalidCitations.length === 0,
-    evidence_supported: !unsupportedResearchAnswer && !unsupportedNumericClaims,
+    evidence_supported: !unsupportedResearchAnswer && !unsupportedClaims,
     coverage_valid: coverage.valid,
     contradictions_acknowledged: !contradictionWarning
   };
