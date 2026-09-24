@@ -115,7 +115,7 @@ class ProviderGateway:
         if env_true("GROQ_ENABLED",False) and os.getenv("GROQ_API_KEY"):
             model=os.getenv("GROQ_MODEL","openai/gpt-oss-120b")
             if can_use_external_free_provider("groq",model=model): self.register(OpenAICompatibleProvider("groq-free","https://api.groq.com/openai/v1",model,os.getenv("GROQ_API_KEY",""),int(os.getenv("GROQ_PRIORITY","50")),True))
-        if env_true("OPENROUTER_ENABLED",False) and os.getenv("OPENROUTER_API_KEY"):
+        if env_true("OPENROUTER_ENABLED",True) and os.getenv("OPENROUTER_API_KEY"):
             deepseek=os.getenv("OPENROUTER_DEEPSEEK_MODEL","deepseek/deepseek-chat-v3-0324:free")
             if env_true("DEEPSEEK_ENABLED",True) and can_use_external_free_provider("openrouter",model=deepseek): self.register(OpenAICompatibleProvider("deepseek-free","https://openrouter.ai/api/v1",deepseek,os.getenv("OPENROUTER_API_KEY",""),70,True))
     def _register_from_environment(self):
@@ -139,7 +139,7 @@ class ProviderGateway:
         refresh_seconds=max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))
         if self._openrouter_catalog_loaded and time.monotonic()-self._openrouter_catalog_loaded_at < refresh_seconds: return
         api_key=os.getenv("OPENROUTER_API_KEY","").strip()
-        if not api_key or not env_true("OPENROUTER_ENABLED",False): return
+        if not api_key or not env_true("OPENROUTER_ENABLED",True): return
         try:
             async with httpx.AsyncClient(timeout=float(os.getenv("OPENROUTER_CATALOG_TIMEOUT","12"))) as client:
                 response=await client.get("https://openrouter.ai/api/v1/models",headers={"Authorization":f"Bearer {api_key}"}); response.raise_for_status(); data=response.json()
