@@ -203,3 +203,23 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
 
 /* Rich assistant rendering. */
 .message.assistant .message-content h1,.message.assistant .message-content h2,.message.assistant .message-content h3,.message.assistant .message-content h4,.message.assistant .message-content h5,.message.assistant .message-content h6{margin:16px 0 7px;line-height:1.25;font-weight:700}.message.assistant .message-content h1{font-size:1.45em}.message.assistant .message-content h2{font-size:1.25em}.message.assistant .message-content h3{font-size:1.1em}.message.assistant .message-content ul,.message.assistant .message-content ol{margin:7px 0 10px;padding-left:24px}.message.assistant .message-content li{margin:4px 0;padding-left:3px}.bitey-inline-link{color:#8fc7d5;text-decoration:underline}.bitey-code{margin:10px 0;padding:12px 14px;overflow:auto;border:1px solid #25343d;border-radius:10px;background:#0a1116;white-space:pre}.bitey-code code{font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
+
+
+/* 2026-09-24: wide ChatGPT-like composer — writing surface remains dominant. */
+.chat-area > .composer-wrap > .composer{
+  width:min(1120px,calc(100% - 24px))!important;
+  max-width:1120px!important;
+}
+.composer-main{min-height:58px!important}
+.composer textarea{min-height:56px!important;height:56px!important;font-size:15px!important}
+.composer #attach-button,.composer #voice-button,.composer #send{
+  width:28px!important;min-width:28px!important;max-width:28px!important;
+  height:28px!important;min-height:28px!important;max-height:28px!important;
+  flex-basis:28px!important;
+}
+.composer #attach-button svg,.composer #voice-button svg{width:16px!important;height:16px!important}
+.composer #send svg{width:15px!important;height:15px!important}
+@media(max-width:760px){
+  .chat-area > .composer-wrap > .composer{width:calc(100% - 8px)!important;max-width:none!important}
+  .composer textarea{min-height:50px!important;height:50px!important}
+}
