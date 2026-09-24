@@ -615,6 +615,51 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
       }
     }
 
+    // Second bounded recovery pass: use the newest validation to repair unsupported
+    // claims or remaining coverage gaps without opening an unbounded retry loop.
+    if (!validation.second_recovery_attempted) {
+      try {
+        const secondPlan = buildAnswerRecoveryPlan(validation, route);
+        const secondPrompt = [
+          'Realiza una segunda y última revisión de recuperación de la respuesta.',
+          'Elimina cualquier afirmación factual que no pueda sostenerse con las fuentes.',
+          'Si una parte de la pregunta sigue sin respuesta, respóndela solo con evidencia disponible.',
+          'No inventes cifras, hechos, referencias ni operaciones.',
+          'No describas el proceso interno. Entrega solo la respuesta final.',
+          'PLAN: ' + JSON.stringify(secondPlan),
+          'VALIDACIÓN ANTERIOR: ' + JSON.stringify(validation),
+          'PREGUNTA: ' + message,
+          'RESPUESTA: ' + answer,
+          'EVIDENCIA: ' + recoveryEvidenceText,
+          'FUENTES: ' + recoverySources.slice(0,8).map((s,i)=>'[S'+(i+1)+'] '+String(s.title||'Fuente')+' — '+String(s.url||'')+'\n'+String(s.snippet||'')).join('\n\n')
+        ].join('\\n\\n');
+        const secondResponse = await env.AI.run(AI_MODEL, {
+          messages: [
+            { role: 'system', content: 'Haz una última corrección de precisión y respaldo. No inventes referencias.' },
+            { role: 'user', content: secondPrompt }
+          ],
+          max_tokens: 768,
+          temperature: 0.05,
+          chat_template_kwargs: { enable_thinking: false }
+        });
+        const secondAnswer = extractAiText(secondResponse);
+        const secondValidation = validateSynthesizedAnswer(secondAnswer, recoverySources, route, message);
+        secondValidation.second_recovery_attempted = true;
+        secondValidation.previous_validation = validation;
+        if (secondValidation.valid) {
+          secondValidation.revision_applied = true;
+          secondValidation.recovery_status = 'validated_after_bounded_recovery';
+          return { answer: secondAnswer, validation: secondValidation };
+        }
+        validation.second_recovery_attempted = true;
+        validation.second_recovery_succeeded = false;
+      } catch (secondRecoveryError) {
+        console.warn('Bitey second bounded recovery failed', { requestId, error: String(secondRecoveryError) });
+        validation.second_recovery_attempted = true;
+        validation.second_recovery_succeeded = false;
+      }
+    }
+
     console.warn('Bitey synthesis validation rejected answer', { requestId, validation });
     return null;
   } catch(error) {
