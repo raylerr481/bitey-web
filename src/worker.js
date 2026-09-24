@@ -116,12 +116,13 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   body.research_required = route.research_required;
   body.research_reasons = route.reasons;
   body.sources = sources;
+  if (evidence?.evidence_analysis) body.evidence_analysis = evidence.evidence_analysis;
   body.activity_events = [
     'Intención comprendida y ruta cognitiva seleccionada.',
     route.tool_step,
     ...(sources.length ? [
       'Evidencia recopilada.',
-      'Fuentes comparadas y filtradas por relevancia.'
+      ...(evidence?.evidence_analysis?.quality_ranked ? ['Fuentes relevantes, duplicadas y calidad de evidencia evaluadas.'] : [])
     ] : []),
     'Respuesta preliminar revisada antes de entregar.'
   ];
