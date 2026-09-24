@@ -8,6 +8,7 @@ const WEATHER_RE = /\b(temperatura|temperaturas|clima|tiempo|timepoe|tiempoe|tie
 const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
 const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
 const RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -3) + '|' + FRESHNESS_RE.source.slice(2, -3) + ')', 'i');
+import { analyzeLanguage } from './language-engine.js';
 
 export default {
   async fetch(request, env) {
