@@ -1,6 +1,6 @@
 import { classifyCapability } from './capability-router.js';
 import { filterConversationHistory } from './conversation-isolation.js';
-import { analyzeLanguage } from './language-engine.js';
+import { analyzeLanguage, resolveContext } from './language-engine.js';
 
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
@@ -239,6 +239,10 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   let history = [];
   if (conversationId) history = await loadConversationHistory(origin, conversationId, requestId);
   const isolatedHistory = filterConversationHistory(history, capability);
+  const contextualMemory = resolveContext(message, isolatedHistory);
+  const contextInstruction = contextualMemory.references.length
+    ? `CONTEXTO CONVERSACIONAL RELEVANTE: ${JSON.stringify(contextualMemory)}. Usa este contexto solo cuando corresponda a la consulta actual; no inventes referentes.`
+    : '';
   const compactHistory = isolatedHistory.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
 
   const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none');
@@ -265,11 +269,11 @@ ${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url 
 Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No inventes referencias.`
     : '';
   const system = 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';
-  const messages = [{ role: 'system', content: system }, ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), ...compactHistory, { role: 'user', content: message }];
+  const messages = [{ role: 'system', content: system }, ...(contextInstruction ? [{ role: 'system', content: contextInstruction }] : []), ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), ...compactHistory, { role: 'user', content: message }];
 
   const attempts = [
     { messages, max_tokens: 512 },
-    { messages: [{ role: 'system', content: system }, ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), { role: 'user', content: message }], max_tokens: 512 }
+    { messages: [{ role: 'system', content: system }, ...(contextInstruction ? [{ role: 'system', content: contextInstruction }] : []), ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), { role: 'user', content: message }], max_tokens: 512 }
   ];
   for (let index = 0; index < attempts.length; index++) {
     try {
