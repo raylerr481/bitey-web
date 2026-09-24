@@ -230,10 +230,24 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
 
   if (!steps.length) add('model_reasoning', 'sintetizar la respuesta con razonamiento directo');
 
+  const dependencyOrder = ['weather', 'web_search', 'calculator', 'code_reasoning', 'model_reasoning'];
+  const orderedSteps = steps
+    .slice()
+    .sort((a, b) => dependencyOrder.indexOf(a.tool) - dependencyOrder.indexOf(b.tool))
+    .map((step, index) => ({ ...step, order: index + 1 }));
+
+  const dependencies = orderedSteps.map((step, index) => ({
+    step: step.order,
+    tool: step.tool,
+    depends_on: index === 0 ? [] : orderedSteps.slice(0, index).map(item => item.tool)
+  }));
+
   return {
     ...base,
-    compound: steps.length > 1,
-    steps,
+    primary: orderedSteps[0]?.tool || base.primary,
+    compound: orderedSteps.length > 1,
+    steps: orderedSteps,
+    dependencies,
     execution_policy: 'execute_in_order_and_report_actual_results'
   };
 }
