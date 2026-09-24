@@ -529,28 +529,37 @@ async function tryCalculatorFastPath(request, requestId) {
 
 function calculateExpression(message) {
   const text = String(message || '').trim().replace(/,/g, '.');
-  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\\s*([-+]?\\d+(?:\\.\\d+)?(?:\\s*[+*\\/\\-]\\s*[-+]?\\d+(?:\\.\\d+)?)+)\\s*(?:\\?|$)/i);
+  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
   if (!match) return null;
-  const expression = match[1].replace(/\\s+/g, '');
-  if (!/^[0-9.+*\\/\\-]+$/.test(expression) || /[+*\\/\\-]{2,}/.test(expression)) return null;
+  const expression = match[1].replace(/\s+/g, '');
+  if (!/^[0-9.+*\/\-]+$/.test(expression) || /[+*\/\-]{2,}/.test(expression)) return null;
   try {
-    const tokens = expression.match(/[-+]?\\d+(?:\\.\\d+)?|[+*\\/\\-]/g) || [];
+    const tokens = expression.match(/[-+]?\d+(?:\.\d+)?|[+*\/\-]/g) || [];
+    if (!tokens.length || tokens.length % 2 === 0) return null;
     let total = Number(tokens[0]);
     if (!Number.isFinite(total)) return null;
+    const addTerms = [];
+    let term = total;
+    let pendingAdd = '+';
     for (let i = 1; i < tokens.length; i += 2) {
       const op = tokens[i], rhs = Number(tokens[i + 1]);
       if (!Number.isFinite(rhs)) return null;
-      if (op === '+') total += rhs;
-      else if (op === '-') total -= rhs;
-      else if (op === '*') total *= rhs;
+      if (op === '*') term *= rhs;
       else if (op === '/') {
         if (rhs === 0) return null;
-        total /= rhs;
+        term /= rhs;
+      } else if (op === '+' || op === '-') {
+        addTerms.push({ op: pendingAdd, value: term });
+        term = rhs;
+        pendingAdd = op;
       } else return null;
+      if (!Number.isFinite(term)) return null;
     }
+    addTerms.push({ op: pendingAdd, value: term });
+    total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
     if (!Number.isFinite(total)) return null;
     const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
-    return { expression, value: total, answer: `El resultado es **${formatted}**.`, text: `CALCULATOR: ${expression} = ${formatted}` };
+    return { expression, value: total, answer: \`El resultado es **\${formatted}**.\`, text: \`CALCULATOR: \${expression} = \${formatted}\` };
   } catch (_) {
     return null;
   }
