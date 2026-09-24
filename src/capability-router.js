@@ -8,7 +8,9 @@ const TRADING_ACTION = /\b(analiza|analizar|señal|señales|compra|comprar|vende
 export function classifyCapability(message = '') {
   const language = analyzeLanguage(message);
   const text = language.normalized || String(message).trim();
-  if (!text) return { capability: 'general', confidence: 1, reason: 'empty_or_general', specialized: false, language: language.language, normalized_message: text, corrections: language.corrections };
+  const domains = language.domains || [];
+  const domainSet = new Set(domains.map(item => item.domain));
+  if (!text) return { capability: 'general', confidence: 1, reason: 'empty_or_general', specialized: false, language: language.language, normalized_message: text, corrections: language.corrections, domains: language.domains };
 
   if (ENTERPRISE_KEYWORDS.test(text)) return { capability: 'enterprise', confidence: 0.99, reason: 'enterprise_domain', specialized: true, language: language.language, normalized_message: text, corrections: language.corrections };
 
@@ -17,8 +19,8 @@ export function classifyCapability(message = '') {
     return { capability: 'general', confidence: 0.99, reason: 'conceptual_general_question', specialized: false, language: language.language, normalized_message: text, corrections: language.corrections };
   }
 
-  if (SBT_KEYWORDS.test(text)) return { capability: 'sbt', confidence: 0.96, reason: 'trading_domain', specialized: true, language: language.language, normalized_message: text, corrections: language.corrections };
-  if (JOBIA_KEYWORDS.test(text)) return { capability: 'jobia', confidence: 0.96, reason: 'work_domain', specialized: true, language: language.language, normalized_message: text, corrections: language.corrections };
+  if (SBT_KEYWORDS.test(text) || domainSet.has('finance')) return { capability: 'sbt', confidence: 0.96, reason: 'trading_domain', specialized: true, language: language.language, normalized_message: text, corrections: language.corrections };
+  if (JOBIA_KEYWORDS.test(text) || domainSet.has('jobs')) return { capability: 'jobia', confidence: 0.96, reason: 'work_domain', specialized: true, language: language.language, normalized_message: text, corrections: language.corrections };
   return { capability: 'general', confidence: 1, reason: 'general_domain', specialized: false, language: language.language, normalized_message: text, corrections: language.corrections };
 }
 
