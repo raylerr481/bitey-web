@@ -801,9 +801,6 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
           }
           return false;
         }
-          record(tool, 'failed', purpose, fallbackFor);
-          return false;
-        }
         evidenceParts.push(derived.text);
         workingContext.evidence.push(derived.text);
         record(tool, 'success', purpose, fallbackFor, {
