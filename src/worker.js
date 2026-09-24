@@ -189,6 +189,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   const evidenceText = String(evidence?.text || '').trim();
 
   const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none', language);
+  if (evidence?.evidence_analysis) route.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   body.cognitive_route = { ...route, language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   body.research_attempted = route.research_attempted;
   body.research_required = route.research_required;
@@ -208,7 +209,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   if (env.AI) {
     const synthesized = await synthesizeWithEvidence({
       env, message, originalAnswer: String(body?.answer || ''),
-      evidenceText, sources, requestId, route
+      evidenceText, sources, requestId, route, evidenceAnalysis: evidence?.evidence_analysis || null
     });
     if (synthesized?.answer) {
       body.answer = synthesized.answer;
@@ -241,16 +242,19 @@ function validateSynthesizedAnswer(answer, sources, route) {
   const hasEvidence = sources.length > 0;
   const unsupportedResearchAnswer = requiresEvidence && !hasEvidence && text.length > 80 &&
     !/\b(no pude|no encontré|no encontre|sin evidencia|no hay datos|limitación|limitacion|incertidumbre)\b/i.test(text);
+  const contradictionWarning = Boolean(route?.evidence_contradictions > 0) &&
+    !/\b(conflict|contradic|discrep|difier|difer|no coinciden|fuentes? indican|según|segun|incertidumbre)\b/i.test(text);
   return {
     valid: invalidCitations.length === 0 && !unsupportedResearchAnswer && text.length > 0,
     citation_count: citations.length,
     invalid_citations: invalidCitations,
     evidence_available: hasEvidence,
-    unsupported_research_answer: unsupportedResearchAnswer
+    unsupported_research_answer: unsupportedResearchAnswer,
+    contradiction_warning: contradictionWarning
   };
 }
 
-async function synthesizeWithEvidence({env, message, originalAnswer, evidenceText, sources, requestId, route = {}}) {
+async function synthesizeWithEvidence({env, message, originalAnswer, evidenceText, sources, requestId, route = {}, evidenceAnalysis = null}) {
   const sourceBlock = sources.slice(0,8).map((s,i)=>'[S'+(i+1)+'] '+String(s.title||'Fuente')+' — '+String(s.url||'')+'\n'+String(s.snippet||'')).join('\n\n');
   const evidence = String(evidenceText||'').slice(0,12000);
   const prompt = [
@@ -270,6 +274,7 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
     'PREGUNTA DEL USUARIO: '+message,
     'RESPUESTA PRELIMINAR: '+originalAnswer,
     'EVIDENCIA: '+evidence,
+    'ANÁLISIS DE EVIDENCIA: '+JSON.stringify(evidenceAnalysis || {}) ,
     'FUENTES: '+sourceBlock
   ].join('\n\n');
   try {
@@ -329,6 +334,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
   const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
   const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none', language), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
+  if (evidence?.evidence_analysis) cognitiveRoute.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   if (evidence?.tool_execution) cognitiveRoute.tool_execution = evidence.tool_execution;
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
