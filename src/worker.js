@@ -451,12 +451,52 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
       {role:'user',content:prompt}
     ],max_tokens:768,temperature:0.1,chat_template_kwargs:{enable_thinking:false}});
     const answer = extractAiText(response);
-    const validation = validateSynthesizedAnswer(answer, sources, route, message);
-    if (!validation.valid) {
-      console.warn('Bitey synthesis validation rejected answer',{requestId,validation});
-      return null;
+    let validation = validateSynthesizedAnswer(answer, sources, route, message);
+    if (validation.valid) return { answer, validation };
+
+    // One bounded repair pass: improve coverage without starting a new research loop.
+    // The same evidence and sources are reused; no hidden reasoning is exposed.
+    if (validation.answer_coverage?.missing_parts?.length) {
+      try {
+        const repairPrompt = [
+          'Revisa y corrige la respuesta para cubrir todas las partes de la pregunta.',
+          'Conserva únicamente datos respaldados por la evidencia proporcionada.',
+          'No inventes fuentes, cifras, herramientas ni operaciones.',
+          'No expliques el proceso interno de revisión.',
+          'Entrega únicamente la respuesta final, clara y en el idioma del usuario.',
+          'PARTES DETECTADAS COMO FALTANTES: ' + JSON.stringify(validation.answer_coverage.missing_parts),
+          'PREGUNTA: ' + message,
+          'RESPUESTA ACTUAL: ' + answer,
+          'EVIDENCIA: ' + evidence,
+          'FUENTES: ' + sourceBlock
+        ].join('\\n\\n');
+        const repairedResponse = await env.AI.run(AI_MODEL, {
+          messages: [
+            { role: 'system', content: 'Corrige cobertura y precisión. No inventes referencias.' },
+            { role: 'user', content: repairPrompt }
+          ],
+          max_tokens: 768,
+          temperature: 0.1,
+          chat_template_kwargs: { enable_thinking: false }
+        });
+        const repaired = extractAiText(repairedResponse);
+        const repairedValidation = validateSynthesizedAnswer(repaired, sources, route, message);
+        if (repairedValidation.valid) {
+          repairedValidation.revision_applied = true;
+          repairedValidation.previous_coverage = validation.answer_coverage;
+          return { answer: repaired, validation: repairedValidation };
+        }
+        validation.revision_attempted = true;
+        validation.revision_succeeded = false;
+      } catch (repairError) {
+        console.warn('Bitey answer coverage repair failed', { requestId, error: String(repairError) });
+        validation.revision_attempted = true;
+        validation.revision_succeeded = false;
+      }
     }
-    return { answer, validation };
+
+    console.warn('Bitey synthesis validation rejected answer', { requestId, validation });
+    return null;
   } catch(error) {
     console.warn('Bitey evidence synthesis failed',{requestId,error:String(error)});
     return null;
