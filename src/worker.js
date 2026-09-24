@@ -453,48 +453,77 @@ async function recoverToolEvidence(message, requestId) {
     const evidenceParts = [];
     const sources = [];
     const executions = [];
+    const attempted = new Set();
+
+    const record = (tool, status, purpose, fallbackFor = null) => {
+      executions.push({ tool, status, purpose, ...(fallbackFor ? { fallback_for: fallbackFor } : {}) });
+      attempted.add(tool);
+    };
+
+    const executeTool = async (tool, purpose, fallbackFor = null) => {
+      if (attempted.has(tool)) return false;
+      if (tool === 'weather') {
+        const weather = await recoverWeather(message, requestId);
+        if (!weather) {
+          record(tool, 'failed', purpose, fallbackFor);
+          return false;
+        }
+        evidenceParts.push(weather.text);
+        sources.push(...(weather.sources || []));
+        record(tool, 'success', purpose, fallbackFor);
+        return true;
+      }
+      if (tool === 'calculator') {
+        const calculation = calculateExpression(message);
+        if (!calculation) {
+          record(tool, 'failed', purpose, fallbackFor);
+          return false;
+        }
+        evidenceParts.push(calculation.text);
+        record(tool, 'success', purpose, fallbackFor);
+        return true;
+      }
+      if (tool === 'web_search') {
+        const search = await recoverSearch(message, requestId);
+        if (!search) {
+          record(tool, 'failed', purpose, fallbackFor);
+          return false;
+        }
+        if (search.text) evidenceParts.push(search.text);
+        sources.push(...(search.sources || []));
+        record(tool, 'success', purpose, fallbackFor);
+        return true;
+      }
+      if (tool === 'code_reasoning') {
+        record(tool, 'delegated', purpose, fallbackFor);
+        return false;
+      }
+      if (tool === 'model_reasoning') {
+        record(tool, 'deferred', purpose, fallbackFor);
+        return false;
+      }
+      return false;
+    };
 
     for (const step of plan.steps || []) {
-      if (step.tool === 'weather') {
-        const weather = await recoverWeather(message, requestId);
-        if (weather) {
-          evidenceParts.push(weather.text);
-          sources.push(...(weather.sources || []));
-          executions.push({ tool: 'weather', status: 'success', purpose: step.purpose });
-        } else {
-          executions.push({ tool: 'weather', status: 'failed', purpose: step.purpose });
-        }
-      } else if (step.tool === 'calculator') {
-        const calculation = calculateExpression(message);
-        if (calculation) {
-          evidenceParts.push(calculation.text);
-          executions.push({ tool: 'calculator', status: 'success', purpose: step.purpose });
-        } else {
-          executions.push({ tool: 'calculator', status: 'failed', purpose: step.purpose });
-        }
-      } else if (step.tool === 'web_search') {
-        const search = await recoverSearch(message, requestId);
-        if (search) {
-          if (search.text) evidenceParts.push(search.text);
-          sources.push(...(search.sources || []));
-          executions.push({ tool: 'web_search', status: 'success', purpose: step.purpose });
-        } else {
-          executions.push({ tool: 'web_search', status: 'failed', purpose: step.purpose });
-        }
-      } else if (step.tool === 'code_reasoning') {
-        executions.push({ tool: 'code_reasoning', status: 'delegated', purpose: step.purpose });
-      } else if (step.tool === 'model_reasoning') {
-        executions.push({ tool: 'model_reasoning', status: 'deferred', purpose: step.purpose });
+      const success = await executeTool(step.tool, step.purpose);
+      if (!success && step.tool === 'weather' && !attempted.has('web_search')) {
+        await executeTool('web_search', 'usar búsqueda web como respaldo meteorológico', 'weather');
+      } else if (!success && step.tool === 'calculator' && !attempted.has('model_reasoning')) {
+        await executeTool('model_reasoning', 'usar razonamiento del modelo como respaldo del cálculo', 'calculator');
+      } else if (!success && step.tool === 'code_reasoning' && !attempted.has('model_reasoning')) {
+        await executeTool('model_reasoning', 'usar razonamiento del modelo como respaldo técnico', 'code_reasoning');
       }
     }
 
-    const executed = executions.filter(item => item.status === 'success');
+    const successful = executions.filter(item => item.status === 'success');
+    const usable = executions.filter(item => item.status === 'success' || item.status === 'delegated' || item.status === 'deferred');
     const method = plan.compound
       ? 'compound-tool-plan'
-      : (executed[0]?.tool === 'weather' ? 'weather-open-meteo'
-        : executed[0]?.tool === 'calculator' ? 'deterministic-calculator'
-        : executed[0]?.tool === 'web_search' ? 'web-search'
-        : 'tool-plan');
+      : (successful[0]?.tool === 'weather' ? 'weather-open-meteo'
+        : successful[0]?.tool === 'calculator' ? 'deterministic-calculator'
+        : successful[0]?.tool === 'web_search' ? 'web-search'
+        : usable[0]?.tool ? `tool-${usable[0].tool}` : 'tool-plan');
 
     return {
       text: evidenceParts.filter(Boolean).join('\n\n'),
@@ -504,9 +533,10 @@ async function recoverToolEvidence(message, requestId) {
         primary: plan.primary,
         compound: Boolean(plan.compound),
         planned: plan.steps || [],
+        fallback_chain: plan.fallbacks || [],
         executed: executions,
-        status: executed.length ? 'success' : 'failed',
-        fallback_used: plan.primary !== (executed[0]?.tool || plan.primary)
+        status: successful.length ? 'success' : (usable.length ? 'degraded' : 'failed'),
+        fallback_used: executions.some(item => Boolean(item.fallback_for))
       }
     };
   } catch (error) {
