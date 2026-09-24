@@ -4,7 +4,7 @@ import { filterConversationHistory } from './conversation-isolation.js';
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
 const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en este momento. Inténtalo nuevamente en unos momentos.';
-const WEATHER_RE = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i;
+const WEATHER_RE = /\b(temperatura|temperaturas|clima|tiempo|timepoe|tiempoe|tiempe|tempo|weather|temperature|forecast|previs[aã]o|previsao)\b/i;
 const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
 const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
 const RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -3) + '|' + FRESHNESS_RE.source.slice(2, -3) + ')', 'i');
@@ -150,7 +150,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   return new Response(JSON.stringify(body), { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
-async function extractCitationIds(text) {
+function extractCitationIds(text) {
   return [...new Set((String(text || '').match(/\[S\d+\]/g) || []))];
 }
 
