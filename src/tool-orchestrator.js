@@ -236,11 +236,16 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
     .sort((a, b) => dependencyOrder.indexOf(a.tool) - dependencyOrder.indexOf(b.tool))
     .map((step, index) => ({ ...step, order: index + 1 }));
 
-  const dependencies = orderedSteps.map((step, index) => ({
-    step: step.order,
-    tool: step.tool,
-    depends_on: index === 0 ? [] : orderedSteps.slice(0, index).map(item => item.tool)
-  }));
+  const dependencies = orderedSteps.map((step) => {
+    const dependsOn = [];
+    if (step.tool === 'calculator' && orderedSteps.some(item => item.tool === 'web_search')) {
+      dependsOn.push('web_search');
+    }
+    if (step.tool === 'model_reasoning' && orderedSteps.length > 1) {
+      dependsOn.push(...orderedSteps.filter(item => item.tool !== 'model_reasoning').map(item => item.tool));
+    }
+    return { step: step.order, tool: step.tool, depends_on: [...new Set(dependsOn)] };
+  });
 
   return {
     ...base,
