@@ -155,3 +155,23 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
   }
   .composer #bitey-mode{left:8px!important;bottom:6px!important}
 }
+
+
+/* ChatGPT-sized composer: compact centered dialog box on desktop, full-width on mobile. */
+.chat-area > .composer-wrap > .composer{
+  width:min(768px,calc(100% - 32px))!important;
+  max-width:768px!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+  border-radius:24px!important;
+  box-sizing:border-box!important;
+}
+@media(max-width:760px){
+  .chat-area > .composer-wrap > .composer{
+    width:calc(100% - 16px)!important;
+    max-width:none!important;
+    margin-left:8px!important;
+    margin-right:8px!important;
+    border-radius:22px!important;
+  }
+}
