@@ -11,6 +11,15 @@ const DICTIONARY = new Map([
   ['tecnologia','tecnologia'], ['inteligenciaartificial','inteligencia artificial']
 ]);
 
+
+const DOMAIN_LEXICON = {
+  weather: ['temperatura','clima','tiempo','tempo','weather','temperature','forecast','previsao','previsão','chuva','lluvia','rain','sol','nublado','ensolarado'],
+  finance: ['mercado','trading','bitcoin','acciones','bolsa','cotizacion','cotação','preço','precio','dividendos','stocks','forex','euro','dolar','dólar'],
+  jobs: ['empleo','trabajo','vacante','curriculum','currículo','cv','entrevista','salario','sueldo','emprego','trabalho','vaga'],
+  code: ['codigo','código','programacion','programação','javascript','python','html','css','api','bug','error','docker','linux','wordpress'],
+  business: ['cliente','clientes','ticket','tickets','soporte','suporte','empresa','empresarial','crm','saas','marketing','whatsapp']
+};
+
 const SEMANTIC_TERMS = [
   'temperatura','clima','tiempo','tempo','weather','temperature','forecast','previsao',
   'mercado','trading','bitcoin','acciones','bolsa','empleo','trabajo','vacante',
@@ -55,10 +64,11 @@ export function analyzeLanguage(message = '') {
   const normalized = normalizedTokens.join('').replace(/\s+/g, ' ').trim();
   const language = detectLanguage(normalized);
   const intent = detectIntent(normalized);
+  const domains = detectDomains(normalized);
   const entities = extractEntities(normalized);
   const confidence = corrections.length ? Math.min(0.99, 0.86 + Math.min(corrections.length, 4) * 0.03) : 0.98;
 
-  return { original, normalized, language, intent, entities, corrections, confidence };
+  return { original, normalized, language, intent, domains, entities, corrections, confidence };
 }
 
 function fuzzyCorrection(token) {
@@ -111,6 +121,20 @@ function detectLanguage(text) {
     if (/[ñ¿¡]/i.test(value)) return 'es';
   }
   return scores[0][0];
+}
+
+function detectDomains(text) {
+  const value = String(text || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+  const ranked = [];
+  for (const [domain, terms] of Object.entries(DOMAIN_LEXICON)) {
+    let score = 0;
+    for (const term of terms) {
+      const normalizedTerm = term.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+      if (value.split(/\\s+/).includes(normalizedTerm) || value.includes(' ' + normalizedTerm + ' ')) score++;
+    }
+    if (score) ranked.push({ domain, score, confidence: Math.min(0.99, 0.55 + score * 0.12) });
+  }
+  return ranked.sort((a, b) => b.score - a.score);
 }
 
 function detectIntent(text) {
