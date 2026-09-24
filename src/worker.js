@@ -180,7 +180,8 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   try { body = JSON.parse(await upstream.clone().text()); } catch (_) { return null; }
 
   const specialized = String(body?.capability || body?.routing || '').trim();
-  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none', language);
+  const mode = normalizeInteractionMode(payload?.mode);
+  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none', language, mode);
   const evidence = preliminaryRoute.research_required
     ? await recoverToolEvidence(message, requestId)
     : { text: '', sources: [], method: 'not-required' };
@@ -188,7 +189,7 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   if (evidence?.tool_execution) body.tool_execution = evidence.tool_execution;
   const evidenceText = String(evidence?.text || '').trim();
 
-  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none', language);
+  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none', language, mode);
   if (evidence?.evidence_analysis) route.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   body.cognitive_route = { ...route, language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   body.research_attempted = route.research_attempted;
@@ -325,7 +326,8 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
     : '';
   const compactHistory = isolatedHistory.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
 
-  const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none');
+  const mode = normalizeInteractionMode(payload?.mode);
+  const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language, mode);
   const evidence = preliminaryRoute.research_required
     ? await recoverToolEvidence(message, requestId)
     : { text: '', sources: [], method: 'not-required' };
@@ -333,7 +335,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
   const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
-  const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none', language), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
+  const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none', language, mode), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   if (evidence?.evidence_analysis) cognitiveRoute.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   if (evidence?.tool_execution) cognitiveRoute.tool_execution = evidence.tool_execution;
@@ -350,7 +352,7 @@ ${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url 
 
 Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No inventes referencias.`
     : '';
-  const system = 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';
+  const system = buildInteractionSystemPrompt(mode);
   const messages = [{ role: 'system', content: system }, ...(contextInstruction ? [{ role: 'system', content: contextInstruction }] : []), ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), ...compactHistory, { role: 'user', content: message }];
 
   const attempts = [
@@ -419,7 +421,7 @@ function specializedFallbackBlocked(capability, requestId) {
   return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
 }
 
-function planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null) {
+function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto').toLowerCase().trim();\n  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {\n  const guidance = {\n    auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',\n    chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',\n    research: 'Prioriza investigación externa, evidencia y comparación de fuentes cuando sea relevante. No presentes datos no verificados como hechos.',\n    math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',\n    code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'\n  }[normalizeInteractionMode(mode)];\n  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto') {
   const text = String(message || '').trim();
   const analyzed = language || analyzeLanguage(text);
   const hasQuestion = /[?¿]|\\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\\b/i.test(text);
@@ -427,7 +429,7 @@ function planCognitiveRoute(message, specialized, sources, evidenceMethod, langu
   const explicitResearch = EXPLICIT_RESEARCH_RE.test(text);
   const comparison = /\\b(compara|comparar|comparativa|diferencia|mejor|alternativas|opciones|versus|vs\\.?|contrasta)\\b/i.test(text);
   const trivial = /^(hola|holi|hey|buenas|gracias|ok|okay|ad[ií]os|chao|bye|buenos d[ií]as|buenas tardes|buenas noches)[!. ]*$/i.test(text);
-  const research = !trivial && (current || explicitResearch || comparison);
+  const selectedMode = normalizeInteractionMode(mode);\n  const research = !trivial && (selectedMode === 'research' || (selectedMode !== 'chat' && (current || explicitResearch || comparison)));
   const intent = analyzed.intent === 'weather' ? 'weather'
     : comparison ? 'comparison'
     : current ? 'current_information'
