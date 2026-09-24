@@ -785,13 +785,31 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       if (tool === 'calculator') {
         const calculation = calculateExpression(contextForTool());
         const derived = calculation || calculateContextualQuantity({ message, context: contextMemory, evidenceText: workingContext.evidence.join('\n\n') });
-        if (!derived) {
+        const verification = derived && verifyDeterministicCalculation(derived, {
+          message,
+          context: contextMemory,
+          evidenceText: workingContext.evidence.join('\n\n')
+        });
+        if (!derived || !verification.valid) {
+          if (derived && !verification.valid) {
+            record(tool, 'rejected', purpose, fallbackFor, {
+              ...contextForTool(),
+              verification: verification.checks
+            });
+          } else {
+            record(tool, 'failed', purpose, fallbackFor);
+          }
+          return false;
+        }
           record(tool, 'failed', purpose, fallbackFor);
           return false;
         }
         evidenceParts.push(derived.text);
         workingContext.evidence.push(derived.text);
-        record(tool, 'success', purpose, fallbackFor, contextForTool());
+        record(tool, 'success', purpose, fallbackFor, {
+          ...contextForTool(),
+          verification: verification.checks
+        });
         return true;
       }
       if (tool === 'web_search') {
@@ -945,6 +963,39 @@ function calculateContextualQuantity({ message = '', context = {}, evidenceText 
   };
 }
 
+function verifyDeterministicCalculation(result, { message = '', context = {}, evidenceText = '' } = {}) {
+  const checks = { finite_result: false, positive_result: false, inputs_supported: false, currency_consistent: true, arithmetic_consistent: false };
+  const value = Number(result?.value);
+  checks.finite_result = Number.isFinite(value);
+  checks.positive_result = checks.finite_result && value > 0;
+  if (!checks.finite_result) return { valid: false, checks };
+
+  const text = String(message || '');
+  const values = Array.isArray(context?.inherited_values) ? context.inherited_values : [];
+  const budgetCandidate = values.find(item => /R\$|US\$|€|£/i.test(String(item))) || (text.match(/(?:R\$|US\$|€|£)\s?\d[\d.,]*/i) || [])[0];
+  const budget = parseCurrencyCandidate(budgetCandidate);
+  const source = String(evidenceText || '');
+  const priceMatch = source.match(/(?:R\$|US\$|€|£)\s?([0-9][0-9.,]*)[^\n]{0,100}?(?:por|per|cada)\s+(?:acci[oó]n|share|unidad)/i)
+    || source.match(/(?:precio|price|cotizaci[oó]n|quote|valor)[^\n]{0,100}?(R\$|US\$|€|£)\s?([0-9][0-9.,]*)/i);
+  let price = null;
+  let priceCurrency = null;
+  if (priceMatch) {
+    const rawCurrency = priceMatch[1] && /^(R\$|US\$|€|£)$/i.test(priceMatch[1]) ? priceMatch[1] : (priceMatch[0].match(/R\$|US\$|€|£/i)?.[0] || '');
+    const rawNumber = priceMatch.length > 2 ? priceMatch[2] : priceMatch[1];
+    price = parseLocaleNumber(rawNumber);
+    priceCurrency = rawCurrency;
+  }
+  checks.inputs_supported = Boolean(budget && Number.isFinite(price) && price > 0);
+  if (budget && priceCurrency) checks.currency_consistent = budget.currency.toUpperCase() === priceCurrency.toUpperCase();
+  if (checks.inputs_supported && checks.currency_consistent && /cu[aá]ntas?|how\s+many/i.test(text)) {
+    const expected = budget.value / price;
+    checks.arithmetic_consistent = Number.isFinite(expected) && Math.abs(expected - value) <= Math.max(1e-9, Math.abs(expected) * 1e-6);
+  } else if (result?.expression) {
+    checks.arithmetic_consistent = true;
+  }
+  const valid = Object.values(checks).every(Boolean);
+  return { valid, checks };
+}
 function parseCurrencyCandidate(value) {
   if (!value) return null;
   const raw = String(value).trim();
