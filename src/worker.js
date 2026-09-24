@@ -1089,8 +1089,24 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
     const sources = [];
     const executions = [];
     const attempted = new Set();
+    const inheritedEntities = Array.isArray(contextMemory?.inherited_entities) ? contextMemory.inherited_entities.filter(Boolean) : [];
+    const inheritedLocations = Array.isArray(contextMemory?.inherited_locations) ? contextMemory.inherited_locations.filter(Boolean) : [];
+    const inheritedValues = Array.isArray(contextMemory?.inherited_values) ? contextMemory.inherited_values.filter(Boolean) : [];
+    const contextReferences = Array.isArray(contextMemory?.references) ? contextMemory.references : [];
+    const isFollowUp = contextReferences.includes('follow_up') || contextReferences.includes('prior_context');
+
+    // Resolve short follow-ups into a tool query without rewriting the user's
+    // visible message. This lets search/calculation inherit the active subject.
+    const resolvedToolQuery = isFollowUp
+      ? [message, inheritedEntities.slice(0, 4).join(' '), inheritedLocations.slice(0, 2).join(' ')].filter(Boolean).join(' ')
+      : message;
+
     let workingContext = {
       original_message: message,
+      resolved_tool_query: resolvedToolQuery,
+      inherited_entities: inheritedEntities,
+      inherited_locations: inheritedLocations,
+      inherited_values: inheritedValues,
       evidence: [],
       sources: []
     };
@@ -1098,8 +1114,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
     const contextForTool = (includeEvidence = true) => {
       const evidenceText = workingContext.evidence.filter(Boolean).join('\n\n');
       return includeEvidence
-        ? [message, evidenceText].filter(Boolean).join('\n\n')
-        : message;
+        ? [resolvedToolQuery, evidenceText].filter(Boolean).join('\n\n')
+        : resolvedToolQuery;
     };
 
     const contextKeys = () => ({
