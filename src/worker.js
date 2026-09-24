@@ -11,7 +11,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
-    if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') return runEdgeAiDiagnostic(env, requestId);
+    if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') return runEdgeAiDiagnostic(env, requestId);\n    if (url.pathname === '/api/weather' && request.method === 'GET') return weatherEndpoint(url, requestId);\n
     if (url.pathname.startsWith('/api/')) {
       const origin = env.BITEY_BACKEND_ORIGIN;
       if (!origin) return jsonError('Bitey backend origin is not configured', 500, requestId);
@@ -297,4 +297,40 @@ function jsonResponse(body, status = 200, source = 'cloudflare', requestId = '')
 
 function jsonError(message, status = 500, requestId = '') {
   return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
+}
+
+async function weatherEndpoint(url, requestId) {
+  const q = String(url.searchParams.get('q') || '').trim();
+  if (!q) return jsonError('weather_location_required', 400, requestId);
+  try {
+    const geo = new URL('https://geocoding-api.open-meteo.com/v1/search');
+    geo.searchParams.set('name', q);
+    geo.searchParams.set('count', '5');
+    geo.searchParams.set('language', 'pt');
+    geo.searchParams.set('format', 'json');
+    const gr = await fetch(geo, {headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!gr.ok) return jsonError('weather_geocoding_unavailable',502,requestId);
+    const results = (await gr.json())?.results || [];
+    if (!results.length) return jsonError('weather_location_not_found',404,requestId);
+    const loc = results.find(x=>String(x?.name||'').toLowerCase()===q.toLowerCase()) || results[0];
+    const api = new URL('https://api.open-meteo.com/v1/forecast');
+    api.searchParams.set('latitude',String(loc.latitude));
+    api.searchParams.set('longitude',String(loc.longitude));
+    api.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code');
+    api.searchParams.set('timezone','auto');
+    api.searchParams.set('forecast_days','1');
+    const wr = await fetch(api,{headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!wr.ok) return jsonError('weather_data_unavailable',502,requestId);
+    const data=await wr.json();
+    return jsonResponse({
+      ok:true,
+      location:{name:loc.name,admin1:loc.admin1||'',country:loc.country||'',latitude:loc.latitude,longitude:loc.longitude},
+      current:data.current||{},
+      source:{title:'Open-Meteo',url:api.toString()},
+      request_id:requestId
+    },200,'weather-open-meteo',requestId);
+  } catch(error) {
+    console.warn('Bitey weather endpoint failed',{requestId,error:String(error)});
+    return jsonError('weather_unavailable',502,requestId);
+  }
 }
