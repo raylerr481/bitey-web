@@ -92,9 +92,19 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const activeSignals = Object.values(signals).filter(Boolean).length;
   const ambiguity = activeSignals >= 3 && !signals.long_or_complex ? 0.08 : 0;
   const confidence = Math.max(0.55, Math.min(0.99, 0.72 + activeSignals * 0.035 - ambiguity));
+  const intentParts = [];
+  if (signals.current || signals.research) intentParts.push('current_information');
+  if (signals.calculation) intentParts.push('calculation');
+  if (signals.code) intentParts.push('code');
+  if (signals.comparison) intentParts.push('comparison');
+  if (signals.context_followup) intentParts.push('context_followup');
+  if (!intentParts.length) intentParts.push(primaryIntent);
+
   const reasoningLevel = complexity === 'complex' ? 'deep' : complexity === 'moderate' ? 'standard' : 'fast';
   return {
     intent: primaryIntent,
+    intent_parts: [...new Set(intentParts)],
+    multi_intent: new Set(intentParts).size > 1,
     confidence,
     complexity,
     reasoning_level: reasoningLevel,
@@ -113,12 +123,13 @@ export function selectTools({ language = {}, route = {}, message = '', context =
   const domains = new Set((language.domains || []).map(item => item?.domain).filter(Boolean));
   const intent = String(intentEval.intent || language.intent || route.intent || 'question');
   const candidates = [];
+  const parts = new Set(intentEval.intent_parts || [intent]);
 
   if (intent === 'weather' || domains.has('weather')) candidates.push('weather');
-  if (isCalculation(message, intent, domains)) candidates.push('calculator');
-  if (intent === 'code' || domains.has('code')) candidates.push('code_reasoning');
+  if (isCalculation(message, intent, domains) || parts.has('calculation')) candidates.push('calculator');
+  if (intent === 'code' || domains.has('code') || parts.has('code')) candidates.push('code_reasoning');
 
-  const researchRequired = Boolean(route.research_required || intentEval.should_research);
+  const researchRequired = Boolean(route.research_required || intentEval.should_research || parts.has('current_information') || parts.has('comparison'));
   if (researchRequired || intent === 'research' || intent === 'comparison' || intent === 'current_information') {
     candidates.push('web_search');
   }
