@@ -489,17 +489,25 @@ async function recoverToolEvidence(message, requestId) {
       sources: []
     };
 
-    const contextForTool = () => {
+    const contextForTool = (includeEvidence = true) => {
       const evidenceText = workingContext.evidence.filter(Boolean).join('\n\n');
-      return [message, evidenceText].filter(Boolean).join('\n\n');
+      return includeEvidence
+        ? [message, evidenceText].filter(Boolean).join('\n\n')
+        : message;
     };
+
+    const contextKeys = () => ({
+      original_message: true,
+      prior_evidence: workingContext.evidence.length > 0,
+      prior_sources: workingContext.sources.length > 0
+    });
 
     const record = (tool, status, purpose, fallbackFor = null, inputContext = null) => {
       executions.push({
         tool,
         status,
         purpose,
-        ...(inputContext ? { input_context: inputContext } : {}),
+        ...(inputContext ? { input_context: inputContext, context_keys: contextKeys() } : {}),
         ...(fallbackFor ? { fallback_for: fallbackFor } : {})
       });
       attempted.add(tool);
@@ -532,7 +540,7 @@ async function recoverToolEvidence(message, requestId) {
         return true;
       }
       if (tool === 'web_search') {
-        const search = await recoverSearch(contextForTool(), requestId);
+        const search = await recoverSearch(contextForTool(false), requestId);
         if (!search) {
           record(tool, 'failed', purpose, fallbackFor);
           return false;
@@ -579,6 +587,11 @@ async function recoverToolEvidence(message, requestId) {
     }
 
     const successful = executions.filter(item => item.status === 'success');
+    const contextSummary = {
+      evidence_items: workingContext.evidence.length,
+      source_items: workingContext.sources.length,
+      passed_between_tools: executions.filter(item => item.context_keys?.prior_evidence).length
+    };
     const usable = executions.filter(item => item.status === 'success' || item.status === 'delegated' || item.status === 'deferred');
     const method = plan.compound
       ? 'compound-tool-plan'
@@ -597,6 +610,7 @@ async function recoverToolEvidence(message, requestId) {
         planned: plan.steps || [],
         fallback_chain: plan.fallbacks || [],
         executed: executions,
+        context: contextSummary,
         status: successful.length ? 'success' : (usable.length ? 'degraded' : 'failed'),
         fallback_used: executions.some(item => Boolean(item.fallback_for))
       }
