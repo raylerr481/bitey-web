@@ -281,7 +281,8 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
         requestId,
         route: cognitiveRoute
       });
-      if (synthesized) answer = synthesized;
+      if (synthesized?.answer) answer = synthesized.answer;
+      const answerValidation = synthesized?.validation || null;
       return jsonResponse({
         conversation_id: conversationId,
         answer,
@@ -298,10 +299,11 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
           cognitiveRoute.tool_step,
           ...(sources.length ? ['Evidencia recopilada.', 'Fuentes comparadas y filtradas por relevancia.'] : []),
           'Respuesta preliminar revisada antes de entregar.',
-          synthesized
-            ? (sources.length ? 'Respuesta final sintetizada a partir de la evidencia seleccionada.' : 'Respuesta final verificada y sintetizada.')
+          synthesized?.answer
+            ? (sources.length ? 'Respuesta final validada contra la evidencia seleccionada.' : 'Respuesta final verificada y sintetizada.')
             : 'Respuesta final generada y validada por el proveedor disponible.'
         ],
+        answer_validation: answerValidation,
         sources,
         request_id: requestId
       }, 200, 'cloudflare-ai-fallback', requestId);
