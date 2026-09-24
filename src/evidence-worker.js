@@ -1,15 +1,28 @@
 import biteyWorker from './worker.js';
 
-const RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|mejores|recomendaciones|recomienda|gratuita|gratuito|gratuitas|gratuitos|search|research|latest|actual|hoy|noticias|news|precio|precios|quién|quien|what|who|where|when|how much)\b/i;
+const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
+const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
 
 function isResearchRequest(message) {
-  const normalized = String(message || '').toLowerCase();
-  return RESEARCH_RE.test(normalized) || [
-    'investiga', 'investigar', 'investigación', 'busca', 'buscar', 'búsqueda',
-    'alternativas', 'opciones', 'mejores', 'fuentes', 'compara', 'comparar',
-    'recomendaciones', 'recomienda', 'search', 'research', 'latest', 'actual',
-    'hoy', 'noticias', 'news', 'precio', 'precios'
-  ].some(term => normalized.includes(term));
+  const text = String(message || '').trim();
+  if (!text) return false;
+  if (/\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i.test(text)) return false;
+  if (EXPLICIT_RESEARCH_RE.test(text) || FRESHNESS_RE.test(text)) return true;
+  const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
+  return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
+function isRelevantSource(query, source) {
+  const haystack = String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '');
+  const normalizedQuery = String(query || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normalizedHaystack = haystack.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const tokens = normalizedQuery.match(/[a-z0-9]{3,}/g) || [];
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','sobre','entre','desde','hasta','tambien']);
+  const meaningful = [...new Set(tokens.filter(t => !stop.has(t)))];
+  if (!meaningful.length) return true;
+  const score = meaningful.reduce((n, token) => n + (normalizedHaystack.includes(token) ? 1 : 0), 0);
+  const threshold = meaningful.length <= 2 ? 1 : Math.max(2, Math.ceil(meaningful.length * 0.35));
+  return score >= threshold;
 }
 
 export default {
@@ -31,7 +44,7 @@ export default {
       return withResearchContract(response, body, body.sources, 'backend-evidence');
     }
     const evidence = await searchEvidence(message);
-    const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
+    const sources = (Array.isArray(evidence?.sources) ? evidence.sources : []).filter(source => isRelevantSource(message, source));
     return withResearchContract(response, body, sources, evidence?.method || 'unavailable-free-only');
   }
 };
