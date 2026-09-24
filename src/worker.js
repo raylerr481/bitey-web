@@ -318,46 +318,84 @@ function extractCitationIds(text) {
 }
 
 function assessAnswerCoverage(question, answer, route = {}) {
-  const prompt = String(question || '').toLowerCase().trim();
-  const response = String(answer || '').toLowerCase().trim();
-  if (!prompt || !response) return { applicable: true, valid: false, segments: 1, uncovered: ['empty_question_or_answer'] };
+  const prompt = String(question || '').trim();
+  const response = String(answer || '').trim();
+  if (!prompt || !response) {
+    return { applicable: true, valid: false, completeness: 0, missing_parts: ['empty_question_or_answer'], covered_parts: [] };
+  }
 
-  const stop = new Set(['que','qué','es','son','de','del','la','el','los','las','un','una','y','o','a','en','por','para','con','como','cómo','se','me','te','lo','le','un','una','mi','tu','su','al','the','is','are','what','how','and','or','to','of','in','for']);
-  const terms = value => [...new Set(
-    String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-      .replace(/[^a-z0-9%$€£¥]+/gi,' ')
-      .split(/\s+/)
-      .map(x => x.trim())
-      .filter(x => x.length >= 4 && !stop.has(x))
-  )];
+  const normalizedPrompt = prompt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const normalizedResponse = response.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const signals = route?.intent_evaluation?.signals || {};
+  const missing = [];
+  const covered = [];
+  const checks = [];
 
-  const rawSegments = prompt
-    .split(/\?|\b(?:y ademas|y además|tambien|también|ademas|además|;|\.)\b/gi)
-    .map(x => x.trim())
-    .filter(x => x.length > 8);
-  const segments = rawSegments.length > 1 ? rawSegments : [prompt];
-  const responseTerms = new Set(terms(response));
-  const uncovered = [];
+  const hasAny = patterns => patterns.some(pattern => pattern.test(normalizedResponse));
+  const addCheck = (name, ok) => {
+    checks.push({ name, covered: Boolean(ok) });
+    if (ok) covered.push(name);
+    else missing.push(name);
+  };
 
-  segments.forEach((segment, index) => {
-    const required = terms(segment);
-    if (!required.length) return;
-    const matched = required.filter(term => responseTerms.has(term) || response.includes(term));
-    const ratio = matched.length / required.length;
-    // For complex/multi-part requests, require evidence that each part was addressed.
-    // A modest lexical threshold avoids rejecting valid paraphrases.
-    if (required.length >= 3 && ratio < 0.22) uncovered.push(index + 1);
-  });
+  const calculationRequested = Boolean(signals.calculation) ||
+    /\b(calcula|calcular|cuanto|cuantas|porcentaje|roi|retorno|rentabilidad|inversion|recuperar|recuperacion|por dia|por mes|por ano|costo|coste|precio)\b/i.test(normalizedPrompt);
+  const comparisonRequested = Boolean(route?.comparison_required || signals.comparison) ||
+    /\b(compara|comparar|comparativa|versus|vs\.?|diferencia|alternativas|opciones)\b/i.test(normalizedPrompt);
+  const currentRequested = Boolean(route?.research_required) && /\b(hoy|ahora|actual|actualmente|ultimo|ultima|precio|cotizacion|noticias|cuando|quien|donde)\b/i.test(normalizedPrompt);
 
-  const strict = Boolean(route?.intent_evaluation?.signals?.multi_task || route?.reasoning?.level === 'deep' || route?.comparison_required);
-  const valid = !strict || uncovered.length === 0;
+  if (calculationRequested) {
+    addCheck('calculation_result', /(?:[$€£¥r$]|\b\d[\d.,]*\b|%)/i.test(response) &&
+      !/^\s*(no puedo|no pude|no hay datos|sin datos)/i.test(response));
+  }
+
+  if (comparisonRequested) {
+    const optionHints = normalizedPrompt.split(/\b(?:vs\.?|versus|y|o|entre|comparar)\b/).map(x => x.trim()).filter(x => x.length > 2);
+    const optionTerms = [...new Set(optionHints.flatMap(x => x.match(/[a-z0-9]{4,}/g) || []))].slice(0, 8);
+    const optionHits = optionTerms.filter(term => normalizedResponse.includes(term)).length;
+    addCheck('comparison_coverage', optionTerms.length < 2 || optionHits >= Math.min(2, optionTerms.length));
+  }
+
+  if (currentRequested) {
+    addCheck('current_information', response.length > 30 && !/\b(no pude|no encontre|sin evidencia|no hay datos|limitacion)\b/i.test(normalizedResponse));
+  }
+
+  const multiTask = Boolean(signals.multi_task) || /(?:\?|\b(?:y ademas|y tambien|ademas|tambien)\b|;)/i.test(normalizedPrompt);
+  if (multiTask) {
+    const segments = prompt.split(/\?|;|\b(?:y ademas|y tambien|ademas|tambien)\b/gi).map(x => x.trim()).filter(x => x.length > 8);
+    const meaningful = segments.length > 1 ? segments : [prompt];
+    const stop = new Set(['que','como','para','con','esta','este','esta','los','las','una','uno','del','por','sobre','entre','the','what','how','and','for','with','this','that']);
+    meaningful.forEach((segment, index) => {
+      const terms = [...new Set(
+        segment.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+          .replace(/[^a-z0-9]+/g,' ').split(/\s+/)
+          .filter(term => term.length >= 5 && !stop.has(term))
+      )];
+      const hits = terms.filter(term => normalizedResponse.includes(term)).length;
+      const ratio = terms.length ? hits / terms.length : 1;
+      addCheck('part_' + (index + 1), ratio >= 0.18);
+    });
+  }
+
+  const applicable = checks.length > 0 || Boolean(signals.multi_task || route?.comparison_required);
+  if (!applicable) {
+    return { applicable: false, valid: true, completeness: 1, missing_parts: [], covered_parts: [], checks: [] };
+  }
+
+  const completeness = checks.length
+    ? Number((checks.filter(item => item.covered).length / checks.length).toFixed(2))
+    : 1;
+  const strict = Boolean(signals.multi_task || route?.comparison_required || route?.reasoning?.level === 'deep');
+  const valid = strict ? completeness >= 0.8 : completeness >= 0.5;
+
   return {
     applicable: true,
     valid,
-    segments: segments.length,
-    uncovered,
-    strict,
-    coverage_ratio: segments.length ? Number(((segments.length - uncovered.length) / segments.length).toFixed(2)) : 1
+    completeness,
+    missing_parts: missing,
+    covered_parts: covered,
+    checks,
+    strict
   };
 }
 
