@@ -144,7 +144,7 @@ def create_chat_v2_router(
             research_required = False
 
         if research_required and calculations is None:
-            selected = ["web_research"]
+            selected = list(brain_state.tool_priority) or ["web_research"]
             emit("Buscando información en la web…")
             result = await tools.execute(
                 selected,
