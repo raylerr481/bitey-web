@@ -5,13 +5,17 @@ const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
 const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en este momento. Inténtalo nuevamente en unos momentos.';
 const WEATHER_RE = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b/i;
-const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;\nconst FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;\nconst RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -3) + '|' + FRESHNESS_RE.source.slice(2, -3) + ')', 'i');
+const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
+const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
+const RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -3) + '|' + FRESHNESS_RE.source.slice(2, -3) + ')', 'i');
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
-    if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') return runEdgeAiDiagnostic(env, requestId);\n    if (url.pathname === '/api/weather' && request.method === 'GET') return weatherEndpoint(url, requestId);\n
+    if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') return runEdgeAiDiagnostic(env, requestId);
+    if (url.pathname === '/api/weather' && request.method === 'GET') return weatherEndpoint(url, requestId);
+
     if (url.pathname.startsWith('/api/')) {
       const origin = env.BITEY_BACKEND_ORIGIN;
       if (!origin) return jsonError('Bitey backend origin is not configured', 500, requestId);
@@ -149,14 +153,23 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const evidence = await recoverToolEvidence(message, requestId);
   const backendEvidenceCapability = String(upstreamBody?.capability || upstreamBody?.routing || upstreamBody?.['x-bitey-capability'] || '').trim();
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
-  const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
+  const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('
+
+').slice(0, 10000);
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
   const evidenceInstruction = combinedEvidence
-    ? `EVIDENCIA RECUPERADA POR BITEY:\n${combinedEvidence}\n\nUsa esta evidencia para responder. No inventes datos y no menciones herramientas internas.`
+    ? `EVIDENCIA RECUPERADA POR BITEY:
+${combinedEvidence}
+
+Usa esta evidencia para responder. No inventes datos y no menciones herramientas internas.`
     : (shouldResearch(message) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
   const sourceInstruction = sources.length
-    ? `FUENTES CONSULTADAS:\n${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('\n')}\n\nCuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No inventes referencias.`
+    ? `FUENTES CONSULTADAS:
+${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('
+')}
+
+Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No inventes referencias.`
     : '';
   const system = 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';
   const messages = [{ role: 'system', content: system }, ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), ...compactHistory, { role: 'user', content: message }];
@@ -224,7 +237,14 @@ async function recoverWeather(message, requestId) {
   const weatherResponse = await fetch(weatherUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
   if (!weatherResponse.ok) return null;
   const current = (await weatherResponse.json())?.current || {};
-  return { text: `WEATHER SOURCE: Open-Meteo\nLOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}\nOBSERVATION TIME: ${current.time || 'unknown'}\nTEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C\nAPPARENT TEMPERATURE: ${current.apparent_temperature ?? 'unknown'} °C\nHUMIDITY: ${current.relative_humidity_2m ?? 'unknown'} %\nWIND: ${current.wind_speed_10m ?? 'unknown'} km/h\nWEATHER CODE: ${current.weather_code ?? 'unknown'}`, sources: [{ title: 'Open-Meteo', url: weatherUrl.toString(), snippet: `Datos meteorológicos actuales de ${location.name}. Observación: ${current.time || 'unknown'}.` }] };
+  return { text: `WEATHER SOURCE: Open-Meteo
+LOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}
+OBSERVATION TIME: ${current.time || 'unknown'}
+TEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C
+APPARENT TEMPERATURE: ${current.apparent_temperature ?? 'unknown'} °C
+HUMIDITY: ${current.relative_humidity_2m ?? 'unknown'} %
+WIND: ${current.wind_speed_10m ?? 'unknown'} km/h
+WEATHER CODE: ${current.weather_code ?? 'unknown'}`, sources: [{ title: 'Open-Meteo', url: weatherUrl.toString(), snippet: `Datos meteorológicos actuales de ${location.name}. Observación: ${current.time || 'unknown'}.` }] };
 }
 
 async function recoverSearch(message, requestId) {
@@ -248,13 +268,17 @@ async function recoverSearch(message, requestId) {
         const title = stripHtml(decodeHtml(link[2]));
         const snippetMatch = block.match(source.snippet);
         const snippet = stripHtml(decodeHtml(snippetMatch?.[1] || ''));
-        if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}\nTITLE: ${title}\nSNIPPET: ${snippet}`); }
+        if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}
+TITLE: ${title}
+SNIPPET: ${snippet}`); }
       }
       const relevant = sourceObjects.filter(item => isRelevantSearchSource(message, item));
       if (relevant.length) {
         const allowed = new Set(relevant.map(item => item.url));
         const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
-        return { text: filteredItems.join('\n\n'), sources: relevant };
+        return { text: filteredItems.join('
+
+'), sources: relevant };
       }
     } catch (error) {
       console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
