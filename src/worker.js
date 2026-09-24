@@ -498,7 +498,7 @@ async function recoverToolEvidence(message, requestId) {
 
     return {
       text: evidenceParts.filter(Boolean).join('\n\n'),
-      sources: [...new Map(sources.map(source => [String(source?.url || source?.title || Math.random()), source])).values()].slice(0, 8),
+      sources: [...new Map(sources.map(source => [String(source?.url || source?.title || JSON.stringify(source)), source])).values()].slice(0, 8),
       method,
       tool_execution: {
         primary: plan.primary,
