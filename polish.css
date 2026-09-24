@@ -188,3 +188,9 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
     max-width:none!important;
   }
 }
+
+/* Final answer verification indicator. */
+.answer-validation-wrap{margin-top:8px}
+.answer-validation{display:inline-flex;align-items:center;gap:6px;font-size:11px;line-height:1.2;opacity:.78}
+.answer-validation-dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block}
+.answer-validation.warning{opacity:.72}
