@@ -486,7 +486,32 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
     const recoveryPlan = buildAnswerRecoveryPlan(validation, route);
     validation.recovery_plan = recoveryPlan;
 
-    // One bounded repair pass: improve coverage without starting a new research loop.
+    // Bounded recovery: if validation says fresh evidence is required, perform one
+    // targeted evidence refresh before asking the model to repair the answer.
+    let recoveryEvidenceText = evidence;
+    let recoverySources = Array.isArray(sources) ? sources : [];
+    if (recoveryPlan.research_required) {
+      try {
+        const recoveryQuery = [
+          message,
+          recoveryPlan.actions.join(' '),
+          validation.answer_coverage?.missing_parts?.join(' ') || ''
+        ].filter(Boolean).join(' ');
+        const refreshed = await recoverToolEvidence(recoveryQuery, requestId);
+        if (refreshed?.text) recoveryEvidenceText = [recoveryEvidenceText, refreshed.text].filter(Boolean).join('\n\n').slice(0, 12000);
+        if (Array.isArray(refreshed?.sources) && refreshed.sources.length) {
+          recoverySources = refreshed.sources.slice(0, 8);
+        }
+        validation.recovery_evidence_attempted = true;
+        validation.recovery_evidence_sources = recoverySources.length;
+      } catch (recoveryError) {
+        console.warn('Bitey targeted evidence recovery failed', { requestId, error: String(recoveryError) });
+        validation.recovery_evidence_attempted = true;
+        validation.recovery_evidence_sources = 0;
+      }
+    }
+
+    // One bounded repair pass: improve coverage using the refreshed evidence when available.
     // The same evidence and sources are reused; no hidden reasoning is exposed.
     if (validation.answer_coverage?.missing_parts?.length) {
       try {
@@ -496,11 +521,12 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
           'No inventes fuentes, cifras, herramientas ni operaciones.',
           'No expliques el proceso interno de revisión.',
           'Entrega únicamente la respuesta final, clara y en el idioma del usuario.',
+          'PLAN DE RECUPERACIÓN: ' + JSON.stringify(recoveryPlan),
           'PARTES DETECTADAS COMO FALTANTES: ' + JSON.stringify(validation.answer_coverage.missing_parts),
           'PREGUNTA: ' + message,
           'RESPUESTA ACTUAL: ' + answer,
-          'EVIDENCIA: ' + evidence,
-          'FUENTES: ' + sourceBlock
+          'EVIDENCIA ACTUALIZADA: ' + recoveryEvidenceText,
+          'FUENTES ACTUALIZADAS: ' + recoverySources.slice(0,8).map((s,i)=>'[S'+(i+1)+'] '+String(s.title||'Fuente')+' — '+String(s.url||'')+'\n'+String(s.snippet||'')).join('\n\n')
         ].join('\\n\\n');
         const repairedResponse = await env.AI.run(AI_MODEL, {
           messages: [
@@ -512,7 +538,7 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
           chat_template_kwargs: { enable_thinking: false }
         });
         const repaired = extractAiText(repairedResponse);
-        const repairedValidation = validateSynthesizedAnswer(repaired, sources, route, message);
+        const repairedValidation = validateSynthesizedAnswer(repaired, recoverySources, route, message);
         if (repairedValidation.valid) {
           repairedValidation.revision_applied = true;
           repairedValidation.previous_coverage = validation.answer_coverage;
