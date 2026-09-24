@@ -474,7 +474,12 @@ function extractStructuredClaim(text) {
         index: match.index || 0
       };
     })
-    .filter(item => {\n      if (!Number.isFinite(item.value)) return false;\n      if (item.currency || item.unit) return true;\n      const nearby = normalized.slice(Math.max(0, item.index - 48), Math.min(normalized.length, item.index + 48));\n      return /\\b(?:precio|valor|coste|costo|cotiza|cotizacion|temperatura|humedad|viento|rendimiento|rentabilidad|dividendo|acciones?|shares?|unidades?|porcentaje|tasa|salario|sueldo|capital|ingresos|ventas|crecimiento|aumento|disminucion|distancia|velocidad|capacidad|memoria|almacenamiento|version|price|value|cost|temperature|humidity|wind|yield|dividend|units|rate|salary|revenue|sales|growth|distance|speed|capacity|memory|storage|version)\\b/i.test(nearby);\n    });
+    .filter(item => {
+      if (!Number.isFinite(item.value)) return false;
+      if (item.currency || item.unit) return true;
+      const nearby = normalized.slice(Math.max(0, item.index - 48), Math.min(normalized.length, item.index + 48));
+      return /\\b(?:precio|valor|coste|costo|cotiza|cotizacion|temperatura|humedad|viento|rendimiento|rentabilidad|dividendo|acciones?|shares?|unidades?|porcentaje|tasa|salario|sueldo|capital|ingresos|ventas|crecimiento|aumento|disminucion|distancia|velocidad|capacidad|memoria|almacenamiento|version|price|value|cost|temperature|humidity|wind|yield|dividend|units|rate|salary|revenue|sales|growth|distance|speed|capacity|memory|storage|version)\\b/i.test(nearby);
+    });
   const attributes = [...new Set(
     meaningfulQueryTokens(raw).filter(token =>
       /^(?:precio|valor|coste|costo|cotiza|cotizacion|temperatura|humedad|viento|rendimiento|rentabilidad|dividendo|acciones|shares|unidades|poblacion|poblacion|fecha|hora|edad|porcentaje|tasa|salario|sueldo|capital|ingresos|ventas|crecimiento|aumento|disminucion|distancia|velocidad|capacidad|memoria|almacenamiento|version|precio|price|value|cost|temperature|humidity|wind|yield|dividend|shares|units|date|time|rate|salary|revenue|sales|growth|distance|speed|capacity|memory|storage|version)$/i.test(token)
@@ -533,7 +538,10 @@ function semanticClaimSupport(claim, source) {
   const lexicalSupported = subjectScore >= 0.25 && (predicateScore >= 0.15 || totalScore >= 0.3);
   const valueRequired = claimData.numeric_values.length > 0;
   const valueSupported = !valueRequired || numeric.compatible;
-  const attributeMatch = claimData.attributes.length\n    ? claimData.attributes.some(attribute => sourceData.attributes.includes(attribute) || sourceSet.has(attribute))\n    : true;\n  const supported = lexicalSupported && entityMatch && attributeMatch && currencyMatch && unitMatch && valueSupported && temporalMatch;
+  const attributeMatch = claimData.attributes.length
+    ? claimData.attributes.some(attribute => sourceData.attributes.includes(attribute) || sourceSet.has(attribute))
+    : true;
+  const supported = lexicalSupported && entityMatch && attributeMatch && currencyMatch && unitMatch && valueSupported && temporalMatch;
   return {
     supported,
     subject_score: Number(subjectScore.toFixed(3)),
@@ -1173,7 +1181,17 @@ function specializedFallbackBlocked(capability, requestId) {
   return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
 }
 
-function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto').toLowerCase().trim();\n  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {\n  const guidance = {\n    auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',\n    chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',\n    research: 'Prioriza investigación externa, evidencia y comparación de fuentes cuando sea relevante. No presentes datos no verificados como hechos.',\n    math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',\n    code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'\n  }[normalizeInteractionMode(mode)];\n  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto', context = {}) {
+function normalizeInteractionMode(value) {
+  const mode = String(value || 'auto').toLowerCase().trim();
+  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {
+  const guidance = {
+    auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',
+    chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',
+    research: 'Prioriza investigación externa, evidencia y comparación de fuentes cuando sea relevante. No presentes datos no verificados como hechos.',
+    math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',
+    code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'
+  }[normalizeInteractionMode(mode)];
+  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto', context = {}) {
   const text = String(message || '').trim();
   const analyzed = language || analyzeLanguage(text);
   const hasQuestion = /[?¿]|\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\b/i.test(text);
