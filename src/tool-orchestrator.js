@@ -120,8 +120,13 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   if (explicitResearchMode) toolNeed = 'web_search';
 
   const activeSignals = Object.values(signals).filter(Boolean).length;
-  const ambiguity = (signals.current && signals.entity_lookup && !signals.fresh_entity_lookup) ? 0.06 : (activeSignals >= 4 ? 0.04 : 0);
-  const confidence = Math.max(0.58, Math.min(0.99, 0.74 + activeSignals * 0.03 - ambiguity));
+  const ambiguityReasons = [];
+  if (signals.time && signals.weather) ambiguityReasons.push('time_weather_overlap');
+  if (signals.calculation && signals.price_query) ambiguityReasons.push('calculation_price_overlap');
+  if (signals.comparison && signals.code) ambiguityReasons.push('comparison_code_overlap');
+  if (signals.context_followup && !context?.references?.length) ambiguityReasons.push('context_without_explicit_reference');
+  const ambiguityPenalty = ambiguityReasons.length * 0.04;
+  const confidence = Math.max(0.58, Math.min(0.99, 0.74 + activeSignals * 0.03 - ambiguityPenalty));
 
   const intentParts = [];
   if (externalEvidenceRequired) intentParts.push('external_evidence');
@@ -144,6 +149,11 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     confidence,
     complexity,
     reasoning_level: reasoningLevel,
+    ambiguity: {
+      detected: ambiguityReasons.length > 0,
+      reasons: ambiguityReasons,
+      clarification_needed: ambiguityReasons.length > 0 && confidence < 0.72
+    },
     tool_need: toolNeed,
     explicit_mode: explicitMode,
     signals,
@@ -152,7 +162,9 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
       external_evidence: externalEvidenceRequired,
       tool_count_hint: toolNeed === 'none' ? 0 : 1,
       conceptual_direct_answer: conceptual && !externalEvidenceRequired,
-      context_aware: signals.context_followup
+      context_aware: signals.context_followup,
+      ambiguity_detected: ambiguityReasons.length > 0,
+      clarification_needed: ambiguityReasons.length > 0 && confidence < 0.72
     },
     should_research: toolNeed === 'web_search',
     should_use_specialized_tool: ['time','weather','calculator','code_reasoning'].includes(toolNeed),
