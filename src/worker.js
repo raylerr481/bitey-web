@@ -204,9 +204,9 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const evidence = await recoverToolEvidence(message, requestId);
   const backendEvidenceCapability = String(upstreamBody?.capability || upstreamBody?.routing || upstreamBody?.['x-bitey-capability'] || '').trim();
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
-  const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('
-
-').slice(0, 10000);
+  const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
+  const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
+  const cognitiveRoute = planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none');
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
   const evidenceInstruction = combinedEvidence
@@ -232,9 +232,41 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
   for (let index = 0; index < attempts.length; index++) {
     try {
       const response = await env.AI.run(AI_MODEL, { messages: attempts[index].messages, max_tokens: attempts[index].max_tokens, temperature: 0.2, chat_template_kwargs: { enable_thinking: false } });
-      const answer = extractAiText(response);
+      let answer = extractAiText(response);
       if (!answer) throw new Error('empty_response');
-      return jsonResponse({ conversation_id: conversationId, answer, research_required: Boolean(combinedEvidence), research_reasons: combinedEvidence ? ['evidence_recovery'] : [], providers: [AI_MODEL], selected_provider: 'cloudflare-workers-ai', elapsed_ms: null, activity_events: [combinedEvidence ? 'Respuesta final generada por un modelo de lenguaje real usando evidencia recuperada por Bitey.' : 'Generación de recuperación realizada por un modelo de lenguaje real de Cloudflare Workers AI.'], sources, request_id: requestId }, 200, 'cloudflare-ai-fallback', requestId);
+      const synthesized = await synthesizeWithEvidence({
+        env,
+        message,
+        originalAnswer: answer,
+        evidenceText: combinedEvidence,
+        sources,
+        requestId,
+        route: cognitiveRoute
+      });
+      if (synthesized) answer = synthesized;
+      return jsonResponse({
+        conversation_id: conversationId,
+        answer,
+        cognitive_route: cognitiveRoute,
+        research_attempted: cognitiveRoute.research_attempted,
+        research_required: cognitiveRoute.research_required,
+        research_reasons: cognitiveRoute.reasons,
+        comparison_required: cognitiveRoute.comparison_required,
+        providers: [AI_MODEL],
+        selected_provider: 'cloudflare-workers-ai',
+        elapsed_ms: null,
+        activity_events: [
+          'Intención comprendida y ruta cognitiva seleccionada.',
+          cognitiveRoute.tool_step,
+          ...(sources.length ? ['Evidencia recopilada.', 'Fuentes comparadas y filtradas por relevancia.'] : []),
+          'Respuesta preliminar revisada antes de entregar.',
+          synthesized
+            ? (sources.length ? 'Respuesta final sintetizada a partir de la evidencia seleccionada.' : 'Respuesta final verificada y sintetizada.')
+            : 'Respuesta final generada y validada por el proveedor disponible.'
+        ],
+        sources,
+        request_id: requestId
+      }, 200, 'cloudflare-ai-fallback', requestId);
     } catch (error) {
       console.error('Bitey Workers AI fallback attempt failed', { requestId, attempt: index + 1, cause: String(cause), error: String(error) });
     }
