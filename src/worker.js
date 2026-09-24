@@ -1,6 +1,7 @@
 import { classifyCapability } from './capability-router.js';
 import { filterConversationHistory } from './conversation-isolation.js';
 import { analyzeLanguage, resolveContext } from './language-engine.js';
+import { selectTools, buildToolActivity, getToolRegistry } from './tool-orchestrator.js';
 
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
@@ -16,6 +17,7 @@ export default {
     const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
     if (url.pathname === '/api/diagnostics/edge-ai' && request.method === 'GET') return runEdgeAiDiagnostic(env, requestId);
     if (url.pathname === '/api/weather' && request.method === 'GET') return weatherEndpoint(url, requestId);
+    if (url.pathname === '/api/cognitive/tools' && request.method === 'GET') return jsonResponse({ ok: true, orchestrator: 'bitey-cognitive-tool-orchestrator', version: '1.0', tools: getToolRegistry() }, 200, 'cognitive-tool-registry', requestId);
 
     if (url.pathname.startsWith('/api/')) {
       const origin = env.BITEY_BACKEND_ORIGIN;
@@ -32,6 +34,8 @@ export default {
       if (canUseAiFallback && requestClone) {
         const weatherResponse = await tryWeatherFastPath(requestClone.clone(), requestId);
         if (weatherResponse) return weatherResponse;
+        const calculatorResponse = await tryCalculatorFastPath(requestClone.clone(), requestId);
+        if (calculatorResponse) return calculatorResponse;
       }
       try {
         const upstream = await fetch(upstreamUrl, { method: request.method, headers, body: ['GET','HEAD'].includes(request.method) ? undefined : request.body, redirect: 'follow' });
@@ -176,14 +180,15 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   try { body = JSON.parse(await upstream.clone().text()); } catch (_) { return null; }
 
   const specialized = String(body?.capability || body?.routing || '').trim();
-  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none');
+  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none', language);
   const evidence = preliminaryRoute.research_required
     ? await recoverToolEvidence(message, requestId)
     : { text: '', sources: [], method: 'not-required' };
   const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
+  if (evidence?.tool_execution) body.tool_execution = evidence.tool_execution;
   const evidenceText = String(evidence?.text || '').trim();
 
-  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none');
+  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none', language);
   body.cognitive_route = { ...route, language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   body.research_attempted = route.research_attempted;
   body.research_required = route.research_required;
@@ -323,8 +328,9 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
   const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
-  const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none'), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
+  const cognitiveRoute = { ...planCognitiveRoute(message, 'general', sourcesFromEvidence, evidence?.method || 'none', language), language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
+  if (evidence?.tool_execution) cognitiveRoute.tool_execution = evidence.tool_execution;
   const sources = backendSources.length ? backendSources : (Array.isArray(evidence?.sources) ? evidence.sources : []);
   const evidenceInstruction = combinedEvidence
     ? `EVIDENCIA RECUPERADA POR BITEY:
@@ -407,45 +413,146 @@ function specializedFallbackBlocked(capability, requestId) {
   return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
 }
 
-function planCognitiveRoute(message, specialized, sources, evidenceMethod) {
+function planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null) {
   const text = String(message || '').trim();
-  const hasQuestion = /[?¿]|\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\b/i.test(text);
+  const analyzed = language || analyzeLanguage(text);
+  const hasQuestion = /[?¿]|\\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\\b/i.test(text);
   const current = FRESHNESS_RE.test(text) || WEATHER_RE.test(text);
   const explicitResearch = EXPLICIT_RESEARCH_RE.test(text);
-  const comparison = /\b(compara|comparar|comparativa|diferencia|mejor|alternativas|opciones|versus|vs\.?|contrasta)\b/i.test(text);
+  const comparison = /\\b(compara|comparar|comparativa|diferencia|mejor|alternativas|opciones|versus|vs\\.?|contrasta)\\b/i.test(text);
   const trivial = /^(hola|holi|hey|buenas|gracias|ok|okay|ad[ií]os|chao|bye|buenos d[ií]as|buenas tardes|buenas noches)[!. ]*$/i.test(text);
   const research = !trivial && (current || explicitResearch || comparison);
-  const toolStep = research
-    ? (comparison ? 'Investigación y comparación de alternativas iniciadas.' : 'Herramienta externa seleccionada según la intención.')
-    : (hasQuestion ? 'Análisis directo seleccionado; no se inventa una búsqueda externa innecesaria.' : 'Interacción conversacional identificada; se aplica verificación de respuesta.');
-  return {
-    intent: comparison ? 'comparison' : current ? 'current_information' : hasQuestion ? 'question' : 'conversation',
+  const intent = analyzed.intent === 'weather' ? 'weather'
+    : comparison ? 'comparison'
+    : current ? 'current_information'
+    : hasQuestion ? 'question' : 'conversation';
+  const routeBase = {
+    intent,
     specialized: specialized || 'general',
     research_attempted: research,
     research_required: research,
     comparison_required: comparison,
-    evidence_method: evidenceMethod,
+    evidence_method: evidenceMethod
+  };
+  const toolPlan = selectTools({ language: analyzed, route: routeBase, message: text });
+  return {
+    ...routeBase,
+    tool_plan: toolPlan,
     reasons: research
       ? [current ? 'current_or_external_information' : 'explicit_research_or_comparison']
       : ['direct_reasoning_or_conversation'],
-    tool_step
+    tool_step: buildToolActivity(toolPlan)
   };
 }
 
 async function recoverToolEvidence(message, requestId) {
   try {
-    if (WEATHER_RE.test(message)) {
+    const language = analyzeLanguage(message);
+    const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language);
+    const plan = preliminaryRoute.tool_plan;
+    if (plan.primary === 'weather') {
       const weather = await recoverWeather(message, requestId);
-      const search = await recoverSearch(message, requestId);
-      const combined = [weather?.text, search?.text].filter(Boolean).join('\\n\\n');
-      const sources = [...(weather?.sources || []), ...(search?.sources || [])];
-      return { text: combined, sources: sources.slice(0,8), method:'weather-plus-web-search' };
+      if (weather) return {
+        text: weather.text,
+        sources: weather.sources || [],
+        method: 'weather-open-meteo',
+        tool_execution: { primary: 'weather', status: 'success', fallback_used: false }
+      };
+      return {
+        text: '',
+        sources: [],
+        method: 'weather-open-meteo-unavailable',
+        tool_execution: { primary: 'weather', status: 'failed', fallback_used: false }
+      };
+    }
+    if (plan.primary === 'calculator') {
+      const calculation = calculateExpression(message);
+      if (calculation) return {
+        text: calculation.text,
+        sources: [],
+        method: 'deterministic-calculator',
+        tool_execution: { primary: 'calculator', status: 'success', fallback_used: false }
+      };
     }
     const search = await recoverSearch(message, requestId);
-    return search || { text:'', sources:[], method:'web-search-unavailable' };
+    if (search) return {
+      ...search,
+      method: search.method || 'web-search',
+      tool_execution: { primary: plan.primary, executed: 'web_search', status: 'success', fallback_used: plan.primary !== 'web_search' }
+    };
+    return {
+      text: '',
+      sources: [],
+      method: 'web-search-unavailable',
+      tool_execution: { primary: plan.primary, status: 'failed', fallback_used: true }
+    };
   } catch (error) {
     console.warn('Bitey edge evidence recovery failed', { requestId, error: String(error) });
-    return { text:'', sources:[], method:'web-search-error' };
+    return { text:'', sources:[], method:'tool-execution-error', tool_execution: { status: 'failed', error: String(error) } };
+  }
+}
+
+async function tryCalculatorFastPath(request, requestId) {
+  try {
+    const payload = await request.json();
+    const rawMessage = String(payload?.message || '').trim();
+    if (!rawMessage) return null;
+    const language = analyzeLanguage(rawMessage);
+    const route = planCognitiveRoute(language.normalized || rawMessage, 'general', [], 'none', language);
+    if (route.tool_plan?.primary !== 'calculator') return null;
+    const calculation = calculateExpression(language.normalized || rawMessage);
+    if (!calculation) return null;
+    return jsonResponse({
+      conversation_id: payload?.conversation_id || null,
+      original_message: rawMessage,
+      answer: calculation.answer,
+      capability: 'general',
+      selected_provider: 'deterministic-calculator',
+      language: { detected: language.language, normalized: language.normalized, corrections: language.corrections, intent: language.intent, entities: language.entities },
+      cognitive_route: { ...route, research_attempted: false, research_required: false, evidence_method: 'deterministic-calculator' },
+      research_attempted: false,
+      research_required: false,
+      sources: [],
+      activity_events: [
+        'Intención comprendida y ruta cognitiva seleccionada.',
+        'Cálculo determinista seleccionado.',
+        'Operación calculada sin depender de un modelo generativo.',
+        'Resultado final verificado.'
+      ],
+      answer_validation: { valid: true, evidence_available: false, deterministic_tool: true }
+    }, 200, 'calculator-fast-path', requestId);
+  } catch (error) {
+    console.warn('Bitey calculator fast path failed', { requestId, error: String(error) });
+    return null;
+  }
+}
+
+function calculateExpression(message) {
+  const text = String(message || '').trim().replace(/,/g, '.');
+  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\\s*([-+]?\\d+(?:\\.\\d+)?(?:\\s*[+*\\/\\-]\\s*[-+]?\\d+(?:\\.\\d+)?)+)\\s*(?:\\?|$)/i);
+  if (!match) return null;
+  const expression = match[1].replace(/\\s+/g, '');
+  if (!/^[0-9.+*\\/\\-]+$/.test(expression) || /[+*\\/\\-]{2,}/.test(expression)) return null;
+  try {
+    const tokens = expression.match(/[-+]?\\d+(?:\\.\\d+)?|[+*\\/\\-]/g) || [];
+    let total = Number(tokens[0]);
+    if (!Number.isFinite(total)) return null;
+    for (let i = 1; i < tokens.length; i += 2) {
+      const op = tokens[i], rhs = Number(tokens[i + 1]);
+      if (!Number.isFinite(rhs)) return null;
+      if (op === '+') total += rhs;
+      else if (op === '-') total -= rhs;
+      else if (op === '*') total *= rhs;
+      else if (op === '/') {
+        if (rhs === 0) return null;
+        total /= rhs;
+      } else return null;
+    }
+    if (!Number.isFinite(total)) return null;
+    const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
+    return { expression, value: total, answer: `El resultado es **${formatted}**.`, text: `CALCULATOR: ${expression} = ${formatted}` };
+  } catch (_) {
+    return null;
   }
 }
 
