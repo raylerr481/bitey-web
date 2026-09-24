@@ -89,10 +89,13 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   if (explicitMode === 'código' || explicitMode === 'code') toolNeed = 'code_reasoning';
   if (explicitMode === 'investigación' || explicitMode === 'research') toolNeed = 'web_search';
 
+  const activeSignals = Object.values(signals).filter(Boolean).length;
+  const ambiguity = activeSignals >= 3 && !signals.long_or_complex ? 0.08 : 0;
+  const confidence = Math.max(0.55, Math.min(0.99, 0.72 + activeSignals * 0.035 - ambiguity));
   const reasoningLevel = complexity === 'complex' ? 'deep' : complexity === 'moderate' ? 'standard' : 'fast';
   return {
     intent: primaryIntent,
-    confidence: Math.min(0.99, 0.72 + Object.values(signals).filter(Boolean).length * 0.035),
+    confidence,
     complexity,
     reasoning_level: reasoningLevel,
     tool_need: toolNeed,
