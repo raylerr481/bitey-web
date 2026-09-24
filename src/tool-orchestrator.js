@@ -11,6 +11,14 @@
  */
 
 const TOOL_DEFINITIONS = {
+  time: {
+    id: 'time',
+    kind: 'specialized_data',
+    domains: ['time'],
+    intents: ['time', 'current_information'],
+    priority: 105,
+    fallbacks: ['web_search']
+  },
   weather: {
     id: 'weather',
     kind: 'specialized_data',
@@ -59,7 +67,8 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const domains = new Set((language.domains || []).map(item => item?.domain).filter(Boolean));
   const explicitMode = String(route?.mode || context?.mode || 'auto').toLowerCase();
   const signals = {
-    current: /\b(hoy|ahora|actual(?:mente)?|últim[oa]s?|latest|news|noticias?|precio|cotización|cuánto cuesta|when|where|who)\b/i.test(lower),
+    current: /\b(hoy|ahora|actual(?:mente)?|últim[oa]s?|latest|news|noticias?|precio|cotización|cuánto cuesta|when|where|who|hora|time)\b/i.test(lower),
+    time: language.intent === 'time' || domains.has('time') || /\b(hora|horario|time)\b/i.test(lower) || /\bqu[eé]\s+tiempo\s+es\b/i.test(lower),
     research: /\b(busca|buscar|investiga|fuentes|compara|comparar|contrasta|alternativas|opciones|search|research)\b/i.test(lower),
     calculation: /(?:cuánto es|calcula|calcular|calculate|compute|porcentaje|roi|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i.test(lower) || language.intent === 'calculation',
     code: language.intent === 'code' || domains.has('code') || /\b(código|code|python|javascript|sql|api|bug|error|github)\b/i.test(lower),
@@ -68,7 +77,8 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     long_or_complex: text.length > 240 || /\b(paso a paso|analiza|análisis|planifica|diseña|arquitectura|profundo|detalladamente|deep|complex)\b/i.test(lower)
   };
   let primaryIntent = String(language.intent || route.intent || 'question');
-  if (signals.calculation) primaryIntent = 'calculation';
+  if (signals.time) primaryIntent = 'time';
+  else if (signals.calculation) primaryIntent = 'calculation';
   else if (signals.code) primaryIntent = 'code';
   else if (signals.comparison) primaryIntent = 'comparison';
   else if (signals.current) primaryIntent = 'current_information';
@@ -80,7 +90,8 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   else if (signals.current || signals.research || signals.calculation || signals.code) complexity = 'moderate';
 
   let toolNeed = 'none';
-  if (signals.calculation) toolNeed = 'calculator';
+  if (signals.time) toolNeed = 'time';
+  else if (signals.calculation) toolNeed = 'calculator';
   else if (domains.has('weather') || language.intent === 'weather') toolNeed = 'weather';
   else if (signals.code) toolNeed = 'code_reasoning';
   else if (signals.current || signals.research || signals.comparison) toolNeed = 'web_search';
@@ -94,6 +105,7 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const confidence = Math.max(0.55, Math.min(0.99, 0.72 + activeSignals * 0.035 - ambiguity));
   const intentParts = [];
   if (signals.current || signals.research) intentParts.push('current_information');
+  if (signals.time) intentParts.push('time');
   if (signals.calculation) intentParts.push('calculation');
   if (signals.code) intentParts.push('code');
   if (signals.comparison) intentParts.push('comparison');
