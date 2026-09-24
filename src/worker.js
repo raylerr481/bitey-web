@@ -350,10 +350,11 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
       recent_topic_terms: contextualMemory.recent_topic_terms,
       context_turns: contextualMemory.context_turns,
       confidence: contextualMemory.confidence,
-      intent_evaluation: cognitiveRoute.intent_evaluation,
+      intent_evaluation: null,
       contextual_query: contextualQuery !== message ? contextualQuery : null
     }
   };
+  cognitiveRoute.conversation_context.intent_evaluation = cognitiveRoute.intent_evaluation;
   if (evidence?.evidence_analysis) cognitiveRoute.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   const backendSources = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? [] : (Array.isArray(upstreamBody?.sources) ? upstreamBody.sources : []);
   if (evidence?.tool_execution) cognitiveRoute.tool_execution = evidence.tool_execution;
