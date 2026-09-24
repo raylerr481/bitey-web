@@ -103,7 +103,10 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   try { body = JSON.parse(await upstream.clone().text()); } catch (_) { return null; }
 
   const specialized = String(body?.capability || body?.routing || '').trim();
-  const evidence = await recoverToolEvidence(message, requestId);
+  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none');
+  const evidence = preliminaryRoute.research_required
+    ? await recoverToolEvidence(message, requestId)
+    : { text: '', sources: [], method: 'not-required' };
   const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
   const evidenceText = String(evidence?.text || '').trim();
 
@@ -201,7 +204,10 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const isolatedHistory = filterConversationHistory(history, capability);
   const compactHistory = isolatedHistory.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
 
-  const evidence = await recoverToolEvidence(message, requestId);
+  const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none');
+  const evidence = preliminaryRoute.research_required
+    ? await recoverToolEvidence(message, requestId)
+    : { text: '', sources: [], method: 'not-required' };
   const backendEvidenceCapability = String(upstreamBody?.capability || upstreamBody?.routing || upstreamBody?.['x-bitey-capability'] || '').trim();
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
@@ -394,7 +400,16 @@ SNIPPET: ${snippet}`); }
         const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
         return {
           text: filteredItems.join('\n\n'),
-          sources: selected
+          sources: selected,
+          evidence_analysis: {
+            candidates: sourceObjects.length,
+            selected: selected.length,
+            duplicates_removed: Math.max(0, sourceObjects.length - ranked.length),
+            irrelevant_removed: Math.max(0, sourceObjects.length - sourceObjects.filter(item => isRelevantSearchSource(message, item)).length),
+            quality_ranked: true,
+            consistency_checked: detectEvidenceConsistency(message, selected).checked,
+            contradictions: detectEvidenceConsistency(message, selected).contradictions.length
+          }
         };
       }
     } catch (error) {
@@ -411,6 +426,16 @@ function shouldResearch(message = '') {
   if (FRESHNESS_RE.test(text)) return true;
   const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
   return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.:-]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
 }
 
 function rankEvidenceSources(query, sources) {
@@ -465,6 +490,23 @@ function sourceAuthority(domain) {
   if (/(who\.int|wikipedia\.org|open-meteo\.com)$/.test(d)) return 0.9;
   if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com)$/.test(d)) return 0.88;
   return 0.55;
+}
+
+function detectEvidenceConsistency(query, sources) {
+  const candidates = Array.isArray(sources) ? sources : [];
+  if (candidates.length < 2) return { checked: false, consistent: true, contradictions: [] };
+  const normalized = candidates.map(s => normalizeSearchText((s.title || '') + ' ' + (s.snippet || '')));
+  const contradictionPairs = [];
+  const negation = /\\b(no|not|never|sin|contra|versus|however|but|pero|aunque)\\b/;
+  for (let i = 0; i < normalized.length; i++) {
+    for (let j = i + 1; j < normalized.length; j++) {
+      if (negation.test(normalized[i]) !== negation.test(normalized[j]) &&
+          meaningfulQueryTokens(query).some(t => normalized[i].includes(t) && normalized[j].includes(t))) {
+        contradictionPairs.push([i, j]);
+      }
+    }
+  }
+  return { checked: true, consistent: contradictionPairs.length === 0, contradictions: contradictionPairs };
 }
 
 function sourceFreshnessScore(text) {
