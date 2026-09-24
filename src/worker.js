@@ -260,8 +260,7 @@ Usa esta evidencia para responder. No inventes datos y no menciones herramientas
     : (shouldResearch(message) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
   const sourceInstruction = sources.length
     ? `FUENTES CONSULTADAS:
-${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('
-')}
+${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('\\n')}
 
 Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No inventes referencias.`
     : '';
