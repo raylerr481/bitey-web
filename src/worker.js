@@ -1047,7 +1047,24 @@ function parseCurrencyCandidate(value) {
   const numberPart = raw.replace(/[^0-9.,]/g, '');
   const valueNumber = parseLocaleNumber(numberPart);
   if (!Number.isFinite(valueNumber)) return null;
-  return { value: valueNumber, currency: symbol === 'US
+  const currency = symbol.toUpperCase() === 'US$' ? 'US$' : symbol || '';
+  return { value: valueNumber, currency };
+}
+
+function parseLocaleNumber(value) {
+  const raw = String(value || '').trim().replace(/\s/g, '');
+  if (!raw) return NaN;
+  const normalized = raw.includes(',') && raw.includes('.')
+    ? (raw.lastIndexOf(',') > raw.lastIndexOf('.')
+      ? raw.replace(/\./g, '').replace(',', '.')
+      : raw.replace(/,/g, ''))
+    : raw.includes(',')
+      ? raw.replace(',', '.')
+      : raw;
+  return Number(normalized);
+}
+
+function calculateExpression(message) {
   const text = String(message || '').trim().replace(/,/g, '.');
   const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
   if (!match) return null;
@@ -1079,7 +1096,12 @@ function parseCurrencyCandidate(value) {
     total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
     if (!Number.isFinite(total)) return null;
     const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
-    return { expression, value: total, answer: 'El resultado es **' + formatted + '**.', text: 'CALCULATOR: ' + expression + ' = ' + formatted };
+    return {
+      expression,
+      value: total,
+      answer: 'El resultado es **' + formatted + '**.',
+      text: 'CALCULATOR: ' + expression + ' = ' + formatted
+    };
   } catch (_) {
     return null;
   }
