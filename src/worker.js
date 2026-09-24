@@ -69,7 +69,7 @@ async function tryWeatherFastPath(request, requestId) {
     const language = analyzeLanguage(rawMessage);
     const message = language.normalized || rawMessage;
     if (!WEATHER_RE.test(message) || language.intent === 'duration') return null;
-    const weather = await recoverWeather(resolvedToolQuery, requestId);
+    const weather = await recoverWeather(message, requestId);
     if (!weather) return null;
     const location = weather.location || weatherLocation(message) || 'localidade solicitada';
     const answer = formatWeatherAnswer(weather);
