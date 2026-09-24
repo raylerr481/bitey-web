@@ -1266,7 +1266,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }) && semantic.valid && temporal.valid, { non_empty_text: Boolean(String(time.text || '').trim()), semantic, temporal });
       }
       if (tool === 'weather') {
-        const weather = await recoverWeather(message, requestId);
+        const weather = await recoverWeather(resolvedToolQuery, requestId);
         if (!weather) {
           record(tool, 'failed', purpose, fallbackFor);
           return false;
@@ -1364,26 +1364,54 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
     const verificationPolicy = plan.verification_policy || {};
     const maxReplans = Math.min(2, Number(verificationPolicy.max_replans || 0));
     let replansUsed = 0;
-    while (
-      replansUsed < maxReplans &&
-      verificationPolicy.replan_on_failure &&
-      !executions.some(item => item.tool === 'web_search' && item.status === 'success') &&
-      executions.some(item => item.tool === 'web_search' && ['failed','blocked'].includes(item.status))
-    ) {
-      replansUsed += 1;
+    const lastWeb = () => [...executions].reverse().find(item => item.tool === 'web_search' || item.tool === 'web_search_retry');
+    const buildRecoveryQuery = (reason = 'evidence_gap') => {
       const contextTerms = [
+        resolvedToolQuery,
         ...(Array.isArray(contextMemory?.inherited_entities) ? contextMemory.inherited_entities : []),
         ...(Array.isArray(contextMemory?.inherited_locations) ? contextMemory.inherited_locations : [])
-      ].filter(Boolean).slice(0, 6);
-      const retryQuery = [message, contextTerms.join(' ')].filter(Boolean).join(' ');
+      ].filter(Boolean).slice(0, 8);
+      const freshness = /\b(hoy|ahora|actual(?:mente)?|precio(?:s)?|cotizaci[oó]n|latest|current|news|noticias)\b/i.test(message)
+        ? ' fuente actualizada 2026'
+        : '';
+      const precision = reason === 'invalid_freshness'
+        ? ' fuente primaria o reciente'
+        : reason === 'invalid_semantics'
+          ? ' verificar entidad, moneda y unidad'
+          : ' verificar con fuentes fiables';
+      return [...new Set([contextTerms.join(' '), precision, freshness].filter(Boolean))].join(' ');
+    };
+    while (
+      replansUsed < maxReplans &&
+      verificationPolicy.replan_on_failure
+    ) {
+      const last = lastWeb();
+      const needsRecovery = !last
+        || last.status === 'failed'
+        || last.status === 'blocked'
+        || last.result_valid === false;
+      if (!needsRecovery) break;
+      replansUsed += 1;
+      const validation = last?.validation || {};
+      const temporal = validation?.temporal || {};
+      const reason = temporal.valid === false
+        ? 'invalid_freshness'
+        : validation?.semantic?.valid === false
+          ? 'invalid_semantics'
+          : 'evidence_gap';
+      const retryQuery = buildRecoveryQuery(reason);
       const retry = await recoverSearch(retryQuery, requestId);
       if (!retry) {
         executions.push({
           tool: 'web_search_retry',
           status: 'failed',
-          purpose: 'reformular la investigación tras un fallo de evidencia',
+          purpose: 'replan adaptativo de evidencia',
           fallback_for: 'web_search',
-          replan: replansUsed
+          replan: replansUsed,
+          replan_reason: reason,
+          recovery_query: retryQuery,
+          recovery_tool: 'web_search',
+          previous_result_status: last?.status || 'missing'
         });
         continue;
       }
@@ -1393,23 +1421,31 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       }
       sources.push(...(retry.sources || []));
       workingContext.sources.push(...(retry.sources || []));
+      const retrySemantic = validateSemanticToolOutput('web_search', { text: retry.text, sources: retry.sources }, message);
+      const retryTemporal = validateTemporalToolOutput('web_search', { text: retry.text, sources: retry.sources }, message);
+      const retryValid = validateToolOutput('web_search', { text: retry.text, sources: retry.sources })
+        && retrySemantic.valid && retryTemporal.valid;
       executions.push({
         tool: 'web_search_retry',
         status: 'success',
-        purpose: 'reformular la investigación tras un fallo de evidencia',
+        result_valid: retryValid,
+        purpose: 'replan adaptativo de evidencia',
         fallback_for: 'web_search',
         replan: replansUsed,
+        replan_reason: reason,
+        recovery_query: retryQuery,
+        recovery_tool: 'web_search',
+        previous_result_status: last?.status || 'missing',
+        validation: { semantic: retrySemantic, temporal: retryTemporal },
         context_keys: contextKeys()
       });
+      if (!retryValid) continue;
 
-      // Re-open steps that were blocked only because the repaired dependency
-      // was unavailable. Execute them now, in dependency order.
+      // Re-open only steps whose dependencies are now genuinely verified.
       for (const pending of plan.steps || []) {
         if (attempted.has(pending.tool)) continue;
         const pendingDependency = (plan.dependencies || []).find(item => item.tool === pending.tool);
-        const stillUnmet = (pendingDependency?.depends_on || []).filter(depTool => {
-          return !dependencyResult(depTool);
-        });
+        const stillUnmet = (pendingDependency?.depends_on || []).filter(depTool => !dependencyResult(depTool));
         if (stillUnmet.length) continue;
         await executeTool(pending.tool, pending.purpose);
       }
