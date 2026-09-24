@@ -387,13 +387,15 @@ async function recoverSearch(message, requestId) {
 TITLE: ${title}
 SNIPPET: ${snippet}`); }
       }
-      const relevant = sourceObjects.filter(item => isRelevantSearchSource(message, item));
-      if (relevant.length) {
-        const allowed = new Set(relevant.map(item => item.url));
+      const ranked = rankEvidenceSources(message, sourceObjects);
+      if (ranked.length) {
+        const selected = ranked.slice(0, 6);
+        const allowed = new Set(selected.map(item => item.url));
         const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
-        return { text: filteredItems.join('
-
-'), sources: relevant };
+        return {
+          text: filteredItems.join('\n\n'),
+          sources: selected
+        };
       }
     } catch (error) {
       console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
@@ -409,6 +411,75 @@ function shouldResearch(message = '') {
   if (FRESHNESS_RE.test(text)) return true;
   const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
   return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
+function rankEvidenceSources(query, sources) {
+  const seen = new Set();
+  return sources
+    .filter(item => isRelevantSearchSource(query, item))
+    .map(item => {
+      const url = canonicalizeSourceUrl(item.url);
+      const domain = getSourceDomain(url);
+      const title = String(item.title || '').toLowerCase();
+      const snippet = String(item.snippet || '').toLowerCase();
+      const queryTokens = meaningfulQueryTokens(query);
+      const haystack = normalizeSearchText(title + ' ' + snippet + ' ' + domain);
+      const matches = queryTokens.filter(token => haystack.includes(token)).length;
+      const relevance = queryTokens.length ? matches / queryTokens.length : 0.5;
+      const authority = sourceAuthority(domain);
+      const freshness = sourceFreshnessScore(title + ' ' + snippet);
+      const score = relevance * 0.55 + authority * 0.25 + freshness * 0.20;
+      return { ...item, url, score, _domain: domain };
+    })
+    .sort((a,b) => b.score - a.score)
+    .filter(item => {
+      const key = item.url || item._domain;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(({score,_domain,...item}) => item);
+}
+
+function canonicalizeSourceUrl(value) {
+  try {
+    const u = new URL(String(value || ''));
+    u.hash = '';
+    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','fbclid','gclid'].forEach(k => u.searchParams.delete(k));
+    return u.toString();
+  } catch (_) {
+    return String(value || '').trim();
+  }
+}
+
+function getSourceDomain(value) {
+  try { return new URL(value).hostname.replace(/^www\./i, '').toLowerCase(); }
+  catch (_) { return ''; }
+}
+
+function sourceAuthority(domain) {
+  const d = String(domain || '').toLowerCase();
+  if (!d) return 0;
+  if (/\.gov(\.[a-z]{2})?$/.test(d) || /\.gov\.[a-z]{2}$/.test(d)) return 1;
+  if (/\.edu(\.[a-z]{2})?$/.test(d) || /\.ac\.[a-z]{2}$/.test(d)) return 0.95;
+  if (/(who\.int|wikipedia\.org|open-meteo\.com)$/.test(d)) return 0.9;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com)$/.test(d)) return 0.88;
+  return 0.55;
+}
+
+function sourceFreshnessScore(text) {
+  const value = String(text || '').toLowerCase();
+  if (/\b(2026|2025|hoy|ahora|actual|actualizado|latest|recent|recentemente|últim[oa]s?)\b/i.test(value)) return 1;
+  if (/\b(2024|2023)\b/i.test(value)) return 0.55;
+  return 0.35;
+}
+
+function meaningfulQueryTokens(query) {
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también','mejor','quiero']);
+  return [...new Set(
+    String(query || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+      .toLowerCase().match(/[a-z0-9]{3,}/g)?.filter(t => !stop.has(t)) || []
+  )];
 }
 
 function isRelevantSearchSource(query, source) {
