@@ -1132,13 +1132,42 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       const resultSet = new Set(resultFrame.tokens);
       const matched = queryFrame.tokens.filter(token => resultSet.has(token)).length;
       const coverage = queryFrame.tokens.length ? matched / queryFrame.tokens.length : 0;
-      const explicitEntity = queryFrame.subject.some(token => resultSet.has(token));
+
+      const normalizeEntity = value => String(value || '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, ' ').trim();
+
+      const entities = [
+        ...(Array.isArray(output?.entities) ? output.entities : []),
+        ...(Array.isArray(output?.sources) ? output.sources.flatMap(source => Array.isArray(source?.entities) ? source.entities : []) : [])
+      ].map(normalizeEntity).filter(Boolean);
+
+      const queryEntities = queryFrame.subject.map(normalizeEntity).filter(token =>
+        token.length >= 3 && !['precio','price','cuanto','cuanta','acciones','shares','unidades','valor'].includes(token)
+      );
+      const entityMatch = queryEntities.length
+        ? queryEntities.some(entity => entities.includes(entity) || resultSet.has(entity))
+        : queryFrame.subject.some(token => resultSet.has(token));
+
+      const requestedCurrencies = (String(originalMessage).match(/(?:R\$|US\$|USD|BRL|EUR|€|£)/gi) || []).map(normalizeEntity);
+      const resultCurrencies = (sourceText.match(/(?:R\$|US\$|USD|BRL|EUR|€|£)/gi) || []).map(normalizeEntity);
+      const currencyCompatible = !requestedCurrencies.length || requestedCurrencies.some(currency => resultCurrencies.includes(currency));
+
+      const unitPatterns = /(?:acci[oó]n|share|unidad|kg|g|km|m|gb|tb|mb|%|porcentaje|mes|ano|año|dia|día)/i;
+      const requestedUnit = String(originalMessage).match(unitPatterns)?.[0] || '';
+      const resultHasUnit = requestedUnit ? unitPatterns.test(sourceText) : true;
       const semanticMinimum = tool === 'web_search' ? 0.18 : 0.10;
-      const valid = text.length > 0 && (coverage >= semanticMinimum || explicitEntity);
+      const valid = text.length > 0
+        && (coverage >= semanticMinimum || entityMatch)
+        && currencyCompatible
+        && resultHasUnit;
+
       return {
         valid,
         query_term_coverage: Number(coverage.toFixed(3)),
-        explicit_entity_match: explicitEntity,
+        entity_match: Boolean(entityMatch),
+        currency_compatible: currencyCompatible,
+        unit_present: resultHasUnit,
         matched_terms: matched,
         query_terms: queryFrame.tokens.length
       };
