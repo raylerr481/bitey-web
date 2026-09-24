@@ -115,7 +115,7 @@ export function toolLabel(id) {
 function isCalculation(message, intent, domains) {
   if (intent === 'calculation') return true;
   if (domains.has('math')) return true;
-  return /(?:cu[aá]nto es|calcula|calcular|calculate|compute|suma|resta|multiplica|divide|porcentaje|%|\\b\\d+(?:[.,]\\d+)?\\s*[+*\\/\\-]\\s*\\d)/i.test(String(message || ''));
+  return /(?:cu[aá]nto es|calcula|calcular|calculate|compute|suma|resta|multiplica|divide|porcentaje|%|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i.test(String(message || ''));
 }
 
 function buildReason(primary, intent, domains) {
