@@ -204,7 +204,20 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   };
 }
 
-export function inferRecoveryTool(gapText = '', validation = {}) {
+export function inferRecoveryPriority(gapText = '', validation = {}) {
+  const text = String(gapText || '').toLowerCase();
+  const candidates = [];
+  if (/\\b(hora|time|horario|qué tiempo es|que tiempo es)\\b/.test(text)) candidates.push({ tool: 'time', priority: 120, reason: 'temporal_fact' });
+  if (/\\b(clima|temperatura|lluvia|weather)\\b/.test(text)) candidates.push({ tool: 'weather', priority: 115, reason: 'weather_fact' });
+  if (/\\b(calcula|cu[aá]ntas?|porcentaje|roi|rentabilidad|suma|resta|multiplica|divide)\\b/.test(text)) candidates.push({ tool: 'calculator', priority: 125, reason: 'deterministic_result' });
+  if (/\\b(c[oó]digo|programa|error|bug|stack trace|api|javascript|python|typescript)\\b/.test(text)) candidates.push({ tool: 'code_reasoning', priority: 110, reason: 'code_analysis' });
+  if (validation?.claim_conflicts?.length) candidates.push({ tool: 'web_search', priority: 108, reason: 'resolve_source_conflict' });
+  if (validation?.claim_validation?.unsupported_factual_claims?.length) candidates.push({ tool: 'web_search', priority: 106, reason: 'support_factual_claims' });
+  if (!candidates.length) candidates.push({ tool: 'web_search', priority: 80, reason: 'general_evidence_gap' });
+  return candidates.sort((a, b) => b.priority - a.priority);
+}
+
+function inferRecoveryTool(gapText = '', validation = {}) {
   const text = String(gapText || '').toLowerCase();
   if (/\\b(hora|time|horario|qué tiempo es|que tiempo es)\\b/.test(text)) return 'time';
   if (/\\b(clima|temperatura|lluvia|weather)\\b/.test(text)) return 'weather';
@@ -236,7 +249,14 @@ function selectTools({ language = {}, route = {}, message = '', context = {}, re
 
   candidates.push('model_reasoning');
 
-  if (recoveryTool) candidates.unshift(recoveryTool);
+  const recoveryPriorities = recovery?.needed
+    ? inferRecoveryPriority(recovery.gap_text || message, recovery.validation || {})
+    : [];
+  if (recoveryPriorities.length) {
+    for (const item of recoveryPriorities) candidates.unshift(item.tool);
+  } else if (recoveryTool) {
+    candidates.unshift(recoveryTool);
+  }
   const unique = [...new Set(candidates)];
   const primary = unique[0] || 'model_reasoning';
   const chain = [];
@@ -252,6 +272,7 @@ function selectTools({ language = {}, route = {}, message = '', context = {}, re
     ...(intentEval.reasoning || {}),
     tool_count_hint: toolCountHint,
     selected_tools: unique,
+    recovery_priorities: recoveryPriorities,
     context_inputs: {
       entities: Array.isArray(context?.inherited_entities) ? context.inherited_entities : [],
       locations: Array.isArray(context?.inherited_locations) ? context.inherited_locations : [],
