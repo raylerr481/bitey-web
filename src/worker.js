@@ -430,18 +430,24 @@ function buildAnswerRecoveryPlan(validation, route = {}) {
     needed: actions.length > 0,
     actions: [...new Set(actions)],
     max_steps: Math.min(3, Math.max(1, actions.length)),
-    research_required: actions.some(action => ['refresh_external_evidence','expand_comparison_evidence','resolve_source_conflict'].includes(action)),
+    research_required: actions.some(action => ['refresh_external_evidence','expand_comparison_evidence','resolve_source_conflict','target_weak_evidence'].includes(action)),
     deterministic_required: actions.includes('verify_or_recalculate')
   };
 }
 
 function extractClaimFrame(text) {
   const normalized = normalizeSearchText(String(text || ''));
-  const stop = new Set(['para','como','esta','este','esa','ese','que','con','por','una','los','las','del','desde','sobre','entre','this','that','with','from','about','the','and','for']);
+  const stop = new Set(['para','como','esta','este','esa','ese','que','con','por','una','los','las','del','desde','sobre','entre','this','that','with','from','about','the','and','for','una','uno','unos','unas']);
   const tokens = meaningfulQueryTokens(normalized).filter(token => token.length >= 4 && !stop.has(token));
-  const subject = tokens.slice(0, 4);
-  const predicate = tokens.slice(4, 10);
-  return { subject, predicate, tokens };
+  // Prefer named entities and distinctive terms over raw token position.
+  // This reduces false support when a generic opening phrase happens to match.
+  const entityLike = tokens.filter(token =>
+    /^(?:meta|apple|google|microsoft|openai|nvidia|amazon|tesla|rtx|iphone|bitcoin|ethereum|brasil|brazil|esteio|porto|alegre|cloudflare|supabase|github|wordpress)$/i.test(token)
+  );
+  const distinctive = [...new Set([...entityLike, ...tokens])];
+  const subject = distinctive.slice(0, 4);
+  const predicate = distinctive.slice(4, 10);
+  return { subject, predicate, tokens: distinctive };
 }
 
 function semanticClaimSupport(claim, source) {
