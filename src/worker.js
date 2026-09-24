@@ -515,6 +515,15 @@ async function recoverToolEvidence(message, requestId) {
 
     const executeTool = async (tool, purpose, fallbackFor = null) => {
       if (attempted.has(tool)) return false;
+      if (tool === 'time') {
+        const time = recoverTime(message);
+        evidenceParts.push(time.text);
+        sources.push(...(time.sources || []));
+        workingContext.evidence.push(time.text);
+        workingContext.sources.push(...(time.sources || []));
+        record(tool, 'success', purpose, fallbackFor, contextForTool());
+        return true;
+      }
       if (tool === 'weather') {
         const weather = await recoverWeather(message, requestId);
         if (!weather) {
@@ -699,6 +708,33 @@ function weatherLocation(message) {
   if (known) return known[1];
   const match = message.match(/(?:en|in|em|de|da|do)\s+(.+?)(?:,\s*(?:brasil|brazil))?(?:[?!.]|$)/i);
   return (match?.[1] || '').replace(/\b(?:rio grande do sul|rs|estado de)\b/ig, '').replace(/\s+/g, ' ').trim() || null;
+}
+
+function timeLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras[ií]l|brazil)\b/i);
+  return known ? known[1] : null;
+}
+
+function recoverTime(message) {
+  const location = timeLocation(message);
+  const timeZone = location && /esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras/i.test(location)
+    ? 'America/Sao_Paulo'
+    : 'America/Sao_Paulo';
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('es-BR', {
+    timeZone, dateStyle: 'full', timeStyle: 'long', hour12: false
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type) => parts.find(part => part.type === type)?.value || '';
+  const timeText = formatter.format(now);
+  return {
+    text: `TIME SOURCE: Runtime clock
+LOCATION: ${location || 'Brazil / America/Sao_Paulo'}
+CURRENT TIME: ${timeText}
+TIME ZONE: ${timeZone}
+HOUR: ${get('hour')}:${get('minute')}:${get('second')}`,
+    sources: [{ title: 'Bitey runtime clock', url: 'runtime://clock', snippet: `Hora actual calculada por el reloj del runtime en ${timeZone}.` }]
+  };
 }
 
 async function recoverWeather(message, requestId) {
