@@ -447,6 +447,46 @@ function semanticClaimSupport(claim, source) {
   };
 }
 
+function detectClaimConflicts(answer, sources = []) {
+  const text = String(answer || '').trim();
+  const sentences = text.split(/(?<=[.!?¿])\\s+/).map(s => s.replace(/\\[S\\d+\\]/g, '').trim()).filter(s => s.length >= 30);
+  const sourceTexts = sources.slice(0, 8).map((source, index) => ({
+    id: '[S' + (index + 1) + ']',
+    text: String(source?.title || '') + ' ' + String(source?.snippet || '')
+  }));
+  const conflicts = [];
+  for (const sentence of sentences) {
+    const ids = extractCitationIds(sentence);
+    if (!ids.length) continue;
+    const claimTokens = meaningfulQueryTokens(sentence).filter(t => t.length >= 4).slice(0, 14);
+    const numericValues = [...sentence.matchAll(/(?:R\\$|US\\$|€|£|\\$)?\\s*\\d+(?:[.,]\\d+)?/g)].map(m => normalizeSearchText(m[0]));
+    const citedSources = ids.map(id => sourceTexts.find(source => source.id === id)).filter(Boolean);
+    if (citedSources.length < 2) continue;
+    const sourceNumbers = citedSources.map(source => ({
+      id: source.id,
+      values: [...source.text.matchAll(/(?:R\\$|US\\$|€|£|\\$)?\\s*\\d+(?:[.,]\\d+)?/g)].map(m => normalizeSearchText(m[0]))
+    }));
+    const distinct = [...new Set(sourceNumbers.flatMap(item => item.values).filter(Boolean))];
+    if (distinct.length > 1 && numericValues.length > 0) {
+      conflicts.push({
+        claim: sentence.slice(0, 240),
+        sources: sourceNumbers,
+        reason: 'cited_sources_contain_different_numeric_values'
+      });
+    }
+    const sourceFrames = citedSources.map(source => extractClaimFrame(source.text));
+    const overlap = sourceFrames.map(frame => frame.tokens.filter(token => claimTokens.includes(token)).length);
+    if (overlap.length >= 2 && Math.max(...overlap) > 0 && Math.min(...overlap) === 0) {
+      conflicts.push({
+        claim: sentence.slice(0, 240),
+        sources: citedSources.map(source => source.id),
+        reason: 'claim_supported_by_non_overlapping_cited_sources'
+      });
+    }
+  }
+  return conflicts.slice(0, 10);
+}
+
 function validateAnswerClaims(answer, sources = [], route = {}) {
   const text = String(answer || '').trim();
   const claims = [];
@@ -542,6 +582,7 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     !/\b(conflict|contradic|discrep|difier|difer|no coinciden|fuentes? indican|según|segun|incertidumbre)\b/i.test(text);
   const coverage = assessAnswerCoverage(question, text, route);
   const claimValidation = validateAnswerClaims(text, sources, route);
+  const claimConflicts = detectClaimConflicts(text, sources);
   const unsupportedClaims = claimValidation.unsupported_count > 0;
   const unsupportedCitations = claimValidation.unsupported_citations?.length > 0;
   const finalGate = {
@@ -549,7 +590,7 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     citations_valid: invalidCitations.length === 0 && !unsupportedCitations,
     evidence_supported: !unsupportedResearchAnswer && !unsupportedClaims,
     coverage_valid: coverage.valid,
-    contradictions_acknowledged: !contradictionWarning
+    contradictions_acknowledged: !contradictionWarning && claimConflicts.length === 0
   };
   return {
     valid: Object.values(finalGate).every(Boolean),
@@ -560,7 +601,8 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     unsupported_research_answer: unsupportedResearchAnswer,
     contradiction_warning: contradictionWarning,
     answer_coverage: coverage,
-    claim_validation: claimValidation
+    claim_validation: claimValidation,
+    claim_conflicts: claimConflicts
   };
 }
 
