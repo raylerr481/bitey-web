@@ -411,8 +411,16 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const contradictionWarning = Boolean(route?.evidence_contradictions > 0) &&
     !/\b(conflict|contradic|discrep|difier|difer|no coinciden|fuentes? indican|según|segun|incertidumbre)\b/i.test(text);
   const coverage = assessAnswerCoverage(question, text, route);
+  const finalGate = {
+    non_empty: text.length > 0,
+    citations_valid: invalidCitations.length === 0,
+    evidence_supported: !unsupportedResearchAnswer,
+    coverage_valid: coverage.valid,
+    contradictions_acknowledged: !contradictionWarning
+  };
   return {
-    valid: invalidCitations.length === 0 && !unsupportedResearchAnswer && coverage.valid && text.length > 0,
+    valid: Object.values(finalGate).every(Boolean),
+    final_gate: finalGate,
     citation_count: citations.length,
     invalid_citations: invalidCitations,
     evidence_available: hasEvidence,
@@ -430,6 +438,7 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
     'Primero comprende la intención y después revisa la respuesta preliminar contra la evidencia.',
     'Para afirmaciones verificables, exige respaldo en las fuentes seleccionadas cuando la ruta requiere investigación.',
     'Compara las fuentes y no combines afirmaciones incompatibles. Si hay conflicto relevante, indícalo y prioriza la fuente de mayor autoridad y actualidad.',
+    'La respuesta no se considera terminada si existe una contradicción relevante sin reconocer, una parte importante de la pregunta sin responder o una afirmación externa sin respaldo.';
     'Elimina afirmaciones no sustentadas, duplicadas, irrelevantes o demasiado especulativas.',
     'No conviertas una inferencia en un hecho. Distingue hechos, estimaciones e incertidumbre.',
     'Si no hay evidencia suficiente para una consulta que requiere información externa, dilo claramente en vez de completar los huecos con conocimiento no verificado.',
