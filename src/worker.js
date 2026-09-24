@@ -399,6 +399,18 @@ function assessAnswerCoverage(question, answer, route = {}) {
   };
 }
 
+function buildEvidenceGapQuery(question, validation) {
+  const graph = validation?.evidence_graph;
+  const weak = Array.isArray(validation?.evidence_graph_score?.weak_claims)
+    ? validation.evidence_graph_score.weak_claims
+    : [];
+  const claims = Array.isArray(graph?.nodes?.claims) ? graph.nodes.claims : [];
+  const weakIds = new Set(weak.map(item => item.id));
+  const gapClaims = claims.filter(claim => weakIds.has(claim.id) || !(claim.source_ids || []).length);
+  const claimText = gapClaims.map(claim => claim.text).filter(Boolean).slice(0, 4).join(' ');
+  return [question, claimText, 'verificar fuente primaria evidencia específica'].filter(Boolean).join(' ');
+}
+
 function buildAnswerRecoveryPlan(validation, route = {}) {
   const missing = Array.isArray(validation?.answer_coverage?.missing_parts)
     ? validation.answer_coverage.missing_parts
@@ -411,6 +423,9 @@ function buildAnswerRecoveryPlan(validation, route = {}) {
   if (missing.includes('comparison_coverage')) actions.push('expand_comparison_evidence');
   if (validation?.contradiction_warning) actions.push('resolve_source_conflict');
   if (missing.some(item => /^part_/.test(item))) actions.push('cover_missing_question_part');
+  if (validation?.evidence_graph_score?.isolated_claims > 0 || validation?.evidence_graph_score?.weak_claims?.length) {
+    actions.push('target_weak_evidence');
+  }
   return {
     needed: actions.length > 0,
     actions: [...new Set(actions)],
@@ -727,11 +742,13 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
     let recoverySources = Array.isArray(sources) ? sources : [];
     if (recoveryPlan.research_required) {
       try {
-        const recoveryQuery = [
-          message,
-          recoveryPlan.actions.join(' '),
-          validation.answer_coverage?.missing_parts?.join(' ') || ''
-        ].filter(Boolean).join(' ');
+        const recoveryQuery = recoveryPlan.actions.includes('target_weak_evidence')
+          ? buildEvidenceGapQuery(message, validation)
+          : [
+              message,
+              recoveryPlan.actions.join(' '),
+              validation.answer_coverage?.missing_parts?.join(' ') || ''
+            ].filter(Boolean).join(' ');
         const refreshed = await recoverToolEvidence(recoveryQuery, requestId);
         if (refreshed?.text) recoveryEvidenceText = [recoveryEvidenceText, refreshed.text].filter(Boolean).join('\n\n').slice(0, 12000);
         if (Array.isArray(refreshed?.sources) && refreshed.sources.length) {
