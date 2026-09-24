@@ -537,7 +537,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const mode = normalizeInteractionMode(payload?.mode);
   const preliminaryRoute = planCognitiveRoute(contextualQuery, 'general', [], 'none', language, mode, contextualMemory);
   const evidence = preliminaryRoute.research_required
-    ? await recoverToolEvidence(contextualQuery, requestId)
+    ? await recoverToolEvidence(contextualQuery, requestId, contextualMemory)
     : { text: '', sources: [], method: 'not-required' };
   const backendEvidenceCapability = String(upstreamBody?.capability || upstreamBody?.routing || upstreamBody?.['x-bitey-capability'] || '').trim();
   const backendEvidence = backendEvidenceCapability && backendEvidenceCapability !== 'general' ? '' : String(upstreamBody?.evidence_context || '').trim();
@@ -719,11 +719,11 @@ function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto
   };
 }
 
-async function recoverToolEvidence(message, requestId) {
+async function recoverToolEvidence(message, requestId, contextMemory = {}) {
   try {
     const language = analyzeLanguage(message);
-    const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language, 'auto');
-    const plan = buildCompoundPlan({ language, route: preliminaryRoute, message });
+    const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language, 'auto', contextMemory);
+    const plan = buildCompoundPlan({ language, route: preliminaryRoute, message, context: contextMemory });
     const evidenceParts = [];
     const sources = [];
     const executions = [];
@@ -784,12 +784,13 @@ async function recoverToolEvidence(message, requestId) {
       }
       if (tool === 'calculator') {
         const calculation = calculateExpression(contextForTool());
-        if (!calculation) {
+        const derived = calculation || calculateContextualQuantity({ message, context: contextMemory, evidenceText: workingContext.evidence.join('\n\n') });
+        if (!derived) {
           record(tool, 'failed', purpose, fallbackFor);
           return false;
         }
-        evidenceParts.push(calculation.text);
-        workingContext.evidence.push(calculation.text);
+        evidenceParts.push(derived.text);
+        workingContext.evidence.push(derived.text);
         record(tool, 'success', purpose, fallbackFor, contextForTool());
         return true;
       }
@@ -910,6 +911,1280 @@ async function tryCalculatorFastPath(request, requestId) {
   }
 }
 
+function calculateContextualQuantity({ message = '', context = {}, evidenceText = '' } = {}) {
+  const text = String(message || '');
+  if (!/\b(cu[aá]ntas?|how\s+many)\s+(?:acciones|shares|unidades)\b/i.test(text)) return null;
+  const budgetCandidates = [
+    ...(Array.isArray(context?.inherited_values) ? context.inherited_values : []),
+    ...(text.match(/\b(?:R\$|US\$|€|£)\s?\d{1,3}(?:[.\s]\d{3})*(?:,\d+)?\b/gi) || [])
+  ];
+  const budget = parseCurrencyCandidate(budgetCandidates.find(value => /R\$|US\$|€|£/i.test(value)));
+  if (!budget || budget.value <= 0) return null;
+  const source = String(evidenceText || '');
+  const pricePatterns = [
+    /(?:precio|price|cotizaci[oó]n|quote|valor)[^\n]{0,100}?(?:R\$|US\$|€|£)\s?([0-9][0-9.,]*)/i,
+    /(?:R\$|US\$|€|£)\s?([0-9][0-9.,]*)[^\n]{0,100}?(?:por|per|cada)\s+(?:acci[oó]n|share|unidad)/i,
+    /(?:acci[oó]n|share|unidad)[^\n]{0,100}?(?:R\$|US\$|€|£)\s?([0-9][0-9.,]*)/i
+  ];
+  let price = null;
+  for (const pattern of pricePatterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) { const parsed = parseLocaleNumber(match[1]); if (parsed > 0) { price = parsed; break; } }
+  }
+  if (!price) return null;
+  const quantity = budget.value / price;
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  const currency = budget.currency;
+  const formattedQuantity = Number(quantity.toFixed(6)).toLocaleString('pt-BR', { maximumFractionDigits: 6 });
+  const formattedPrice = price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formattedBudget = budget.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return {
+    value: quantity,
+    answer: 'Con ' + currency + ' ' + formattedBudget + ', a un precio de ' + currency + ' ' + formattedPrice + ' por acción, serían aproximadamente **' + formattedQuantity + ' acciones**.',
+    text: 'CALCULATOR: ' + currency + ' ' + formattedBudget + ' / ' + currency + ' ' + formattedPrice + ' por acción = ' + formattedQuantity + ' acciones'
+  };
+}
+
+function parseCurrencyCandidate(value) {
+  if (!value) return null;
+  const raw = String(value).trim();
+  const symbol = raw.match(/R\$|US\$|€|£/i)?.[0] || '';
+  const numberPart = raw.replace(/[^0-9.,]/g, '');
+  const valueNumber = parseLocaleNumber(numberPart);
+  if (!Number.isFinite(valueNumber)) return null;
+  return { value: valueNumber, currency: symbol === 'US
+  const text = String(message || '').trim().replace(/,/g, '.');
+  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
+  if (!match) return null;
+  const expression = match[1].replace(/\s+/g, '');
+  if (!/^[0-9.+*\/\-]+$/.test(expression) || /[+*\/\-]{2,}/.test(expression)) return null;
+  try {
+    const tokens = expression.match(/[-+]?\d+(?:\.\d+)?|[+*\/\-]/g) || [];
+    if (!tokens.length || tokens.length % 2 === 0) return null;
+    let total = Number(tokens[0]);
+    if (!Number.isFinite(total)) return null;
+    const addTerms = [];
+    let term = total;
+    let pendingAdd = '+';
+    for (let i = 1; i < tokens.length; i += 2) {
+      const op = tokens[i], rhs = Number(tokens[i + 1]);
+      if (!Number.isFinite(rhs)) return null;
+      if (op === '*') term *= rhs;
+      else if (op === '/') {
+        if (rhs === 0) return null;
+        term /= rhs;
+      } else if (op === '+' || op === '-') {
+        addTerms.push({ op: pendingAdd, value: term });
+        term = rhs;
+        pendingAdd = op;
+      } else return null;
+      if (!Number.isFinite(term)) return null;
+    }
+    addTerms.push({ op: pendingAdd, value: term });
+    total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
+    if (!Number.isFinite(total)) return null;
+    const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
+    return { expression, value: total, answer: 'El resultado es **' + formatted + '**.', text: 'CALCULATOR: ' + expression + ' = ' + formatted };
+  } catch (_) {
+    return null;
+  }
+}
+
+function weatherLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre)\b/i);
+  if (known) return known[1];
+  const match = message.match(/(?:en|in|em|de|da|do)\s+(.+?)(?:,\s*(?:brasil|brazil))?(?:[?!.]|$)/i);
+  return (match?.[1] || '').replace(/\b(?:rio grande do sul|rs|estado de)\b/ig, '').replace(/\s+/g, ' ').trim() || null;
+}
+
+function timeLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras[ií]l|brazil)\b/i);
+  return known ? known[1] : null;
+}
+
+function recoverTime(message) {
+  const location = timeLocation(message);
+  const timeZone = location && /esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras/i.test(location)
+    ? 'America/Sao_Paulo'
+    : 'America/Sao_Paulo';
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('es-BR', {
+    timeZone, dateStyle: 'full', timeStyle: 'long', hour12: false
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type) => parts.find(part => part.type === type)?.value || '';
+  const timeText = formatter.format(now);
+  return {
+    text: `TIME SOURCE: Runtime clock
+LOCATION: ${location || 'Brazil / America/Sao_Paulo'}
+CURRENT TIME: ${timeText}
+TIME ZONE: ${timeZone}
+HOUR: ${get('hour')}:${get('minute')}:${get('second')}`,
+    sources: [{ title: 'Bitey runtime clock', url: 'runtime://clock', snippet: `Hora actual calculada por el reloj del runtime en ${timeZone}.` }]
+  };
+}
+
+async function recoverWeather(message, requestId) {
+  const locationQuery = weatherLocation(message);
+  if (!locationQuery) return null;
+  const geoUrl = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  geoUrl.searchParams.set('name', locationQuery); geoUrl.searchParams.set('count', '5'); geoUrl.searchParams.set('language', 'pt'); geoUrl.searchParams.set('format', 'json');
+  const geoResponse = await fetch(geoUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
+  if (!geoResponse.ok) return null;
+  const locations = (await geoResponse.json())?.results || [];
+  if (!locations.length) return null;
+  const location = locations.find(x => String(x?.name || '').toLowerCase() === locationQuery.toLowerCase()) || locations[0];
+  const weatherUrl = new URL('https://api.open-meteo.com/v1/forecast');
+  weatherUrl.searchParams.set('latitude', String(location.latitude)); weatherUrl.searchParams.set('longitude', String(location.longitude));
+  weatherUrl.searchParams.set('current', 'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code'); weatherUrl.searchParams.set('timezone', 'auto'); weatherUrl.searchParams.set('forecast_days', '1');
+  const weatherResponse = await fetch(weatherUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
+  if (!weatherResponse.ok) return null;
+  const current = (await weatherResponse.json())?.current || {};
+  return { current, location: `${location.name}, ${location.admin1 || ''}, ${location.country || ''}`.replace(/, ,/g, ',').trim(), text: `WEATHER SOURCE: Open-Meteo
+LOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}
+OBSERVATION TIME: ${current.time || 'unknown'}
+TEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C
+APPARENT TEMPERATURE: ${current.apparent_temperature ?? 'unknown'} °C
+HUMIDITY: ${current.relative_humidity_2m ?? 'unknown'} %
+WIND: ${current.wind_speed_10m ?? 'unknown'} km/h
+WEATHER CODE: ${current.weather_code ?? 'unknown'}`, sources: [{ title: 'Open-Meteo', url: weatherUrl.toString(), snippet: `Datos meteorológicos actuales de ${location.name}. Observación: ${current.time || 'unknown'}.` }] };
+}
+
+async function recoverSearch(message, requestId) {
+  const sources = [
+    { base: 'https://html.duckduckgo.com/html/', selector: /<div class="result__body".*?<\/div>\s*<\/div>/gs, link: /class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s, snippet: /class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s },
+    { base: 'https://lite.duckduckgo.com/lite/', selector: /<tr>\s*<td[^>]*class="result-link"[\s\S]*?<\/tr>/gi, link: /<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i, snippet: /class="result-snippet"[^>]*>(.*?)<\//i }
+  ];
+  for (const source of sources) {
+    try {
+      const url = new URL(source.base); url.searchParams.set('q', message);
+      const response = await fetch(url, { headers: { 'User-Agent': 'BiteySearch/1.0', 'Accept': 'text/html' } });
+      if (!response.ok) continue;
+      const body = await response.text();
+      const blocks = [...body.matchAll(source.selector)].slice(0, 8);
+      const items = []; const sourceObjects = [];
+      for (const blockMatch of blocks) {
+        const block = blockMatch[0];
+        const link = block.match(source.link);
+        if (!link) continue;
+        const raw = decodeHtml(link[1]); const redirect = raw.match(/[?&]uddg=([^&]+)/); const target = redirect ? decodeURIComponent(redirect[1]) : raw;
+        const title = stripHtml(decodeHtml(link[2]));
+        const snippetMatch = block.match(source.snippet);
+        const snippet = stripHtml(decodeHtml(snippetMatch?.[1] || ''));
+        if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}
+TITLE: ${title}
+SNIPPET: ${snippet}`); }
+      }
+      const ranked = rankEvidenceSources(message, sourceObjects);
+      if (ranked.length) {
+        const selected = ranked.slice(0, 6);
+        const allowed = new Set(selected.map(item => item.url));
+        const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
+        return {
+          text: filteredItems.join('\n\n'),
+          sources: selected,
+          evidence_analysis: {
+            candidates: sourceObjects.length,
+            selected: selected.length,
+            duplicates_removed: Math.max(0, sourceObjects.length - ranked.length),
+            irrelevant_removed: Math.max(0, sourceObjects.length - sourceObjects.filter(item => isRelevantSearchSource(message, item)).length),
+            quality_ranked: true,
+            consistency_checked: detectEvidenceConsistency(message, selected).checked,
+            contradictions: detectEvidenceConsistency(message, selected).contradictions.length
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
+    }
+  }
+  return null;
+}
+
+function shouldResearch(message = '') {
+  const text = String(message || '').trim();
+  if (!text || WEATHER_RE.test(text)) return false;
+  if (EXPLICIT_RESEARCH_RE.test(text)) return true;
+  if (FRESHNESS_RE.test(text)) return true;
+  const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
+  return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.:-]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function rankEvidenceSources(query, sources) {
+  const seen = new Set();
+  const candidates = Array.isArray(sources) ? sources : [];
+  return candidates
+    .filter(item => isRelevantSearchSource(query, item))
+    .map(item => {
+      const url = canonicalizeSourceUrl(item.url);
+      const domain = getSourceDomain(url);
+      const title = String(item.title || '').toLowerCase();
+      const snippet = String(item.snippet || '').toLowerCase();
+      const haystack = normalizeSearchText(title + ' ' + snippet + ' ' + domain);
+      const queryTokens = meaningfulQueryTokens(query);
+      const matches = queryTokens.filter(token => haystack.includes(token)).length;
+      const relevance = queryTokens.length ? matches / queryTokens.length : 0.5;
+      const authority = sourceAuthority(domain);
+      const freshness = sourceFreshnessScore(title + ' ' + snippet);
+      const primary = sourceTypeScore(domain, url);
+      const specificity = sourceSpecificityScore(query, item);
+      const quality = primary * 0.40 + authority * 0.30 + relevance * 0.20 + freshness * 0.10;
+      const score = quality * 0.85 + specificity * 0.15;
+      return { ...item, url, score, _domain: domain, _quality: quality, _source_type: primary };
+    })
+    .sort((a,b) => b.score - a.score)
+    .filter(item => {
+      const key = item.url || item._domain;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(({score,_domain,_quality,_source_type,...item}) => item);
+}
+
+function sourceTypeScore(domain, url) {
+  const d = String(domain || '').toLowerCase();
+  const u = String(url || '').toLowerCase();
+  if (/\.(gov|gov\.br)(\.|$)/.test(d) || /(^|\/)gov\.br\//.test(u)) return 1;
+  if (/\.(edu|ac)\./.test(d) || /\.edu$/.test(d)) return 0.92;
+  if (/(who\.int|ibm\.com|microsoft\.com|cloudflare\.com|open-meteo\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.82;
+  if (/\b(blog|medium|substack|wordpress|forum|reddit)\b/.test(d) || /\/blog(?:\/|$)/.test(u)) return 0.45;
+  return 0.60;
+}
+
+function sourceSpecificityScore(query, source) {
+  const tokens = meaningfulQueryTokens(query);
+  if (!tokens.length) return 0.5;
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || ''));
+  const matches = tokens.filter(token => text.includes(token)).length;
+  return matches / tokens.length;
+}
+function canonicalizeSourceUrl(value) {
+  try {
+    const u = new URL(String(value || ''));
+    u.hash = '';
+    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','fbclid','gclid'].forEach(k => u.searchParams.delete(k));
+    return u.toString();
+  } catch (_) {
+    return String(value || '').trim();
+  }
+}
+
+function getSourceDomain(value) {
+  try { return new URL(value).hostname.replace(/^www\./i, '').toLowerCase(); }
+  catch (_) { return ''; }
+}
+
+function sourceAuthority(domain) {
+  const d = String(domain || '').toLowerCase();
+  if (!d) return 0;
+  if (/\.gov(\.[a-z]{2})?$/.test(d) || /\.gov\.[a-z]{2}$/.test(d)) return 1;
+  if (/\.edu(\.[a-z]{2})?$/.test(d) || /\.ac\.[a-z]{2}$/.test(d)) return 0.95;
+  if (/(who\.int|open-meteo\.com)$/.test(d)) return 0.92;
+  if (/(ibm\.com|microsoft\.com|cloudflare\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.88;
+  if (/wikipedia\.org$/.test(d)) return 0.75;
+  return 0.55;
+}
+
+function detectEvidenceConsistency(query, sources) {
+  const candidates = Array.isArray(sources) ? sources : [];
+  if (candidates.length < 2) return { checked: false, consistent: true, contradictions: [] };
+  const queryTokens = meaningfulQueryTokens(query);
+  const claims = candidates.map((source, index) => extractComparableEvidenceClaim(source, queryTokens, index));
+  const contradictions = [];
+
+  for (let i = 0; i < claims.length; i++) {
+    for (let j = i + 1; j < claims.length; j++) {
+      const a = claims[i], b = claims[j];
+      if (!a.subject || !b.subject || comparableSubjectOverlap(a.subject, b.subject) < 0.5) continue;
+      const numericConflict = a.numbers.length > 0 && b.numbers.length > 0 &&
+        a.numbers.some(x => b.numbers.some(y => x.unit === y.unit && Math.abs(x.value - y.value) > Math.max(1, Math.abs(x.value) * 0.02)));
+      const polarityConflict = a.polarity !== 'neutral' && b.polarity !== 'neutral' && a.polarity !== b.polarity;
+      const temporalConflict = a.dates.length > 0 && b.dates.length > 0 &&
+        a.dates.some(x => b.dates.some(y => x !== y)) &&
+        /\b(hoy|actual|actualmente|latest|today|current|2026|2025)\b/i.test(a.text + ' ' + b.text);
+      if (numericConflict || polarityConflict || temporalConflict) {
+        contradictions.push({
+          sources: [a.index, b.index],
+          type: numericConflict ? 'numeric' : (polarityConflict ? 'polarity' : 'temporal'),
+          subject: a.subject,
+          details: { left: a.signal, right: b.signal }
+        });
+      }
+    }
+  }
+  return { checked: true, consistent: contradictions.length === 0, contradictions, contradiction_count: contradictions.length };
+}
+
+function extractComparableEvidenceClaim(source, queryTokens, index) {
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || ''));
+  const subjectTokens = queryTokens.filter(token => text.includes(token)).slice(0, 8);
+  const numbers = [...text.matchAll(/(-?\d+(?:[.,]\d+)?)\s*(%|°c|c|km\/h|usd|eur|brl|r\$|mil|million|billion)?/gi)]
+    .map(match => ({ value: Number(String(match[1]).replace(',', '.')), unit: String(match[2] || '').toLowerCase() }))
+    .filter(item => Number.isFinite(item.value));
+  const dates = [...text.matchAll(/\b(20\d{2}(?:-\d{1,2}-\d{1,2})?|\d{1,2}\/\d{1,2}\/20\d{2})\b/g)].map(match => match[1]);
+  const negative = /\b(no|not|never|sin|false|falso|nao|não|denied|rejected|declined)\b/i.test(text);
+  const positive = /\b(si|yes|true|verdadero|sim|confirmed|approved|accepted|increased|aumento|subio|subió)\b/i.test(text);
+  const polarity = negative && !positive ? 'negative' : positive && !negative ? 'positive' : 'neutral';
+  return { index, text, subject: subjectTokens.join(' '), numbers, dates, polarity,
+    signal: { subject: subjectTokens.join(' '), numbers: numbers.slice(0, 8), dates: dates.slice(0, 5), polarity } };
+}
+
+function comparableSubjectOverlap(left, right) {
+  const a = new Set(String(left || '').split(/\s+/).filter(Boolean));
+  const b = new Set(String(right || '').split(/\s+/).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared++;
+  return shared / Math.max(1, Math.min(a.size, b.size));
+}
+function sourceFreshnessScore(text) {
+  const value = String(text || '').toLowerCase();
+  if (/\b(2026|2025|hoy|ahora|actual|actualizado|latest|recent|recentemente|últim[oa]s?)\b/i.test(value)) return 1;
+  if (/\b(2024|2023)\b/i.test(value)) return 0.55;
+  return 0.35;
+}
+
+function meaningfulQueryTokens(query) {
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también','mejor','quiero']);
+  return [...new Set(
+    String(query || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+      .toLowerCase().match(/[a-z0-9]{3,}/g)?.filter(t => !stop.has(t)) || []
+  )];
+}
+
+function isRelevantSearchSource(query, source) {
+  const q = String(query || '').toLowerCase();
+  const haystack = String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '');
+  const normalized = haystack.toLowerCase();
+  const tokens = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z0-9]{3,}/g) || [];
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también']);
+  const meaningful = [...new Set(tokens.filter(t => !stop.has(t)))];
+  if (!meaningful.length) return true;
+  let score = 0;
+  for (const token of meaningful) {
+    const plain = token.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (normalized.includes(token) || normalized.includes(plain)) score++;
+  }
+  const threshold = meaningful.length <= 2 ? 1 : Math.max(2, Math.ceil(meaningful.length * 0.35));
+  return score >= threshold;
+}
+
+function stripHtml(value) { return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
+function decodeHtml(value) { return String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
+
+async function loadConversationHistory(origin, conversationId, requestId) {
+  if (!origin || !conversationId) return [];
+  try {
+    const url = new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, origin);
+    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json', 'x-bitey-channel': 'web', 'x-bitey-origin': 'cloudflare', 'x-request-id': requestId } });
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body?.messages) ? body.messages.slice(-8) : [];
+  } catch (error) {
+    console.warn('Bitey edge could not load conversation history', { requestId, error: String(error) });
+    return [];
+  }
+}
+
+function extractAiText(response) {
+  if (!response) return '';
+  const direct = response.response ?? response.result;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const choice = response.choices?.[0];
+  const content = choice?.message?.content ?? choice?.text;
+  if (typeof content === 'string' && content.trim()) return content.trim();
+  if (Array.isArray(content)) return content.map(part => typeof part === 'string' ? part : part?.text || '').join('').trim();
+  return '';
+}
+
+function safeAiShape(response) {
+  if (!response || typeof response !== 'object') return typeof response;
+  return { keys: Object.keys(response), has_choices: Array.isArray(response.choices), has_response: typeof response.response === 'string', has_result: typeof response.result === 'string' };
+}
+
+function jsonResponse(body, status = 200, source = 'cloudflare', requestId = '') {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': source, 'X-Bitey-Request-Id': requestId } });
+}
+
+function jsonError(message, status = 500, requestId = '') {
+  return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
+}
+
+async function weatherEndpoint(url, requestId) {
+  const q = String(url.searchParams.get('q') || '').trim();
+  if (!q) return jsonError('weather_location_required', 400, requestId);
+  try {
+    const geo = new URL('https://geocoding-api.open-meteo.com/v1/search');
+    geo.searchParams.set('name', q);
+    geo.searchParams.set('count', '5');
+    geo.searchParams.set('language', 'pt');
+    geo.searchParams.set('format', 'json');
+    const gr = await fetch(geo, {headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!gr.ok) return jsonError('weather_geocoding_unavailable',502,requestId);
+    const results = (await gr.json())?.results || [];
+    if (!results.length) return jsonError('weather_location_not_found',404,requestId);
+    const loc = results.find(x=>String(x?.name||'').toLowerCase()===q.toLowerCase()) || results[0];
+    const api = new URL('https://api.open-meteo.com/v1/forecast');
+    api.searchParams.set('latitude',String(loc.latitude));
+    api.searchParams.set('longitude',String(loc.longitude));
+    api.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code');
+    api.searchParams.set('timezone','auto');
+    api.searchParams.set('forecast_days','1');
+    const wr = await fetch(api,{headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!wr.ok) return jsonError('weather_data_unavailable',502,requestId);
+    const data=await wr.json();
+    return jsonResponse({
+      ok:true,
+      location:{name:loc.name,admin1:loc.admin1||'',country:loc.country||'',latitude:loc.latitude,longitude:loc.longitude},
+      current:data.current||{},
+      source:{title:'Open-Meteo',url:api.toString()},
+      request_id:requestId
+    },200,'weather-open-meteo',requestId);
+  } catch(error) {
+    console.warn('Bitey weather endpoint failed',{requestId,error:String(error)});
+    return jsonError('weather_unavailable',502,requestId);
+  }
+}
+ ? 'US
+  const text = String(message || '').trim().replace(/,/g, '.');
+  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
+  if (!match) return null;
+  const expression = match[1].replace(/\s+/g, '');
+  if (!/^[0-9.+*\/\-]+$/.test(expression) || /[+*\/\-]{2,}/.test(expression)) return null;
+  try {
+    const tokens = expression.match(/[-+]?\d+(?:\.\d+)?|[+*\/\-]/g) || [];
+    if (!tokens.length || tokens.length % 2 === 0) return null;
+    let total = Number(tokens[0]);
+    if (!Number.isFinite(total)) return null;
+    const addTerms = [];
+    let term = total;
+    let pendingAdd = '+';
+    for (let i = 1; i < tokens.length; i += 2) {
+      const op = tokens[i], rhs = Number(tokens[i + 1]);
+      if (!Number.isFinite(rhs)) return null;
+      if (op === '*') term *= rhs;
+      else if (op === '/') {
+        if (rhs === 0) return null;
+        term /= rhs;
+      } else if (op === '+' || op === '-') {
+        addTerms.push({ op: pendingAdd, value: term });
+        term = rhs;
+        pendingAdd = op;
+      } else return null;
+      if (!Number.isFinite(term)) return null;
+    }
+    addTerms.push({ op: pendingAdd, value: term });
+    total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
+    if (!Number.isFinite(total)) return null;
+    const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
+    return { expression, value: total, answer: 'El resultado es **' + formatted + '**.', text: 'CALCULATOR: ' + expression + ' = ' + formatted };
+  } catch (_) {
+    return null;
+  }
+}
+
+function weatherLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre)\b/i);
+  if (known) return known[1];
+  const match = message.match(/(?:en|in|em|de|da|do)\s+(.+?)(?:,\s*(?:brasil|brazil))?(?:[?!.]|$)/i);
+  return (match?.[1] || '').replace(/\b(?:rio grande do sul|rs|estado de)\b/ig, '').replace(/\s+/g, ' ').trim() || null;
+}
+
+function timeLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras[ií]l|brazil)\b/i);
+  return known ? known[1] : null;
+}
+
+function recoverTime(message) {
+  const location = timeLocation(message);
+  const timeZone = location && /esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras/i.test(location)
+    ? 'America/Sao_Paulo'
+    : 'America/Sao_Paulo';
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('es-BR', {
+    timeZone, dateStyle: 'full', timeStyle: 'long', hour12: false
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type) => parts.find(part => part.type === type)?.value || '';
+  const timeText = formatter.format(now);
+  return {
+    text: `TIME SOURCE: Runtime clock
+LOCATION: ${location || 'Brazil / America/Sao_Paulo'}
+CURRENT TIME: ${timeText}
+TIME ZONE: ${timeZone}
+HOUR: ${get('hour')}:${get('minute')}:${get('second')}`,
+    sources: [{ title: 'Bitey runtime clock', url: 'runtime://clock', snippet: `Hora actual calculada por el reloj del runtime en ${timeZone}.` }]
+  };
+}
+
+async function recoverWeather(message, requestId) {
+  const locationQuery = weatherLocation(message);
+  if (!locationQuery) return null;
+  const geoUrl = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  geoUrl.searchParams.set('name', locationQuery); geoUrl.searchParams.set('count', '5'); geoUrl.searchParams.set('language', 'pt'); geoUrl.searchParams.set('format', 'json');
+  const geoResponse = await fetch(geoUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
+  if (!geoResponse.ok) return null;
+  const locations = (await geoResponse.json())?.results || [];
+  if (!locations.length) return null;
+  const location = locations.find(x => String(x?.name || '').toLowerCase() === locationQuery.toLowerCase()) || locations[0];
+  const weatherUrl = new URL('https://api.open-meteo.com/v1/forecast');
+  weatherUrl.searchParams.set('latitude', String(location.latitude)); weatherUrl.searchParams.set('longitude', String(location.longitude));
+  weatherUrl.searchParams.set('current', 'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code'); weatherUrl.searchParams.set('timezone', 'auto'); weatherUrl.searchParams.set('forecast_days', '1');
+  const weatherResponse = await fetch(weatherUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
+  if (!weatherResponse.ok) return null;
+  const current = (await weatherResponse.json())?.current || {};
+  return { current, location: `${location.name}, ${location.admin1 || ''}, ${location.country || ''}`.replace(/, ,/g, ',').trim(), text: `WEATHER SOURCE: Open-Meteo
+LOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}
+OBSERVATION TIME: ${current.time || 'unknown'}
+TEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C
+APPARENT TEMPERATURE: ${current.apparent_temperature ?? 'unknown'} °C
+HUMIDITY: ${current.relative_humidity_2m ?? 'unknown'} %
+WIND: ${current.wind_speed_10m ?? 'unknown'} km/h
+WEATHER CODE: ${current.weather_code ?? 'unknown'}`, sources: [{ title: 'Open-Meteo', url: weatherUrl.toString(), snippet: `Datos meteorológicos actuales de ${location.name}. Observación: ${current.time || 'unknown'}.` }] };
+}
+
+async function recoverSearch(message, requestId) {
+  const sources = [
+    { base: 'https://html.duckduckgo.com/html/', selector: /<div class="result__body".*?<\/div>\s*<\/div>/gs, link: /class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s, snippet: /class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s },
+    { base: 'https://lite.duckduckgo.com/lite/', selector: /<tr>\s*<td[^>]*class="result-link"[\s\S]*?<\/tr>/gi, link: /<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i, snippet: /class="result-snippet"[^>]*>(.*?)<\//i }
+  ];
+  for (const source of sources) {
+    try {
+      const url = new URL(source.base); url.searchParams.set('q', message);
+      const response = await fetch(url, { headers: { 'User-Agent': 'BiteySearch/1.0', 'Accept': 'text/html' } });
+      if (!response.ok) continue;
+      const body = await response.text();
+      const blocks = [...body.matchAll(source.selector)].slice(0, 8);
+      const items = []; const sourceObjects = [];
+      for (const blockMatch of blocks) {
+        const block = blockMatch[0];
+        const link = block.match(source.link);
+        if (!link) continue;
+        const raw = decodeHtml(link[1]); const redirect = raw.match(/[?&]uddg=([^&]+)/); const target = redirect ? decodeURIComponent(redirect[1]) : raw;
+        const title = stripHtml(decodeHtml(link[2]));
+        const snippetMatch = block.match(source.snippet);
+        const snippet = stripHtml(decodeHtml(snippetMatch?.[1] || ''));
+        if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}
+TITLE: ${title}
+SNIPPET: ${snippet}`); }
+      }
+      const ranked = rankEvidenceSources(message, sourceObjects);
+      if (ranked.length) {
+        const selected = ranked.slice(0, 6);
+        const allowed = new Set(selected.map(item => item.url));
+        const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
+        return {
+          text: filteredItems.join('\n\n'),
+          sources: selected,
+          evidence_analysis: {
+            candidates: sourceObjects.length,
+            selected: selected.length,
+            duplicates_removed: Math.max(0, sourceObjects.length - ranked.length),
+            irrelevant_removed: Math.max(0, sourceObjects.length - sourceObjects.filter(item => isRelevantSearchSource(message, item)).length),
+            quality_ranked: true,
+            consistency_checked: detectEvidenceConsistency(message, selected).checked,
+            contradictions: detectEvidenceConsistency(message, selected).contradictions.length
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
+    }
+  }
+  return null;
+}
+
+function shouldResearch(message = '') {
+  const text = String(message || '').trim();
+  if (!text || WEATHER_RE.test(text)) return false;
+  if (EXPLICIT_RESEARCH_RE.test(text)) return true;
+  if (FRESHNESS_RE.test(text)) return true;
+  const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
+  return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.:-]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function rankEvidenceSources(query, sources) {
+  const seen = new Set();
+  const candidates = Array.isArray(sources) ? sources : [];
+  return candidates
+    .filter(item => isRelevantSearchSource(query, item))
+    .map(item => {
+      const url = canonicalizeSourceUrl(item.url);
+      const domain = getSourceDomain(url);
+      const title = String(item.title || '').toLowerCase();
+      const snippet = String(item.snippet || '').toLowerCase();
+      const haystack = normalizeSearchText(title + ' ' + snippet + ' ' + domain);
+      const queryTokens = meaningfulQueryTokens(query);
+      const matches = queryTokens.filter(token => haystack.includes(token)).length;
+      const relevance = queryTokens.length ? matches / queryTokens.length : 0.5;
+      const authority = sourceAuthority(domain);
+      const freshness = sourceFreshnessScore(title + ' ' + snippet);
+      const primary = sourceTypeScore(domain, url);
+      const specificity = sourceSpecificityScore(query, item);
+      const quality = primary * 0.40 + authority * 0.30 + relevance * 0.20 + freshness * 0.10;
+      const score = quality * 0.85 + specificity * 0.15;
+      return { ...item, url, score, _domain: domain, _quality: quality, _source_type: primary };
+    })
+    .sort((a,b) => b.score - a.score)
+    .filter(item => {
+      const key = item.url || item._domain;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(({score,_domain,_quality,_source_type,...item}) => item);
+}
+
+function sourceTypeScore(domain, url) {
+  const d = String(domain || '').toLowerCase();
+  const u = String(url || '').toLowerCase();
+  if (/\.(gov|gov\.br)(\.|$)/.test(d) || /(^|\/)gov\.br\//.test(u)) return 1;
+  if (/\.(edu|ac)\./.test(d) || /\.edu$/.test(d)) return 0.92;
+  if (/(who\.int|ibm\.com|microsoft\.com|cloudflare\.com|open-meteo\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.82;
+  if (/\b(blog|medium|substack|wordpress|forum|reddit)\b/.test(d) || /\/blog(?:\/|$)/.test(u)) return 0.45;
+  return 0.60;
+}
+
+function sourceSpecificityScore(query, source) {
+  const tokens = meaningfulQueryTokens(query);
+  if (!tokens.length) return 0.5;
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || ''));
+  const matches = tokens.filter(token => text.includes(token)).length;
+  return matches / tokens.length;
+}
+function canonicalizeSourceUrl(value) {
+  try {
+    const u = new URL(String(value || ''));
+    u.hash = '';
+    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','fbclid','gclid'].forEach(k => u.searchParams.delete(k));
+    return u.toString();
+  } catch (_) {
+    return String(value || '').trim();
+  }
+}
+
+function getSourceDomain(value) {
+  try { return new URL(value).hostname.replace(/^www\./i, '').toLowerCase(); }
+  catch (_) { return ''; }
+}
+
+function sourceAuthority(domain) {
+  const d = String(domain || '').toLowerCase();
+  if (!d) return 0;
+  if (/\.gov(\.[a-z]{2})?$/.test(d) || /\.gov\.[a-z]{2}$/.test(d)) return 1;
+  if (/\.edu(\.[a-z]{2})?$/.test(d) || /\.ac\.[a-z]{2}$/.test(d)) return 0.95;
+  if (/(who\.int|open-meteo\.com)$/.test(d)) return 0.92;
+  if (/(ibm\.com|microsoft\.com|cloudflare\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.88;
+  if (/wikipedia\.org$/.test(d)) return 0.75;
+  return 0.55;
+}
+
+function detectEvidenceConsistency(query, sources) {
+  const candidates = Array.isArray(sources) ? sources : [];
+  if (candidates.length < 2) return { checked: false, consistent: true, contradictions: [] };
+  const queryTokens = meaningfulQueryTokens(query);
+  const claims = candidates.map((source, index) => extractComparableEvidenceClaim(source, queryTokens, index));
+  const contradictions = [];
+
+  for (let i = 0; i < claims.length; i++) {
+    for (let j = i + 1; j < claims.length; j++) {
+      const a = claims[i], b = claims[j];
+      if (!a.subject || !b.subject || comparableSubjectOverlap(a.subject, b.subject) < 0.5) continue;
+      const numericConflict = a.numbers.length > 0 && b.numbers.length > 0 &&
+        a.numbers.some(x => b.numbers.some(y => x.unit === y.unit && Math.abs(x.value - y.value) > Math.max(1, Math.abs(x.value) * 0.02)));
+      const polarityConflict = a.polarity !== 'neutral' && b.polarity !== 'neutral' && a.polarity !== b.polarity;
+      const temporalConflict = a.dates.length > 0 && b.dates.length > 0 &&
+        a.dates.some(x => b.dates.some(y => x !== y)) &&
+        /\b(hoy|actual|actualmente|latest|today|current|2026|2025)\b/i.test(a.text + ' ' + b.text);
+      if (numericConflict || polarityConflict || temporalConflict) {
+        contradictions.push({
+          sources: [a.index, b.index],
+          type: numericConflict ? 'numeric' : (polarityConflict ? 'polarity' : 'temporal'),
+          subject: a.subject,
+          details: { left: a.signal, right: b.signal }
+        });
+      }
+    }
+  }
+  return { checked: true, consistent: contradictions.length === 0, contradictions, contradiction_count: contradictions.length };
+}
+
+function extractComparableEvidenceClaim(source, queryTokens, index) {
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || ''));
+  const subjectTokens = queryTokens.filter(token => text.includes(token)).slice(0, 8);
+  const numbers = [...text.matchAll(/(-?\d+(?:[.,]\d+)?)\s*(%|°c|c|km\/h|usd|eur|brl|r\$|mil|million|billion)?/gi)]
+    .map(match => ({ value: Number(String(match[1]).replace(',', '.')), unit: String(match[2] || '').toLowerCase() }))
+    .filter(item => Number.isFinite(item.value));
+  const dates = [...text.matchAll(/\b(20\d{2}(?:-\d{1,2}-\d{1,2})?|\d{1,2}\/\d{1,2}\/20\d{2})\b/g)].map(match => match[1]);
+  const negative = /\b(no|not|never|sin|false|falso|nao|não|denied|rejected|declined)\b/i.test(text);
+  const positive = /\b(si|yes|true|verdadero|sim|confirmed|approved|accepted|increased|aumento|subio|subió)\b/i.test(text);
+  const polarity = negative && !positive ? 'negative' : positive && !negative ? 'positive' : 'neutral';
+  return { index, text, subject: subjectTokens.join(' '), numbers, dates, polarity,
+    signal: { subject: subjectTokens.join(' '), numbers: numbers.slice(0, 8), dates: dates.slice(0, 5), polarity } };
+}
+
+function comparableSubjectOverlap(left, right) {
+  const a = new Set(String(left || '').split(/\s+/).filter(Boolean));
+  const b = new Set(String(right || '').split(/\s+/).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared++;
+  return shared / Math.max(1, Math.min(a.size, b.size));
+}
+function sourceFreshnessScore(text) {
+  const value = String(text || '').toLowerCase();
+  if (/\b(2026|2025|hoy|ahora|actual|actualizado|latest|recent|recentemente|últim[oa]s?)\b/i.test(value)) return 1;
+  if (/\b(2024|2023)\b/i.test(value)) return 0.55;
+  return 0.35;
+}
+
+function meaningfulQueryTokens(query) {
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también','mejor','quiero']);
+  return [...new Set(
+    String(query || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+      .toLowerCase().match(/[a-z0-9]{3,}/g)?.filter(t => !stop.has(t)) || []
+  )];
+}
+
+function isRelevantSearchSource(query, source) {
+  const q = String(query || '').toLowerCase();
+  const haystack = String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '');
+  const normalized = haystack.toLowerCase();
+  const tokens = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z0-9]{3,}/g) || [];
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también']);
+  const meaningful = [...new Set(tokens.filter(t => !stop.has(t)))];
+  if (!meaningful.length) return true;
+  let score = 0;
+  for (const token of meaningful) {
+    const plain = token.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (normalized.includes(token) || normalized.includes(plain)) score++;
+  }
+  const threshold = meaningful.length <= 2 ? 1 : Math.max(2, Math.ceil(meaningful.length * 0.35));
+  return score >= threshold;
+}
+
+function stripHtml(value) { return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
+function decodeHtml(value) { return String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
+
+async function loadConversationHistory(origin, conversationId, requestId) {
+  if (!origin || !conversationId) return [];
+  try {
+    const url = new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, origin);
+    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json', 'x-bitey-channel': 'web', 'x-bitey-origin': 'cloudflare', 'x-request-id': requestId } });
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body?.messages) ? body.messages.slice(-8) : [];
+  } catch (error) {
+    console.warn('Bitey edge could not load conversation history', { requestId, error: String(error) });
+    return [];
+  }
+}
+
+function extractAiText(response) {
+  if (!response) return '';
+  const direct = response.response ?? response.result;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const choice = response.choices?.[0];
+  const content = choice?.message?.content ?? choice?.text;
+  if (typeof content === 'string' && content.trim()) return content.trim();
+  if (Array.isArray(content)) return content.map(part => typeof part === 'string' ? part : part?.text || '').join('').trim();
+  return '';
+}
+
+function safeAiShape(response) {
+  if (!response || typeof response !== 'object') return typeof response;
+  return { keys: Object.keys(response), has_choices: Array.isArray(response.choices), has_response: typeof response.response === 'string', has_result: typeof response.result === 'string' };
+}
+
+function jsonResponse(body, status = 200, source = 'cloudflare', requestId = '') {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': source, 'X-Bitey-Request-Id': requestId } });
+}
+
+function jsonError(message, status = 500, requestId = '') {
+  return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
+}
+
+async function weatherEndpoint(url, requestId) {
+  const q = String(url.searchParams.get('q') || '').trim();
+  if (!q) return jsonError('weather_location_required', 400, requestId);
+  try {
+    const geo = new URL('https://geocoding-api.open-meteo.com/v1/search');
+    geo.searchParams.set('name', q);
+    geo.searchParams.set('count', '5');
+    geo.searchParams.set('language', 'pt');
+    geo.searchParams.set('format', 'json');
+    const gr = await fetch(geo, {headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!gr.ok) return jsonError('weather_geocoding_unavailable',502,requestId);
+    const results = (await gr.json())?.results || [];
+    if (!results.length) return jsonError('weather_location_not_found',404,requestId);
+    const loc = results.find(x=>String(x?.name||'').toLowerCase()===q.toLowerCase()) || results[0];
+    const api = new URL('https://api.open-meteo.com/v1/forecast');
+    api.searchParams.set('latitude',String(loc.latitude));
+    api.searchParams.set('longitude',String(loc.longitude));
+    api.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code');
+    api.searchParams.set('timezone','auto');
+    api.searchParams.set('forecast_days','1');
+    const wr = await fetch(api,{headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!wr.ok) return jsonError('weather_data_unavailable',502,requestId);
+    const data=await wr.json();
+    return jsonResponse({
+      ok:true,
+      location:{name:loc.name,admin1:loc.admin1||'',country:loc.country||'',latitude:loc.latitude,longitude:loc.longitude},
+      current:data.current||{},
+      source:{title:'Open-Meteo',url:api.toString()},
+      request_id:requestId
+    },200,'weather-open-meteo',requestId);
+  } catch(error) {
+    console.warn('Bitey weather endpoint failed',{requestId,error:String(error)});
+    return jsonError('weather_unavailable',502,requestId);
+  }
+}
+ : symbol || 'R
+  const text = String(message || '').trim().replace(/,/g, '.');
+  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
+  if (!match) return null;
+  const expression = match[1].replace(/\s+/g, '');
+  if (!/^[0-9.+*\/\-]+$/.test(expression) || /[+*\/\-]{2,}/.test(expression)) return null;
+  try {
+    const tokens = expression.match(/[-+]?\d+(?:\.\d+)?|[+*\/\-]/g) || [];
+    if (!tokens.length || tokens.length % 2 === 0) return null;
+    let total = Number(tokens[0]);
+    if (!Number.isFinite(total)) return null;
+    const addTerms = [];
+    let term = total;
+    let pendingAdd = '+';
+    for (let i = 1; i < tokens.length; i += 2) {
+      const op = tokens[i], rhs = Number(tokens[i + 1]);
+      if (!Number.isFinite(rhs)) return null;
+      if (op === '*') term *= rhs;
+      else if (op === '/') {
+        if (rhs === 0) return null;
+        term /= rhs;
+      } else if (op === '+' || op === '-') {
+        addTerms.push({ op: pendingAdd, value: term });
+        term = rhs;
+        pendingAdd = op;
+      } else return null;
+      if (!Number.isFinite(term)) return null;
+    }
+    addTerms.push({ op: pendingAdd, value: term });
+    total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
+    if (!Number.isFinite(total)) return null;
+    const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
+    return { expression, value: total, answer: 'El resultado es **' + formatted + '**.', text: 'CALCULATOR: ' + expression + ' = ' + formatted };
+  } catch (_) {
+    return null;
+  }
+}
+
+function weatherLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre)\b/i);
+  if (known) return known[1];
+  const match = message.match(/(?:en|in|em|de|da|do)\s+(.+?)(?:,\s*(?:brasil|brazil))?(?:[?!.]|$)/i);
+  return (match?.[1] || '').replace(/\b(?:rio grande do sul|rs|estado de)\b/ig, '').replace(/\s+/g, ' ').trim() || null;
+}
+
+function timeLocation(message) {
+  const known = message.match(/\b(esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras[ií]l|brazil)\b/i);
+  return known ? known[1] : null;
+}
+
+function recoverTime(message) {
+  const location = timeLocation(message);
+  const timeZone = location && /esteio|porto alegre|s[aã]o paulo|rio de janeiro|bras/i.test(location)
+    ? 'America/Sao_Paulo'
+    : 'America/Sao_Paulo';
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('es-BR', {
+    timeZone, dateStyle: 'full', timeStyle: 'long', hour12: false
+  });
+  const parts = formatter.formatToParts(now);
+  const get = (type) => parts.find(part => part.type === type)?.value || '';
+  const timeText = formatter.format(now);
+  return {
+    text: `TIME SOURCE: Runtime clock
+LOCATION: ${location || 'Brazil / America/Sao_Paulo'}
+CURRENT TIME: ${timeText}
+TIME ZONE: ${timeZone}
+HOUR: ${get('hour')}:${get('minute')}:${get('second')}`,
+    sources: [{ title: 'Bitey runtime clock', url: 'runtime://clock', snippet: `Hora actual calculada por el reloj del runtime en ${timeZone}.` }]
+  };
+}
+
+async function recoverWeather(message, requestId) {
+  const locationQuery = weatherLocation(message);
+  if (!locationQuery) return null;
+  const geoUrl = new URL('https://geocoding-api.open-meteo.com/v1/search');
+  geoUrl.searchParams.set('name', locationQuery); geoUrl.searchParams.set('count', '5'); geoUrl.searchParams.set('language', 'pt'); geoUrl.searchParams.set('format', 'json');
+  const geoResponse = await fetch(geoUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
+  if (!geoResponse.ok) return null;
+  const locations = (await geoResponse.json())?.results || [];
+  if (!locations.length) return null;
+  const location = locations.find(x => String(x?.name || '').toLowerCase() === locationQuery.toLowerCase()) || locations[0];
+  const weatherUrl = new URL('https://api.open-meteo.com/v1/forecast');
+  weatherUrl.searchParams.set('latitude', String(location.latitude)); weatherUrl.searchParams.set('longitude', String(location.longitude));
+  weatherUrl.searchParams.set('current', 'temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code'); weatherUrl.searchParams.set('timezone', 'auto'); weatherUrl.searchParams.set('forecast_days', '1');
+  const weatherResponse = await fetch(weatherUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
+  if (!weatherResponse.ok) return null;
+  const current = (await weatherResponse.json())?.current || {};
+  return { current, location: `${location.name}, ${location.admin1 || ''}, ${location.country || ''}`.replace(/, ,/g, ',').trim(), text: `WEATHER SOURCE: Open-Meteo
+LOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}
+OBSERVATION TIME: ${current.time || 'unknown'}
+TEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C
+APPARENT TEMPERATURE: ${current.apparent_temperature ?? 'unknown'} °C
+HUMIDITY: ${current.relative_humidity_2m ?? 'unknown'} %
+WIND: ${current.wind_speed_10m ?? 'unknown'} km/h
+WEATHER CODE: ${current.weather_code ?? 'unknown'}`, sources: [{ title: 'Open-Meteo', url: weatherUrl.toString(), snippet: `Datos meteorológicos actuales de ${location.name}. Observación: ${current.time || 'unknown'}.` }] };
+}
+
+async function recoverSearch(message, requestId) {
+  const sources = [
+    { base: 'https://html.duckduckgo.com/html/', selector: /<div class="result__body".*?<\/div>\s*<\/div>/gs, link: /class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/s, snippet: /class="result__snippet"[^>]*>(.*?)<\/(?:a|div)>/s },
+    { base: 'https://lite.duckduckgo.com/lite/', selector: /<tr>\s*<td[^>]*class="result-link"[\s\S]*?<\/tr>/gi, link: /<a[^>]+rel="nofollow"[^>]+href="([^"]+)"[^>]*>(.*?)<\/a>/i, snippet: /class="result-snippet"[^>]*>(.*?)<\//i }
+  ];
+  for (const source of sources) {
+    try {
+      const url = new URL(source.base); url.searchParams.set('q', message);
+      const response = await fetch(url, { headers: { 'User-Agent': 'BiteySearch/1.0', 'Accept': 'text/html' } });
+      if (!response.ok) continue;
+      const body = await response.text();
+      const blocks = [...body.matchAll(source.selector)].slice(0, 8);
+      const items = []; const sourceObjects = [];
+      for (const blockMatch of blocks) {
+        const block = blockMatch[0];
+        const link = block.match(source.link);
+        if (!link) continue;
+        const raw = decodeHtml(link[1]); const redirect = raw.match(/[?&]uddg=([^&]+)/); const target = redirect ? decodeURIComponent(redirect[1]) : raw;
+        const title = stripHtml(decodeHtml(link[2]));
+        const snippetMatch = block.match(source.snippet);
+        const snippet = stripHtml(decodeHtml(snippetMatch?.[1] || ''));
+        if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}
+TITLE: ${title}
+SNIPPET: ${snippet}`); }
+      }
+      const ranked = rankEvidenceSources(message, sourceObjects);
+      if (ranked.length) {
+        const selected = ranked.slice(0, 6);
+        const allowed = new Set(selected.map(item => item.url));
+        const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
+        return {
+          text: filteredItems.join('\n\n'),
+          sources: selected,
+          evidence_analysis: {
+            candidates: sourceObjects.length,
+            selected: selected.length,
+            duplicates_removed: Math.max(0, sourceObjects.length - ranked.length),
+            irrelevant_removed: Math.max(0, sourceObjects.length - sourceObjects.filter(item => isRelevantSearchSource(message, item)).length),
+            quality_ranked: true,
+            consistency_checked: detectEvidenceConsistency(message, selected).checked,
+            contradictions: detectEvidenceConsistency(message, selected).contradictions.length
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
+    }
+  }
+  return null;
+}
+
+function shouldResearch(message = '') {
+  const text = String(message || '').trim();
+  if (!text || WEATHER_RE.test(text)) return false;
+  if (EXPLICIT_RESEARCH_RE.test(text)) return true;
+  if (FRESHNESS_RE.test(text)) return true;
+  const conceptualDirect = /^\s*(?:qué es|que es|qué significa|que significa|define|definición|definicion|cómo funciona|como funciona|explica|explícame|explicame|what is|how does)\b/i;
+  return !conceptualDirect.test(text) && /\b(?:quién|quien|who)\b/i.test(text);
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9.:-]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function rankEvidenceSources(query, sources) {
+  const seen = new Set();
+  const candidates = Array.isArray(sources) ? sources : [];
+  return candidates
+    .filter(item => isRelevantSearchSource(query, item))
+    .map(item => {
+      const url = canonicalizeSourceUrl(item.url);
+      const domain = getSourceDomain(url);
+      const title = String(item.title || '').toLowerCase();
+      const snippet = String(item.snippet || '').toLowerCase();
+      const haystack = normalizeSearchText(title + ' ' + snippet + ' ' + domain);
+      const queryTokens = meaningfulQueryTokens(query);
+      const matches = queryTokens.filter(token => haystack.includes(token)).length;
+      const relevance = queryTokens.length ? matches / queryTokens.length : 0.5;
+      const authority = sourceAuthority(domain);
+      const freshness = sourceFreshnessScore(title + ' ' + snippet);
+      const primary = sourceTypeScore(domain, url);
+      const specificity = sourceSpecificityScore(query, item);
+      const quality = primary * 0.40 + authority * 0.30 + relevance * 0.20 + freshness * 0.10;
+      const score = quality * 0.85 + specificity * 0.15;
+      return { ...item, url, score, _domain: domain, _quality: quality, _source_type: primary };
+    })
+    .sort((a,b) => b.score - a.score)
+    .filter(item => {
+      const key = item.url || item._domain;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(({score,_domain,_quality,_source_type,...item}) => item);
+}
+
+function sourceTypeScore(domain, url) {
+  const d = String(domain || '').toLowerCase();
+  const u = String(url || '').toLowerCase();
+  if (/\.(gov|gov\.br)(\.|$)/.test(d) || /(^|\/)gov\.br\//.test(u)) return 1;
+  if (/\.(edu|ac)\./.test(d) || /\.edu$/.test(d)) return 0.92;
+  if (/(who\.int|ibm\.com|microsoft\.com|cloudflare\.com|open-meteo\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.82;
+  if (/\b(blog|medium|substack|wordpress|forum|reddit)\b/.test(d) || /\/blog(?:\/|$)/.test(u)) return 0.45;
+  return 0.60;
+}
+
+function sourceSpecificityScore(query, source) {
+  const tokens = meaningfulQueryTokens(query);
+  if (!tokens.length) return 0.5;
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || ''));
+  const matches = tokens.filter(token => text.includes(token)).length;
+  return matches / tokens.length;
+}
+function canonicalizeSourceUrl(value) {
+  try {
+    const u = new URL(String(value || ''));
+    u.hash = '';
+    ['utm_source','utm_medium','utm_campaign','utm_term','utm_content','fbclid','gclid'].forEach(k => u.searchParams.delete(k));
+    return u.toString();
+  } catch (_) {
+    return String(value || '').trim();
+  }
+}
+
+function getSourceDomain(value) {
+  try { return new URL(value).hostname.replace(/^www\./i, '').toLowerCase(); }
+  catch (_) { return ''; }
+}
+
+function sourceAuthority(domain) {
+  const d = String(domain || '').toLowerCase();
+  if (!d) return 0;
+  if (/\.gov(\.[a-z]{2})?$/.test(d) || /\.gov\.[a-z]{2}$/.test(d)) return 1;
+  if (/\.edu(\.[a-z]{2})?$/.test(d) || /\.ac\.[a-z]{2}$/.test(d)) return 0.95;
+  if (/(who\.int|open-meteo\.com)$/.test(d)) return 0.92;
+  if (/(ibm\.com|microsoft\.com|cloudflare\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.88;
+  if (/wikipedia\.org$/.test(d)) return 0.75;
+  return 0.55;
+}
+
+function detectEvidenceConsistency(query, sources) {
+  const candidates = Array.isArray(sources) ? sources : [];
+  if (candidates.length < 2) return { checked: false, consistent: true, contradictions: [] };
+  const queryTokens = meaningfulQueryTokens(query);
+  const claims = candidates.map((source, index) => extractComparableEvidenceClaim(source, queryTokens, index));
+  const contradictions = [];
+
+  for (let i = 0; i < claims.length; i++) {
+    for (let j = i + 1; j < claims.length; j++) {
+      const a = claims[i], b = claims[j];
+      if (!a.subject || !b.subject || comparableSubjectOverlap(a.subject, b.subject) < 0.5) continue;
+      const numericConflict = a.numbers.length > 0 && b.numbers.length > 0 &&
+        a.numbers.some(x => b.numbers.some(y => x.unit === y.unit && Math.abs(x.value - y.value) > Math.max(1, Math.abs(x.value) * 0.02)));
+      const polarityConflict = a.polarity !== 'neutral' && b.polarity !== 'neutral' && a.polarity !== b.polarity;
+      const temporalConflict = a.dates.length > 0 && b.dates.length > 0 &&
+        a.dates.some(x => b.dates.some(y => x !== y)) &&
+        /\b(hoy|actual|actualmente|latest|today|current|2026|2025)\b/i.test(a.text + ' ' + b.text);
+      if (numericConflict || polarityConflict || temporalConflict) {
+        contradictions.push({
+          sources: [a.index, b.index],
+          type: numericConflict ? 'numeric' : (polarityConflict ? 'polarity' : 'temporal'),
+          subject: a.subject,
+          details: { left: a.signal, right: b.signal }
+        });
+      }
+    }
+  }
+  return { checked: true, consistent: contradictions.length === 0, contradictions, contradiction_count: contradictions.length };
+}
+
+function extractComparableEvidenceClaim(source, queryTokens, index) {
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || ''));
+  const subjectTokens = queryTokens.filter(token => text.includes(token)).slice(0, 8);
+  const numbers = [...text.matchAll(/(-?\d+(?:[.,]\d+)?)\s*(%|°c|c|km\/h|usd|eur|brl|r\$|mil|million|billion)?/gi)]
+    .map(match => ({ value: Number(String(match[1]).replace(',', '.')), unit: String(match[2] || '').toLowerCase() }))
+    .filter(item => Number.isFinite(item.value));
+  const dates = [...text.matchAll(/\b(20\d{2}(?:-\d{1,2}-\d{1,2})?|\d{1,2}\/\d{1,2}\/20\d{2})\b/g)].map(match => match[1]);
+  const negative = /\b(no|not|never|sin|false|falso|nao|não|denied|rejected|declined)\b/i.test(text);
+  const positive = /\b(si|yes|true|verdadero|sim|confirmed|approved|accepted|increased|aumento|subio|subió)\b/i.test(text);
+  const polarity = negative && !positive ? 'negative' : positive && !negative ? 'positive' : 'neutral';
+  return { index, text, subject: subjectTokens.join(' '), numbers, dates, polarity,
+    signal: { subject: subjectTokens.join(' '), numbers: numbers.slice(0, 8), dates: dates.slice(0, 5), polarity } };
+}
+
+function comparableSubjectOverlap(left, right) {
+  const a = new Set(String(left || '').split(/\s+/).filter(Boolean));
+  const b = new Set(String(right || '').split(/\s+/).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared++;
+  return shared / Math.max(1, Math.min(a.size, b.size));
+}
+function sourceFreshnessScore(text) {
+  const value = String(text || '').toLowerCase();
+  if (/\b(2026|2025|hoy|ahora|actual|actualizado|latest|recent|recentemente|últim[oa]s?)\b/i.test(value)) return 1;
+  if (/\b(2024|2023)\b/i.test(value)) return 0.55;
+  return 0.35;
+}
+
+function meaningfulQueryTokens(query) {
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también','mejor','quiero']);
+  return [...new Set(
+    String(query || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'')
+      .toLowerCase().match(/[a-z0-9]{3,}/g)?.filter(t => !stop.has(t)) || []
+  )];
+}
+
+function isRelevantSearchSource(query, source) {
+  const q = String(query || '').toLowerCase();
+  const haystack = String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '');
+  const normalized = haystack.toLowerCase();
+  const tokens = q.normalize('NFD').replace(/[\u0300-\u036f]/g, '').match(/[a-z0-9]{3,}/g) || [];
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también']);
+  const meaningful = [...new Set(tokens.filter(t => !stop.has(t)))];
+  if (!meaningful.length) return true;
+  let score = 0;
+  for (const token of meaningful) {
+    const plain = token.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (normalized.includes(token) || normalized.includes(plain)) score++;
+  }
+  const threshold = meaningful.length <= 2 ? 1 : Math.max(2, Math.ceil(meaningful.length * 0.35));
+  return score >= threshold;
+}
+
+function stripHtml(value) { return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
+function decodeHtml(value) { return String(value || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'); }
+
+async function loadConversationHistory(origin, conversationId, requestId) {
+  if (!origin || !conversationId) return [];
+  try {
+    const url = new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, origin);
+    const response = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json', 'x-bitey-channel': 'web', 'x-bitey-origin': 'cloudflare', 'x-request-id': requestId } });
+    if (!response.ok) return [];
+    const body = await response.json();
+    return Array.isArray(body?.messages) ? body.messages.slice(-8) : [];
+  } catch (error) {
+    console.warn('Bitey edge could not load conversation history', { requestId, error: String(error) });
+    return [];
+  }
+}
+
+function extractAiText(response) {
+  if (!response) return '';
+  const direct = response.response ?? response.result;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const choice = response.choices?.[0];
+  const content = choice?.message?.content ?? choice?.text;
+  if (typeof content === 'string' && content.trim()) return content.trim();
+  if (Array.isArray(content)) return content.map(part => typeof part === 'string' ? part : part?.text || '').join('').trim();
+  return '';
+}
+
+function safeAiShape(response) {
+  if (!response || typeof response !== 'object') return typeof response;
+  return { keys: Object.keys(response), has_choices: Array.isArray(response.choices), has_response: typeof response.response === 'string', has_result: typeof response.result === 'string' };
+}
+
+function jsonResponse(body, status = 200, source = 'cloudflare', requestId = '') {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Bitey-Edge': source, 'X-Bitey-Request-Id': requestId } });
+}
+
+function jsonError(message, status = 500, requestId = '') {
+  return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
+}
+
+async function weatherEndpoint(url, requestId) {
+  const q = String(url.searchParams.get('q') || '').trim();
+  if (!q) return jsonError('weather_location_required', 400, requestId);
+  try {
+    const geo = new URL('https://geocoding-api.open-meteo.com/v1/search');
+    geo.searchParams.set('name', q);
+    geo.searchParams.set('count', '5');
+    geo.searchParams.set('language', 'pt');
+    geo.searchParams.set('format', 'json');
+    const gr = await fetch(geo, {headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!gr.ok) return jsonError('weather_geocoding_unavailable',502,requestId);
+    const results = (await gr.json())?.results || [];
+    if (!results.length) return jsonError('weather_location_not_found',404,requestId);
+    const loc = results.find(x=>String(x?.name||'').toLowerCase()===q.toLowerCase()) || results[0];
+    const api = new URL('https://api.open-meteo.com/v1/forecast');
+    api.searchParams.set('latitude',String(loc.latitude));
+    api.searchParams.set('longitude',String(loc.longitude));
+    api.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code');
+    api.searchParams.set('timezone','auto');
+    api.searchParams.set('forecast_days','1');
+    const wr = await fetch(api,{headers:{'User-Agent':'BiteyWeb/1.0'}});
+    if (!wr.ok) return jsonError('weather_data_unavailable',502,requestId);
+    const data=await wr.json();
+    return jsonResponse({
+      ok:true,
+      location:{name:loc.name,admin1:loc.admin1||'',country:loc.country||'',latitude:loc.latitude,longitude:loc.longitude},
+      current:data.current||{},
+      source:{title:'Open-Meteo',url:api.toString()},
+      request_id:requestId
+    },200,'weather-open-meteo',requestId);
+  } catch(error) {
+    console.warn('Bitey weather endpoint failed',{requestId,error:String(error)});
+    return jsonError('weather_unavailable',502,requestId);
+  }
+}
+ };
+}
+
+function parseLocaleNumber(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return NaN;
+  if (raw.includes(',') && raw.includes('.')) {
+    const lastComma = raw.lastIndexOf(',');
+    const lastDot = raw.lastIndexOf('.');
+    return Number(lastComma > lastDot ? raw.replace(/\./g, '').replace(',', '.') : raw.replace(/,/g, ''));
+  }
+  if (raw.includes(',')) { const parts = raw.split(','); return Number(parts.length === 2 && parts[1].length <= 2 ? raw.replace(',', '.') : raw.replace(/,/g, '')); }
+  if (raw.includes('.')) { const parts = raw.split('.'); return Number(parts.length === 2 && parts[1].length <= 2 ? raw : raw.replace(/\./g, '')); }
+  return Number(raw);
+}
 function calculateExpression(message) {
   const text = String(message || '').trim().replace(/,/g, '.');
   const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
