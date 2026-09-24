@@ -393,12 +393,25 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
 
   const dependencies = orderedSteps.map(step => {
     const dependsOn = [];
-    if (step.tool === 'calculator' && orderedSteps.some(item=>item.tool==='web_search')) dependsOn.push('web_search');
+    const has = tool => orderedSteps.some(item => item.tool === tool);
+    // Deterministic calculations must never consume unverified external data.
+    if (step.tool === 'calculator') {
+      if (has('web_search')) dependsOn.push('web_search');
+      if (has('time')) dependsOn.push('time');
+      if (has('weather')) dependsOn.push('weather');
+    }
+    // Synthesis waits for every evidence-producing or deterministic step.
     if (step.tool === 'model_reasoning' && orderedSteps.length > 1) {
       dependsOn.push(...orderedSteps.filter(item=>item.tool!=='model_reasoning').map(item=>item.tool));
     }
     return {step:step.order,tool:step.tool,depends_on:[...new Set(dependsOn)]};
   });
+  const dependencyDiagnostics = dependencies.map(item => ({
+    tool: item.tool,
+    blocked_until: item.depends_on,
+    dependency_count: item.depends_on.length,
+    executable_without_dependencies: item.depends_on.length === 0
+  }));
 
   return {
     ...base,
@@ -428,6 +441,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
       context_aware:Boolean(reasoning.context_aware),
       external_evidence_required:Boolean(reasoning.external_evidence),
       dependency_count:dependencies.reduce((total,item)=>total+item.depends_on.length,0),
+      dependency_diagnostics: dependencyDiagnostics,
       derived_result_requires_evidence:Boolean(
         orderedSteps.some(item=>item.tool==='calculator') &&
         orderedSteps.some(item=>item.tool==='web_search')
