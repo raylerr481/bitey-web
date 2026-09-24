@@ -73,10 +73,14 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const explicitResearchMode = explicitMode === 'investigación' || explicitMode === 'research';
   const explicitMathMode = explicitMode === 'matemática' || explicitMode === 'math';
   const explicitCodeMode = explicitMode === 'código' || explicitMode === 'code';
+  // Named-entity questions usually need external grounding, while conceptual
+  // definitions remain direct unless the user explicitly asks for research.
+  const entityEvidenceRequired = signals.entity_lookup && !conceptual;
   const externalEvidenceRequired = explicitResearchMode
     || signals.research
     || signals.current
     || signals.fresh_entity_lookup
+    || entityEvidenceRequired
     || signals.comparison && !conceptual
     || signals.weather
     || signals.time
@@ -111,6 +115,7 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   if (signals.current) intentParts.push('current_information');
   if (signals.time) intentParts.push('time');
   if (signals.weather) intentParts.push('weather');
+  if (entityEvidenceRequired) intentParts.push('external_evidence');
   if (signals.calculation) intentParts.push('calculation');
   if (signals.code) intentParts.push('code');
   if (signals.comparison) intentParts.push('comparison');
