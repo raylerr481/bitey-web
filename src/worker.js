@@ -1,7 +1,7 @@
 import { classifyCapability } from './capability-router.js';
 import { filterConversationHistory } from './conversation-isolation.js';
 import { analyzeLanguage, resolveContext } from './language-engine.js';
-import { selectTools, buildCompoundPlan, buildToolActivity, getToolRegistry } from './tool-orchestrator.js';
+import { selectTools, buildCompoundPlan, buildToolActivity, getToolRegistry, evaluateIntent } from './tool-orchestrator.js';
 
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
@@ -438,7 +438,7 @@ function specializedFallbackBlocked(capability, requestId) {
   return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
 }
 
-function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto').toLowerCase().trim();\n  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {\n  const guidance = {\n    auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',\n    chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',\n    research: 'Prioriza investigación externa, evidencia y comparación de fuentes cuando sea relevante. No presentes datos no verificados como hechos.',\n    math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',\n    code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'\n  }[normalizeInteractionMode(mode)];\n  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto') {
+function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto').toLowerCase().trim();\n  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {\n  const guidance = {\n    auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',\n    chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',\n    research: 'Prioriza investigación externa, evidencia y comparación de fuentes cuando sea relevante. No presentes datos no verificados como hechos.',\n    math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',\n    code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'\n  }[normalizeInteractionMode(mode)];\n  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto', context = {}) {
   const text = String(message || '').trim();
   const analyzed = language || analyzeLanguage(text);
   const hasQuestion = /[?¿]|\\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\\b/i.test(text);
@@ -446,7 +446,8 @@ function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto
   const explicitResearch = EXPLICIT_RESEARCH_RE.test(text);
   const comparison = /\\b(compara|comparar|comparativa|diferencia|mejor|alternativas|opciones|versus|vs\\.?|contrasta)\\b/i.test(text);
   const trivial = /^(hola|holi|hey|buenas|gracias|ok|okay|ad[ií]os|chao|bye|buenos d[ií]as|buenas tardes|buenas noches)[!. ]*$/i.test(text);
-  const selectedMode = normalizeInteractionMode(mode);\n  const research = !trivial && (selectedMode === 'research' || (selectedMode !== 'chat' && (current || explicitResearch || comparison)));
+  const selectedMode = normalizeInteractionMode(mode);
+  const intentEvaluation = evaluateIntent({ language: analyzed, route: { intent: analyzed.intent, mode: selectedMode }, message: text, context });\n  const research = !trivial && (selectedMode === 'research' || (selectedMode !== 'chat' && (current || explicitResearch || comparison || intentEvaluation.should_research)));
   const intent = analyzed.intent === 'weather' ? 'weather'
     : comparison ? 'comparison'
     : current ? 'current_information'
@@ -459,9 +460,10 @@ function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto
     comparison_required: comparison,
     evidence_method: evidenceMethod
   };
-  const toolPlan = selectTools({ language: analyzed, route: routeBase, message: text });
+  const toolPlan = selectTools({ language: analyzed, route: { ...routeBase, mode: selectedMode }, message: text, context });
   return {
     ...routeBase,
+    intent_evaluation: intentEvaluation,
     tool_plan: toolPlan,
     reasons: research
       ? [current ? 'current_or_external_information' : 'explicit_research_or_comparison']
@@ -473,7 +475,7 @@ function normalizeInteractionMode(value) {\n  const mode = String(value || 'auto
 async function recoverToolEvidence(message, requestId) {
   try {
     const language = analyzeLanguage(message);
-    const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language);
+    const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language, 'auto');
     const plan = buildCompoundPlan({ language, route: preliminaryRoute, message });
     const evidenceParts = [];
     const sources = [];
