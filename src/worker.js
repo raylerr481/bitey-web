@@ -619,6 +619,30 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
     unsupported_count: unsupportedNumeric.length + unsupportedFactual.length + unsupportedCitations.length
   };
 }
+function scoreEvidenceGraph(graph) {
+  const claims = Array.isArray(graph?.nodes?.claims) ? graph.nodes.claims : [];
+  const sources = Array.isArray(graph?.nodes?.sources) ? graph.nodes.sources : [];
+  const supportedClaims = claims.filter(claim => Array.isArray(claim.source_ids) && claim.source_ids.length > 0);
+  const isolatedClaims = claims.filter(claim => !Array.isArray(claim.source_ids) || claim.source_ids.length === 0);
+  const sourceById = new Map(sources.map(source => [source.id, source]));
+  const claimScores = claims.map(claim => {
+    const linked = (claim.source_ids || []).map(id => sourceById.get(id)).filter(Boolean);
+    const authority = linked.length ? linked.reduce((sum, source) => sum + Math.max(0, Math.min(1, source.authority || 0)), 0) / linked.length : 0;
+    const freshness = linked.length ? linked.reduce((sum, source) => sum + Math.max(0, Math.min(1, source.freshness || 0)), 0) / linked.length : 0;
+    const coverage = linked.length ? Math.min(1, linked.length / 2) : 0;
+    return { id: claim.id, support_score: Number((coverage * 0.5 + authority * 0.3 + freshness * 0.2).toFixed(3)) };
+  });
+  const overall = claims.length ? supportedClaims.length / claims.length : 0;
+  return {
+    claim_count: claims.length,
+    supported_claims: supportedClaims.length,
+    isolated_claims: isolatedClaims.length,
+    coverage_score: Number(overall.toFixed(3)),
+    weak_claims: claimScores.filter(item => item.support_score < 0.45),
+    claim_scores: claimScores
+  };
+}
+
 function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const text = String(answer || '').trim();
   const citations = extractCitationIds(text);
@@ -634,12 +658,14 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const claimValidation = validateAnswerClaims(text, sources, route);
   const claimConflicts = detectClaimConflicts(text, sources);
   const evidenceGraph = buildEvidenceGraph(question, text, sources, route?.evidence_analysis);
+  const evidenceGraphScore = scoreEvidenceGraph(evidenceGraph);
   const unsupportedClaims = claimValidation.unsupported_count > 0;
   const unsupportedCitations = claimValidation.unsupported_citations?.length > 0;
+  const isolatedEvidenceClaims = route?.research_required && evidenceGraphScore.isolated_claims > 0;
   const finalGate = {
     non_empty: text.length > 0,
     citations_valid: invalidCitations.length === 0 && !unsupportedCitations,
-    evidence_supported: !unsupportedResearchAnswer && !unsupportedClaims,
+    evidence_supported: !unsupportedResearchAnswer && !unsupportedClaims && !isolatedEvidenceClaims,
     coverage_valid: coverage.valid,
     contradictions_acknowledged: !contradictionWarning && claimConflicts.length === 0
   };
@@ -654,7 +680,8 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     answer_coverage: coverage,
     claim_validation: claimValidation,
     claim_conflicts: claimConflicts,
-    evidence_graph: evidenceGraph
+    evidence_graph: evidenceGraph,
+    evidence_graph_score: evidenceGraphScore
   };
 }
 
