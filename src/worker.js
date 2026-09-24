@@ -413,7 +413,7 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
       {role:'user',content:prompt}
     ],max_tokens:768,temperature:0.1,chat_template_kwargs:{enable_thinking:false}});
     const answer = extractAiText(response);
-    const validation = validateSynthesizedAnswer(answer, sources, route);
+    const validation = validateSynthesizedAnswer(answer, sources, route, message);
     if (!validation.valid) {
       console.warn('Bitey synthesis validation rejected answer',{requestId,validation});
       return null;
