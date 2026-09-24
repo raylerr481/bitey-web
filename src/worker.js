@@ -1121,6 +1121,48 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
 
     const dependencyResult = (tool) => executions.find(item => item.tool === tool && item.status === 'success' && item.result_valid === true);
 
+    const validateTemporalToolOutput = (tool, output = {}, originalMessage = message) => {
+      const query = String(originalMessage || '').toLowerCase();
+      const currentRequested = /\b(hoy|ahora|actual(?:mente)?|actualizado|latest|current|precio(?:s)?|cotizaci[oó]n|news|noticias|quién es|quien es|where is|d[oó]nde est[aá]|how much|when)\b/i.test(query);
+      const historicalRequested = /\b(19\d{2}|20\d{2}|hist[oó]ric[oa]|historial)\b/i.test(query);
+      if (!currentRequested || historicalRequested) return { valid: true, freshness_required: false, freshness_score: 1, stale_sources: [], source_dates: [] };
+      if (tool === 'time') return { valid: true, freshness_required: true, freshness_score: 1, stale_sources: [], source_dates: ['runtime'] };
+      const now = new Date();
+      const currentYear = now.getUTCFullYear();
+      const sourceList = Array.isArray(output?.sources) ? output.sources : [];
+      const sourceDates = [];
+      const staleSources = [];
+      let scored = 0;
+      let fresh = 0;
+      for (const source of sourceList) {
+        const text = [source?.title, source?.snippet, source?.description, source?.url].filter(Boolean).join(' ');
+        const isoDates = [...text.matchAll(/\b(20\d{2})[-\/](\d{1,2})(?:[-\/](\d{1,2}))?\b/g)]
+          .map(m => new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3] || 1))));
+        const years = [...text.matchAll(/\b(20\d{2})\b/g)].map(m => Number(m[1]));
+        const explicitDate = isoDates.find(date => !Number.isNaN(date.getTime()));
+        const latestYear = years.length ? Math.max(...years) : null;
+        const freshCue = /\b(hoy|ahora|actual(?:mente)?|actualizado|latest|current|live|real[- ]?time|2026)\b/i.test(text);
+        if (explicitDate) {
+          const ageDays = Math.max(0, (now.getTime() - explicitDate.getTime()) / 86400000);
+          const freshEnough = ageDays <= 45;
+          scored++; if (freshEnough) fresh++;
+          sourceDates.push({ url: source?.url || '', date: explicitDate.toISOString().slice(0, 10), age_days: Number(ageDays.toFixed(1)), fresh: freshEnough });
+          if (!freshEnough) staleSources.push({ url: source?.url || '', reason: 'older_than_45_days', date: explicitDate.toISOString().slice(0, 10) });
+        } else if (latestYear && latestYear < currentYear) {
+          const freshEnough = latestYear >= currentYear - 1;
+          scored++; if (freshEnough) fresh++;
+          sourceDates.push({ url: source?.url || '', year: latestYear, fresh: freshEnough });
+          if (!freshEnough) staleSources.push({ url: source?.url || '', reason: 'older_year', year: latestYear });
+        } else if (freshCue) {
+          scored++; fresh++;
+          sourceDates.push({ url: source?.url || '', freshness_cue: true, fresh: true });
+        }
+      }
+      const freshnessScore = scored ? fresh / scored : (sourceList.length ? 0.5 : 0);
+      const valid = tool === 'weather' || (sourceList.length > 0 && (freshnessScore >= 0.5 || staleSources.length === 0));
+      return { valid, freshness_required: true, freshness_score: Number(freshnessScore.toFixed(3)), stale_sources: staleSources, source_dates: sourceDates };
+    };
+
     const validateSemanticToolOutput = (tool, output = {}, originalMessage = message) => {
       const text = String(output?.text || '').trim();
       const sourceText = [
@@ -1153,7 +1195,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       const resultCurrencies = (sourceText.match(/(?:R\$|US\$|USD|BRL|EUR|€|£)/gi) || []).map(normalizeEntity);
       const currencyCompatible = !requestedCurrencies.length || requestedCurrencies.some(currency => resultCurrencies.includes(currency));
 
-      const unitPatterns = /(?:acci[oó]n|share|unidad|kg|g|km|m|gb|tb|mb|%|porcentaje|mes|ano|año|dia|día)/i;
+      const unitPatterns = /(?:acci[oó]n(?:es)?|share(?:s)?|unidad(?:es)?|\bkg\b|\bg\b|\bkm\b|\bgb\b|\btb\b|\bmb\b|%|porcentaje|mes(?:es)?|a(?:n|ñ)o(?:s)?|d[ií]a(?:s)?)/i;
       const requestedUnit = String(originalMessage).match(unitPatterns)?.[0] || '';
       const resultHasUnit = requestedUnit ? unitPatterns.test(sourceText) : true;
       const semanticMinimum = tool === 'web_search' ? 0.18 : 0.10;
@@ -1161,15 +1203,18 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         && (coverage >= semanticMinimum || entityMatch)
         && currencyCompatible
         && resultHasUnit;
+      const temporal = validateTemporalToolOutput(tool, { text, sources: output?.sources }, originalMessage);
+      const finalValid = valid && temporal.valid;
 
       return {
-        valid,
+        valid: finalValid,
         query_term_coverage: Number(coverage.toFixed(3)),
         entity_match: Boolean(entityMatch),
         currency_compatible: currencyCompatible,
         unit_present: resultHasUnit,
         matched_terms: matched,
-        query_terms: queryFrame.tokens.length
+        query_terms: queryFrame.tokens.length,
+        temporal
       };
     };
 
@@ -1201,7 +1246,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.sources.push(...(time.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
         const semantic = validateSemanticToolOutput(tool, { text: time.text, sources: time.sources });
-        return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }) && semantic.valid, { non_empty_text: Boolean(String(time.text || '').trim()), semantic });
+        const temporal = validateTemporalToolOutput(tool, { text: time.text, sources: time.sources }, message);
+        return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }) && semantic.valid && temporal.valid, { non_empty_text: Boolean(String(time.text || '').trim()), semantic, temporal });
       }
       if (tool === 'weather') {
         const weather = await recoverWeather(message, requestId);
@@ -1215,7 +1261,8 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.sources.push(...(weather.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
         const semantic = validateSemanticToolOutput(tool, { text: weather.text, sources: weather.sources });
-        return markResult(tool, validateToolOutput(tool, { text: weather.text, sources: weather.sources }) && semantic.valid, { non_empty_text: Boolean(String(weather.text || '').trim()), source_count: (weather.sources || []).length, semantic });
+        const temporal = validateTemporalToolOutput(tool, { text: weather.text, sources: weather.sources }, message);
+        return markResult(tool, validateToolOutput(tool, { text: weather.text, sources: weather.sources }) && semantic.valid && temporal.valid, { non_empty_text: Boolean(String(weather.text || '').trim()), source_count: (weather.sources || []).length, semantic, temporal });
       }
       if (tool === 'calculator') {
         const calculation = calculateExpression(contextForTool());
@@ -1258,6 +1305,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.sources.push(...(search.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
         const semantic = validateSemanticToolOutput(tool, { text: search.text, sources: search.sources });
+        const temporal = validateTemporalToolOutput(tool, { text: search.text, sources: search.sources }, message);
         return markResult(tool, validateToolOutput(tool, { text: search.text, sources: search.sources }) && semantic.valid, { non_empty_text: Boolean(String(search.text || '').trim()), source_count: (search.sources || []).length, semantic });
       }
       if (tool === 'code_reasoning') {
