@@ -250,12 +250,34 @@ async function recoverSearch(message, requestId) {
         const snippet = stripHtml(decodeHtml(snippetMatch?.[1] || ''));
         if (/^https?:\/\//i.test(target) && title) { sourceObjects.push({ title, url: target, snippet }); items.push(`SOURCE ${sourceObjects.length}: ${target}\nTITLE: ${title}\nSNIPPET: ${snippet}`); }
       }
-      if (items.length) return { text: items.join('\n\n'), sources: sourceObjects };
+      const relevant = sourceObjects.filter(item => isRelevantSearchSource(message, item));
+      if (relevant.length) {
+        const allowed = new Set(relevant.map(item => item.url));
+        const filteredItems = items.filter((_, index) => allowed.has(sourceObjects[index]?.url));
+        return { text: filteredItems.join('\n\n'), sources: relevant };
+      }
     } catch (error) {
       console.warn('Bitey edge search source failed', { requestId, source: source.base, error: String(error) });
     }
   }
   return null;
+}
+
+function isRelevantSearchSource(query, source) {
+  const q = String(query || '').toLowerCase();
+  const haystack = String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '');
+  const normalized = haystack.toLowerCase();
+  const tokens = q.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').match(/[a-z0-9]{3,}/g) || [];
+  const stop = new Set(['que','como','para','por','con','una','uno','del','las','los','esta','este','hoy','puede','quiero','dime','decir','cual','cuál','sobre','entre','desde','hasta','tambien','también']);
+  const meaningful = [...new Set(tokens.filter(t => !stop.has(t)))];
+  if (!meaningful.length) return true;
+  let score = 0;
+  for (const token of meaningful) {
+    const plain = token.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+    if (normalized.includes(token) || normalized.includes(plain)) score++;
+  }
+  const threshold = meaningful.length <= 2 ? 1 : Math.max(2, Math.ceil(meaningful.length * 0.35));
+  return score >= threshold;
 }
 
 function stripHtml(value) { return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }
