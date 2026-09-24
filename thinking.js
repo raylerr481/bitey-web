@@ -230,7 +230,7 @@
     if (text) text.textContent = normalLabel;
     resetEvents();
     pollTrace();
-    pollTimer = setInterval(pollTrace, 350);
+    pollTimer = setInterval(pollTrace, 550);
   };
 
   const finish = () => stopPolling();
