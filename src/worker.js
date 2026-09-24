@@ -1,7 +1,7 @@
 import { classifyCapability } from './capability-router.js';
 import { filterConversationHistory } from './conversation-isolation.js';
 import { analyzeLanguage, resolveContext } from './language-engine.js';
-import { selectTools, buildToolActivity, getToolRegistry } from './tool-orchestrator.js';
+import { selectTools, buildCompoundPlan, buildToolActivity, getToolRegistry } from './tool-orchestrator.js';
 
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
@@ -449,42 +449,65 @@ async function recoverToolEvidence(message, requestId) {
   try {
     const language = analyzeLanguage(message);
     const preliminaryRoute = planCognitiveRoute(message, 'general', [], 'none', language);
-    const plan = preliminaryRoute.tool_plan;
-    if (plan.primary === 'weather') {
-      const weather = await recoverWeather(message, requestId);
-      if (weather) return {
-        text: weather.text,
-        sources: weather.sources || [],
-        method: 'weather-open-meteo',
-        tool_execution: { primary: 'weather', status: 'success', fallback_used: false }
-      };
-      return {
-        text: '',
-        sources: [],
-        method: 'weather-open-meteo-unavailable',
-        tool_execution: { primary: 'weather', status: 'failed', fallback_used: false }
-      };
+    const plan = buildCompoundPlan({ language, route: preliminaryRoute, message });
+    const evidenceParts = [];
+    const sources = [];
+    const executions = [];
+
+    for (const step of plan.steps || []) {
+      if (step.tool === 'weather') {
+        const weather = await recoverWeather(message, requestId);
+        if (weather) {
+          evidenceParts.push(weather.text);
+          sources.push(...(weather.sources || []));
+          executions.push({ tool: 'weather', status: 'success', purpose: step.purpose });
+        } else {
+          executions.push({ tool: 'weather', status: 'failed', purpose: step.purpose });
+        }
+      } else if (step.tool === 'calculator') {
+        const calculation = calculateExpression(message);
+        if (calculation) {
+          evidenceParts.push(calculation.text);
+          executions.push({ tool: 'calculator', status: 'success', purpose: step.purpose });
+        } else {
+          executions.push({ tool: 'calculator', status: 'failed', purpose: step.purpose });
+        }
+      } else if (step.tool === 'web_search') {
+        const search = await recoverSearch(message, requestId);
+        if (search) {
+          if (search.text) evidenceParts.push(search.text);
+          sources.push(...(search.sources || []));
+          executions.push({ tool: 'web_search', status: 'success', purpose: step.purpose });
+        } else {
+          executions.push({ tool: 'web_search', status: 'failed', purpose: step.purpose });
+        }
+      } else if (step.tool === 'code_reasoning') {
+        executions.push({ tool: 'code_reasoning', status: 'delegated', purpose: step.purpose });
+      } else if (step.tool === 'model_reasoning') {
+        executions.push({ tool: 'model_reasoning', status: 'deferred', purpose: step.purpose });
+      }
     }
-    if (plan.primary === 'calculator') {
-      const calculation = calculateExpression(message);
-      if (calculation) return {
-        text: calculation.text,
-        sources: [],
-        method: 'deterministic-calculator',
-        tool_execution: { primary: 'calculator', status: 'success', fallback_used: false }
-      };
-    }
-    const search = await recoverSearch(message, requestId);
-    if (search) return {
-      ...search,
-      method: search.method || 'web-search',
-      tool_execution: { primary: plan.primary, executed: 'web_search', status: 'success', fallback_used: plan.primary !== 'web_search' }
-    };
+
+    const executed = executions.filter(item => item.status === 'success');
+    const method = plan.compound
+      ? 'compound-tool-plan'
+      : (executed[0]?.tool === 'weather' ? 'weather-open-meteo'
+        : executed[0]?.tool === 'calculator' ? 'deterministic-calculator'
+        : executed[0]?.tool === 'web_search' ? 'web-search'
+        : 'tool-plan');
+
     return {
-      text: '',
-      sources: [],
-      method: 'web-search-unavailable',
-      tool_execution: { primary: plan.primary, status: 'failed', fallback_used: true }
+      text: evidenceParts.filter(Boolean).join('\n\n'),
+      sources: [...new Map(sources.map(source => [String(source?.url || source?.title || Math.random()), source])).values()].slice(0, 8),
+      method,
+      tool_execution: {
+        primary: plan.primary,
+        compound: Boolean(plan.compound),
+        planned: plan.steps || [],
+        executed: executions,
+        status: executed.length ? 'success' : 'failed',
+        fallback_used: plan.primary !== (executed[0]?.tool || plan.primary)
+      }
     };
   } catch (error) {
     console.warn('Bitey edge evidence recovery failed', { requestId, error: String(error) });
