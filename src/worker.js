@@ -399,6 +399,10 @@ function assessAnswerCoverage(question, answer, route = {}) {
   };
 }
 
+function finalValidationSources(evidence) {
+  return Array.isArray(evidence?.sources) ? evidence.sources.slice(0, 8) : [];
+}
+
 function buildEvidenceGapQuery(question, validation) {
   const graph = validation?.evidence_graph;
   const weak = Array.isArray(validation?.evidence_graph_score?.weak_claims)
@@ -755,7 +759,8 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
               recoveryPlan.actions.join(' '),
               validation.answer_coverage?.missing_parts?.join(' ') || ''
             ].filter(Boolean).join(' ');
-        const refreshed = await recoverToolEvidence(recoveryQuery, requestId);
+        const recoveryContext = route?.conversation_context || {};
+        const refreshed = await recoverToolEvidence(recoveryQuery, requestId, recoveryContext);
         if (refreshed?.text) recoveryEvidenceText = [recoveryEvidenceText, refreshed.text].filter(Boolean).join('\n\n').slice(0, 12000);
         if (Array.isArray(refreshed?.sources) && refreshed.sources.length) {
           recoverySources = refreshed.sources.slice(0, 8);
@@ -849,6 +854,55 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
         }
         validation.second_recovery_attempted = true;
         validation.second_recovery_succeeded = false;
+
+        // If the final repair is still unsupported, make one last targeted
+        // evidence refresh only when the validator identified a concrete gap.
+        // This keeps recovery bounded while ensuring weak claims can trigger
+        // new evidence instead of repeated model-only rewriting.
+        const finalPlan = buildAnswerRecoveryPlan(secondValidation, route);
+        if (finalPlan.research_required && !secondValidation.recovery_evidence_attempted) {
+          try {
+            const finalQuery = finalPlan.actions.includes('target_weak_evidence')
+              ? buildEvidenceGapQuery(message, secondValidation)
+              : [message, finalPlan.actions.join(' ')].filter(Boolean).join(' ');
+            const finalContext = route?.conversation_context || {};
+            const finalEvidence = await recoverToolEvidence(finalQuery, requestId, finalContext);
+            secondValidation.recovery_evidence_attempted = true;
+            secondValidation.recovery_evidence_sources = Array.isArray(finalEvidence?.sources) ? finalEvidence.sources.length : 0;
+            if (finalEvidence?.text || finalValidationSources(finalEvidence).length) {
+              const finalSources = finalValidationSources(finalEvidence);
+              const finalText = [recoveryEvidenceText, finalEvidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 12000);
+              const finalAnswerPrompt = [
+                'Corrige únicamente las afirmaciones que siguen sin respaldo.',
+                'Usa exclusivamente la evidencia final proporcionada.',
+                'Elimina cualquier afirmación que no pueda verificarse.',
+                'No inventes datos ni referencias.',
+                'Entrega solo la respuesta final.',
+                'PREGUNTA: ' + message,
+                'RESPUESTA: ' + secondAnswer,
+                'EVIDENCIA FINAL: ' + finalText,
+                'FUENTES FINALES: ' + finalSources.slice(0,8).map((s,i)=>'[S'+(i+1)+'] '+String(s.title||'Fuente')+' — '+String(s.url||'')+'\n'+String(s.snippet||'')).join('\n\n')
+              ].join('\n\n');
+              const finalResponse = await env.AI.run(AI_MODEL, {
+                messages: [
+                  { role: 'system', content: 'Corrige solo con evidencia. No inventes referencias.' },
+                  { role: 'user', content: finalAnswerPrompt }
+                ],
+                max_tokens: 768,
+                temperature: 0.05,
+                chat_template_kwargs: { enable_thinking: false }
+              });
+              const finalAnswer = extractAiText(finalResponse);
+              const finalValidation = validateSynthesizedAnswer(finalAnswer, finalSources, route, message);
+              finalValidation.recovery_status = 'validated_after_targeted_final_recovery';
+              finalValidation.recovery_evidence_attempted = true;
+              finalValidation.recovery_evidence_sources = finalSources.length;
+              if (finalValidation.valid) return { answer: finalAnswer, validation: finalValidation };
+            }
+          } catch (finalRecoveryError) {
+            console.warn('Bitey final targeted evidence recovery failed', { requestId, error: String(finalRecoveryError) });
+          }
+        }
       } catch (secondRecoveryError) {
         console.warn('Bitey second bounded recovery failed', { requestId, error: String(secondRecoveryError) });
         validation.second_recovery_attempted = true;
