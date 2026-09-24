@@ -136,3 +136,36 @@ export function getToolRegistry() {
     fallbacks: tool.fallbacks
   }));
 }
+
+/**
+ * Build a multi-tool execution plan for compound requests.
+ * The plan is declarative: execution must be confirmed by the worker.
+ */
+export function buildCompoundPlan({ language = {}, route = {}, message = '' } = {}) {
+  const base = selectTools({ language, route, message });
+  const text = String(message || '').toLowerCase();
+  const steps = [];
+  const add = (tool, purpose) => {
+    if (!steps.some(step => step.tool === tool)) steps.push({ order: steps.length + 1, tool, purpose });
+  };
+
+  if (base.primary === 'weather') add('weather', 'obtener datos meteorológicos actuales');
+  if (base.selected.includes('web_search') || route.research_required) add('web_search', 'recopilar y contrastar evidencia externa');
+  if (base.selected.includes('calculator') || language.intent === 'calculation') add('calculator', 'realizar cálculos deterministas');
+  if (base.selected.includes('code_reasoning') || language.intent === 'code') add('code_reasoning', 'analizar código y resultados técnicos');
+
+  const compoundSignals = /\\b(compara|comparar|comparativa|contrasta|calcula|cu[aá]nto|coste|costo|precio|inversi[oó]n|recuperar|roi|entre|versus|vs\\.)\\b/i.test(text);
+  if (compoundSignals && steps.length < 2) {
+    add('web_search', 'obtener evidencia para la comparación');
+    add('calculator', 'calcular magnitudes derivadas');
+  }
+
+  if (!steps.length) add('model_reasoning', 'sintetizar la respuesta con razonamiento directo');
+
+  return {
+    ...base,
+    compound: steps.length > 1,
+    steps,
+    execution_policy: 'execute_in_order_and_report_actual_results'
+  };
+}
