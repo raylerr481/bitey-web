@@ -1198,6 +1198,9 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
       });
       if (unmet.length) {
         record(step.tool, 'blocked', step.purpose, null, { unmet_dependencies: unmet });
+        // A blocked step is planned, not attempted. It may become executable
+        // after a bounded replan repairs one of its dependencies.
+        attempted.delete(step.tool);
         continue;
       }
 
@@ -1253,6 +1256,19 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         replan: replansUsed,
         context_keys: contextKeys()
       });
+
+      // Re-open steps that were blocked only because the repaired dependency
+      // was unavailable. Execute them now, in dependency order.
+      for (const pending of plan.steps || []) {
+        if (attempted.has(pending.tool)) continue;
+        const pendingDependency = (plan.dependencies || []).find(item => item.tool === pending.tool);
+        const stillUnmet = (pendingDependency?.depends_on || []).filter(depTool => {
+          const result = executions.find(item => item.tool === depTool && item.status === 'success');
+          return !result;
+        });
+        if (stillUnmet.length) continue;
+        await executeTool(pending.tool, pending.purpose);
+      }
     }
 
     const successful = executions.filter(item => item.status === 'success');
