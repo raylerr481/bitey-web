@@ -86,7 +86,7 @@ async function tryRealAiFallback(upstream, request, env, requestId, origin) {
     const answer = String(upstreamBody?.answer || '').trim();
     const providers = Array.isArray(upstreamBody?.providers) ? upstreamBody.providers : [];
     degraded = degraded || !answer || !providers.length || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
-    if (!degraded) return await enrichSuccessfulResponse(upstream, request, requestId);
+    if (!degraded) return await enrichSuccessfulResponse(upstream, request, requestId, env);
   } catch (_) {
     degraded = true;
   }
@@ -107,24 +107,32 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
   const evidenceText = String(evidence?.text || '').trim();
 
-  body.research_attempted = true;
-  body.research_required = true;
-  body.research_reasons = ['web_first_research'];
+  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none');
+  body.cognitive_route = route;
+  body.research_attempted = route.research_attempted;
+  body.research_required = route.research_required;
+  body.research_reasons = route.reasons;
   body.sources = sources;
   body.activity_events = [
-    'Búsqueda web realizada.',
-    sources.length ? ('Fuentes candidatas encontradas: '+sources.length+'.') : 'No se encontraron fuentes web verificables.',
-    sources.length ? 'Fuentes comparadas y filtradas por relevancia.' : 'La respuesta se mantiene limitada por falta de evidencia web verificable.'
+    'Intención comprendida y ruta cognitiva seleccionada.',
+    route.tool_step,
+    ...(sources.length ? [
+      'Evidencia recopilada.',
+      'Fuentes comparadas y filtradas por relevancia.'
+    ] : []),
+    'Respuesta preliminar revisada antes de entregar.'
   ];
 
-  if (env.AI && sources.length && !['sbt','jobia','enterprise'].includes(specialized)) {
+  if (env.AI) {
     const synthesized = await synthesizeWithEvidence({
       env, message, originalAnswer: String(body?.answer || ''),
-      evidenceText, sources, requestId
+      evidenceText, sources, requestId, route
     });
     if (synthesized) {
       body.answer = synthesized;
-      body.activity_events.push('Respuesta sintetizada a partir de la evidencia seleccionada.');
+      body.activity_events.push(sources.length
+        ? 'Respuesta final sintetizada a partir de la evidencia seleccionada.'
+        : 'Respuesta final verificada y sintetizada.');
       body.selected_provider = body.selected_provider || 'cloudflare-workers-ai';
     }
   }
@@ -137,18 +145,21 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
   return new Response(JSON.stringify(body), { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
-async function synthesizeWithEvidence({env, message, originalAnswer, evidenceText, sources, requestId}) {
+async function synthesizeWithEvidence({env, message, originalAnswer, evidenceText, sources, requestId, route = {}}) {
   const sourceBlock = sources.slice(0,8).map((s,i)=>'[S'+(i+1)+'] '+String(s.title||'Fuente')+' — '+String(s.url||'')+'\n'+String(s.snippet||'')).join('\n\n');
   const evidence = String(evidenceText||'').slice(0,12000);
   const prompt = [
-    'Eres el analista final de Bitey IA.',
-    'Primero compara la evidencia recuperada antes de responder.',
-    'Descarta fuentes irrelevantes, duplicadas o contradictorias sin respaldo.',
+    'Eres el verificador y sintetizador final de Bitey IA.',
+    'No entregues automáticamente la respuesta preliminar: primero evalúa si realmente responde a la intención.',
+    'Aplica esta secuencia: comprender intención, revisar evidencia disponible, comparar alternativas cuando existan, filtrar irrelevante/duplicado/desactualizado/no sustentado, verificar consistencia y sintetizar la respuesta final.',
+    'Si la pregunta requiere información actual o externa, usa solo la evidencia recuperada y reconoce cualquier limitación.',
+    'Si no requiere búsqueda externa, revisa la respuesta preliminar por exactitud, relevancia, claridad y coherencia; no inventes una investigación que no ocurrió.',
     'Prioriza datos primarios, oficiales y recientes cuando existan.',
-    'No inventes hechos que no aparezcan en la evidencia.',
+    'No inventes hechos, fuentes, herramientas ni operaciones realizadas.',
     'Responde en el idioma del usuario, de forma clara y directa.',
     'Incluye [S1], [S2], etc. solo cuando una afirmación dependa de esa fuente.',
-    'Si las fuentes no permiten una conclusión segura, dilo explícitamente.',
+    'Si existe incertidumbre relevante, exprésala de forma breve.',
+    'RUTA COGNITIVA: '+JSON.stringify(route),
     'PREGUNTA DEL USUARIO: '+message,
     'RESPUESTA PRELIMINAR: '+originalAnswer,
     'EVIDENCIA: '+evidence,
@@ -242,6 +253,31 @@ function specializedFallbackBlocked(capability, requestId) {
     ? 'La capacidad de SBT no está disponible en este momento. No voy a simular una respuesta de trading o inversión.'
     : 'La capacidad de JobIA no está disponible en este momento. No voy a simular una respuesta especializada de empleo.';
   return jsonResponse({ answer, providers: [], selected_provider: null, specialized_unavailable: true, capability, request_id: requestId }, 503, 'specialized-fallback-blocked', requestId);
+}
+
+function planCognitiveRoute(message, specialized, sources, evidenceMethod) {
+  const text = String(message || '').trim();
+  const hasQuestion = /[?¿]|\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\b/i.test(text);
+  const current = FRESHNESS_RE.test(text) || WEATHER_RE.test(text);
+  const explicitResearch = EXPLICIT_RESEARCH_RE.test(text);
+  const comparison = /\b(compara|comparar|comparativa|diferencia|mejor|alternativas|opciones|versus|vs\.?|contrasta)\b/i.test(text);
+  const trivial = /^(hola|holi|hey|buenas|gracias|ok|okay|ad[ií]os|chao|bye|buenos d[ií]as|buenas tardes|buenas noches)[!. ]*$/i.test(text);
+  const research = !trivial && (current || explicitResearch || comparison);
+  const toolStep = research
+    ? (comparison ? 'Investigación y comparación de alternativas iniciadas.' : 'Herramienta externa seleccionada según la intención.')
+    : (hasQuestion ? 'Análisis directo seleccionado; no se inventa una búsqueda externa innecesaria.' : 'Interacción conversacional identificada; se aplica verificación de respuesta.');
+  return {
+    intent: comparison ? 'comparison' : current ? 'current_information' : hasQuestion ? 'question' : 'conversation',
+    specialized: specialized || 'general',
+    research_attempted: research,
+    research_required: research,
+    comparison_required: comparison,
+    evidence_method: evidenceMethod,
+    reasons: research
+      ? [current ? 'current_or_external_information' : 'explicit_research_or_comparison']
+      : ['direct_reasoning_or_conversation'],
+    tool_step
+  };
 }
 
 async function recoverToolEvidence(message, requestId) {
