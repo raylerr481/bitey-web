@@ -204,7 +204,17 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   };
 }
 
-export function selectTools({ language = {}, route = {}, message = '', context = {} } = {}) {
+export function inferRecoveryTool(gapText = '', validation = {}) {
+  const text = String(gapText || '').toLowerCase();
+  if (/\\b(hora|time|horario|qué tiempo es|que tiempo es)\\b/.test(text)) return 'time';
+  if (/\\b(clima|temperatura|lluvia|weather)\\b/.test(text)) return 'weather';
+  if (/\\b(calcula|cu[aá]ntas?|porcentaje|roi|rentabilidad|suma|resta|multiplica|divide)\\b/.test(text)) return 'calculator';
+  if (/\\b(c[oó]digo|programa|error|bug|stack trace|api|javascript|python|typescript)\\b/.test(text)) return 'code_reasoning';
+  return 'web_search';
+}
+
+function selectTools({ language = {}, route = {}, message = '', context = {}, recovery = null } = {}) {
+  const recoveryTool = recovery?.needed ? inferRecoveryTool(recovery.gap_text || message, recovery.validation || {}) : null;
   const intentEval = evaluateIntent({ language, route, message, context });
   const domains = new Set((language.domains || []).map(item => item?.domain).filter(Boolean));
   const intent = String(intentEval.intent || language.intent || route.intent || 'question');
@@ -226,6 +236,7 @@ export function selectTools({ language = {}, route = {}, message = '', context =
 
   candidates.push('model_reasoning');
 
+  if (recoveryTool) candidates.unshift(recoveryTool);
   const unique = [...new Set(candidates)];
   const primary = unique[0] || 'model_reasoning';
   const chain = [];
