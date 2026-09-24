@@ -18,6 +18,9 @@ const SEMANTIC_TERMS = [
 ];
 
 const LANGUAGE_MARKERS = {
+  esDistinctive: /\\b(una|uno|unos|unas|donde|cuando|quien|porque|para|tambien|hace|est[aá]s|est[aá]|puede|quiero|dime|sobre|desde|hasta)\\b|[ñ¿¡]/i,
+  ptDistinctive: /\\b(uma|um|uns|umas|onde|quando|quem|porque|também|onde|voc[eê]|est[aá]|pode|quero|diga|sobre|desde|at[eé]|não|sim|previs[aã]o)\\b|[ãõç]/i,
+  enDistinctive: /\\b(what|how|where|when|who|why|the|are|with|this|that|from|today|can|want|please|weather|temperature)\\b/i,
   es: /\b(que|qué|como|cómo|donde|dónde|cuando|cuándo|quien|quién|para|con|por|una|una|el|la|los|las|es|en|hace|tiempo|clima)\b/i,
   pt: /\b(que|como|onde|quando|quem|para|com|por|uma|o|a|os|as|é|em|tempo|clima|previsao)\b/i,
   en: /\b(what|how|where|when|who|why|the|is|are|for|with|weather|temperature)\b/i
@@ -92,14 +95,20 @@ function levenshtein(a, b) {
 
 function detectLanguage(text) {
   const value = String(text || '');
-  const scores = Object.entries(LANGUAGE_MARKERS).map(([language, pattern]) => [
-    language,
-    (value.match(new RegExp(pattern.source, 'gi')) || []).length
-  ]).sort((a, b) => b[1] - a[1]);
+  const base = Object.fromEntries(Object.entries(LANGUAGE_MARKERS).filter(([key]) => ['es','pt','en'].includes(key)).map(([language, pattern]) => [
+    language, (value.match(new RegExp(pattern.source, 'gi')) || []).length
+  ]));
+  const distinctive = {
+    es: LANGUAGE_MARKERS.esDistinctive.test(value) ? 3 : 0,
+    pt: LANGUAGE_MARKERS.ptDistinctive.test(value) ? 3 : 0,
+    en: LANGUAGE_MARKERS.enDistinctive.test(value) ? 3 : 0
+  };
+  const scores = Object.keys(base).map(language => [language, base[language] + distinctive[language]])
+    .sort((a, b) => b[1] - a[1]);
   if (!scores.length || scores[0][1] === 0) return 'unknown';
   if (scores.length > 1 && scores[0][1] === scores[1][1]) {
-    if (/[ãõç]|\b(uma|onde|quando|previsao|tempo em)\b/i.test(value)) return 'pt';
-    if (/[ñ¿¡]|\b(una|donde|cuando|qué|cómo)\b/i.test(value)) return 'es';
+    if (/[ãõç]/i.test(value)) return 'pt';
+    if (/[ñ¿¡]/i.test(value)) return 'es';
   }
   return scores[0][0];
 }
