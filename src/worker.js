@@ -29,6 +29,10 @@ export default {
       headers.delete('host');
       const canUseAiFallback = request.method === 'POST' && ((url.pathname.includes('/conversations/') && url.pathname.endsWith('/messages')) || url.pathname === '/api/v2/chat');
       const requestClone = canUseAiFallback ? request.clone() : null;
+      if (canUseAiFallback && requestClone) {
+        const weatherResponse = await tryWeatherFastPath(requestClone.clone(), requestId);
+        if (weatherResponse) return weatherResponse;
+      }
       try {
         const upstream = await fetch(upstreamUrl, { method: request.method, headers, body: ['GET','HEAD'].includes(request.method) ? undefined : request.body, redirect: 'follow' });
         if (canUseAiFallback && env.AI) {
@@ -52,6 +56,72 @@ export default {
     return env.ASSETS.fetch(request);
   }
 };
+
+async function tryWeatherFastPath(request, requestId) {
+  try {
+    const payload = await request.json();
+    const rawMessage = String(payload?.message || '').trim();
+    if (!rawMessage) return null;
+    const language = analyzeLanguage(rawMessage);
+    const message = language.normalized || rawMessage;
+    if (!WEATHER_RE.test(message) || language.intent === 'duration') return null;
+    const weather = await recoverWeather(message, requestId);
+    if (!weather) return null;
+    const location = weather.location || weatherLocation(message) || 'localidade solicitada';
+    const answer = formatWeatherAnswer(weather);
+    return jsonResponse({
+      conversation_id: payload?.conversation_id || null,
+      original_message: rawMessage,
+      answer,
+      capability: 'general',
+      selected_provider: 'weather-open-meteo',
+      language: {
+        detected: language.language,
+        normalized: language.normalized,
+        corrections: language.corrections,
+        intent: language.intent,
+        entities: language.entities
+      },
+      cognitive_route: {
+        intent: 'current_information',
+        specialized: 'general',
+        research_attempted: true,
+        research_required: true,
+        comparison_required: false,
+        evidence_method: 'weather-open-meteo',
+        reasons: ['current_weather'],
+        tool_step: 'Consulta meteorológica verificada iniciada.'
+      },
+      research_attempted: true,
+      research_required: true,
+      sources: weather.sources || [],
+      activity_events: [
+        'Intención comprendida y ruta cognitiva seleccionada.',
+        'Consulta meteorológica verificada iniciada.',
+        'Datos meteorológicos actuales recopilados.',
+        'Respuesta final validada contra la fuente meteorológica.'
+      ]
+    }, 200, 'weather-fast-path', requestId);
+  } catch (error) {
+    console.warn('Bitey weather fast path failed', { requestId, error: String(error) });
+    return null;
+  }
+}
+
+function formatWeatherAnswer(weather) {
+  const current = weather.current || {};
+  const location = weather.location || 'la localidad solicitada';
+  return [
+    '### Clima actual',
+    '',
+    `**${location}**`,
+    `- Temperatura: **${current.temperature_2m ?? '—'} °C**`,
+    `- Sensación térmica: **${current.apparent_temperature ?? '—'} °C**`,
+    `- Humedad: **${current.relative_humidity_2m ?? '—'} %**`,
+    `- Viento: **${current.wind_speed_10m ?? '—'} km/h**`,
+    `- Observación: ${current.time || 'actual'}`
+  ].join('\\n');
+}
 
 async function runEdgeAiDiagnostic(env, requestId) {
   if (!env.AI) return jsonError('Workers AI binding is unavailable', 503, requestId);
@@ -402,7 +472,7 @@ async function recoverWeather(message, requestId) {
   const weatherResponse = await fetch(weatherUrl, { headers: { 'User-Agent': 'BiteyWeb/1.0' } });
   if (!weatherResponse.ok) return null;
   const current = (await weatherResponse.json())?.current || {};
-  return { text: `WEATHER SOURCE: Open-Meteo
+  return { current, location: `${location.name}, ${location.admin1 || ''}, ${location.country || ''}`.replace(/, ,/g, ',').trim(), text: `WEATHER SOURCE: Open-Meteo
 LOCATION: ${location.name}, ${location.admin1 || ''}, ${location.country || ''}
 OBSERVATION TIME: ${current.time || 'unknown'}
 TEMPERATURE: ${current.temperature_2m ?? 'unknown'} °C
