@@ -175,3 +175,16 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
     border-radius:22px!important;
   }
 }
+
+
+/* Final composer width: ChatGPT-like compact desktop dialog. */
+.chat-area > .composer-wrap > .composer{
+  width:min(700px,calc(100% - 40px))!important;
+  max-width:700px!important;
+}
+@media(max-width:760px){
+  .chat-area > .composer-wrap > .composer{
+    width:calc(100% - 16px)!important;
+    max-width:none!important;
+  }
+}
