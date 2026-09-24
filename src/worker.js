@@ -1306,7 +1306,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         record(tool, 'success', purpose, fallbackFor, contextForTool());
         const semantic = validateSemanticToolOutput(tool, { text: search.text, sources: search.sources });
         const temporal = validateTemporalToolOutput(tool, { text: search.text, sources: search.sources }, message);
-        return markResult(tool, validateToolOutput(tool, { text: search.text, sources: search.sources }) && semantic.valid, { non_empty_text: Boolean(String(search.text || '').trim()), source_count: (search.sources || []).length, semantic });
+        return markResult(tool, validateToolOutput(tool, { text: search.text, sources: search.sources }) && semantic.valid && temporal.valid, { non_empty_text: Boolean(String(search.text || '').trim()), source_count: (search.sources || []).length, semantic, temporal, evidence_analysis: search.evidence_analysis });
       }
       if (tool === 'code_reasoning') {
         record(tool, 'delegated', purpose, fallbackFor);
