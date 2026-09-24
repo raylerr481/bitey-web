@@ -151,19 +151,72 @@ function detectIntent(text) {
 
 export function resolveContext(message = '', history = []) {
   const current = analyzeLanguage(message);
-  const items = Array.isArray(history) ? history.filter(item => item && (item.role === 'user' || item.role === 'assistant')).slice(-8) : [];
+  const items = Array.isArray(history)
+    ? history.filter(item => item && (item.role === 'user' || item.role === 'assistant')).slice(-8)
+    : [];
+  const userItems = items.filter(item => item.role === 'user');
   const contextText = items.map(item => String(item.content || '')).join(' ');
   const context = analyzeLanguage(contextText);
   const references = [];
   const value = current.normalized.toLowerCase();
-  if (/\b(aqu[ií]|all[ií]|allá|isso|isto|ese|esa|ese precio|esa empresa|that|there|it|this)\b/i.test(value)) references.push('prior_context');
+
+  if (/\b(aqu[ií]|all[ií]|allá|isso|isto|ese|esa|ese precio|esa empresa|ese valor|esa opción|esa opci[oó]n|eso|that|there|it|this|those|them)\b/i.test(value)) references.push('prior_context');
   if (/\b(ahora|hoy|mañana|manana|ayer|agora|hoje|amanhã|ontem|today|tomorrow|yesterday)\b/i.test(value)) references.push('temporal');
+  if (/^\s*(?:y|e|and|tamb[ié]n|tambem|também|¿?cu[aá]nto|quanto|how much|how long|y cu[aá]nto|e quanto)\b/i.test(value)) references.push('follow_up');
+
+  const recentUserText = userItems.slice(-4).map(item => String(item.content || '')).join(' ');
+  const topicTokens = meaningfulContextTokens(recentUserText);
+  const inheritedEntities = extractContextEntities(recentUserText);
+  const inheritedDomains = context.domains || [];
+  const needsTopic = references.includes('prior_context') || references.includes('follow_up') ||
+    /\b(cu[aá]nto|quanto|how much|how long|cu[aá]nto tiempo|quanto tempo|how much time)\b/i.test(value);
+  const searchQuery = needsTopic && topicTokens.length
+    ? [current.normalized, topicTokens.slice(0, 8).join(' ')].filter(Boolean).join(' ').trim()
+    : current.normalized;
+
+  const confidence = references.length && (inheritedEntities.length || inheritedDomains.length || topicTokens.length)
+    ? 0.92
+    : references.length ? 0.72 : 0.55;
+
   return {
     references,
     inherited_locations: context.entities?.locations || [],
-    inherited_domains: context.domains || [],
-    confidence: references.length && (context.entities?.locations?.length || context.domains?.length) ? 0.9 : 0.55
+    inherited_domains: inheritedDomains,
+    inherited_entities: inheritedEntities,
+    recent_topic_terms: topicTokens.slice(0, 12),
+    search_query: searchQuery,
+    context_turns: items.length,
+    confidence
   };
+}
+
+function meaningfulContextTokens(text = '') {
+  const stop = new Set([
+    'que','qué','como','cómo','para','por','con','una','uno','unos','unas','del','de','la','el','los','las',
+    'este','esta','eso','esa','ese','esto','aqui','aquí','allí','alli','hoy','ahora','puede','puedo','quiero',
+    'dime','sobre','entre','desde','hasta','tambien','también','y','o','e','and','the','this','that','how',
+    'much','long','what','when','where','why'
+  ]);
+  return [...new Set(
+    String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .match(/[a-z0-9][a-z0-9._/-]{2,}/g)?.filter(token => !stop.has(token)) || []
+  )];
+}
+
+function extractContextEntities(text = '') {
+  const value = String(text || '');
+  const entities = [];
+  const patterns = [
+    /\b(?:rtx\s*\d{3,4}|gtx\s*\d{3,4}|rx\s*\d{3,4}|iphone\s*\d{1,3}|galaxy\s+s?\d{1,3})\b/ig,
+    /\b(?:meta|apple|microsoft|google|openai|nvidia|amd|intel|bitcoin|ethereum|tesla)\b/ig
+  ];
+  for (const pattern of patterns) {
+    for (const match of value.matchAll(pattern)) {
+      const item = String(match[0] || '').trim();
+      if (item && !entities.some(existing => existing.toLowerCase() === item.toLowerCase())) entities.push(item);
+    }
+  }
+  return entities;
 }
 
 function extractEntities(text) {
