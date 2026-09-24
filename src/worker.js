@@ -729,21 +729,25 @@ function normalizeSearchText(value) {
 
 function rankEvidenceSources(query, sources) {
   const seen = new Set();
-  return sources
+  const candidates = Array.isArray(sources) ? sources : [];
+  return candidates
     .filter(item => isRelevantSearchSource(query, item))
     .map(item => {
       const url = canonicalizeSourceUrl(item.url);
       const domain = getSourceDomain(url);
       const title = String(item.title || '').toLowerCase();
       const snippet = String(item.snippet || '').toLowerCase();
-      const queryTokens = meaningfulQueryTokens(query);
       const haystack = normalizeSearchText(title + ' ' + snippet + ' ' + domain);
+      const queryTokens = meaningfulQueryTokens(query);
       const matches = queryTokens.filter(token => haystack.includes(token)).length;
       const relevance = queryTokens.length ? matches / queryTokens.length : 0.5;
       const authority = sourceAuthority(domain);
       const freshness = sourceFreshnessScore(title + ' ' + snippet);
-      const score = relevance * 0.55 + authority * 0.25 + freshness * 0.20;
-      return { ...item, url, score, _domain: domain };
+      const primary = sourceTypeScore(domain, url);
+      const specificity = sourceSpecificityScore(query, item);
+      const quality = primary * 0.40 + authority * 0.30 + relevance * 0.20 + freshness * 0.10;
+      const score = quality * 0.85 + specificity * 0.15;
+      return { ...item, url, score, _domain: domain, _quality: quality, _source_type: primary };
     })
     .sort((a,b) => b.score - a.score)
     .filter(item => {
@@ -752,9 +756,27 @@ function rankEvidenceSources(query, sources) {
       seen.add(key);
       return true;
     })
-    .map(({score,_domain,...item}) => item);
+    .map(({score,_domain,_quality,_source_type,...item}) => item);
 }
 
+function sourceTypeScore(domain, url) {
+  const d = String(domain || '').toLowerCase();
+  const u = String(url || '').toLowerCase();
+  if (/\.(gov|gov\.br)(\.|$)/.test(d) || /(^|\/)gov\.br\//.test(u)) return 1;
+  if (/\.(edu|ac)\./.test(d) || /\.edu$/.test(d)) return 0.92;
+  if (/(who\.int|ibm\.com|microsoft\.com|cloudflare\.com|open-meteo\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.82;
+  if (/\b(blog|medium|substack|wordpress|forum|reddit)\b/.test(d) || /\/blog(?:\/|$)/.test(u)) return 0.45;
+  return 0.60;
+}
+
+function sourceSpecificityScore(query, source) {
+  const tokens = meaningfulQueryTokens(query);
+  if (!tokens.length) return 0.5;
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || ''));
+  const matches = tokens.filter(token => text.includes(token)).length;
+  return matches / tokens.length;
+}
 function canonicalizeSourceUrl(value) {
   try {
     const u = new URL(String(value || ''));
@@ -776,8 +798,10 @@ function sourceAuthority(domain) {
   if (!d) return 0;
   if (/\.gov(\.[a-z]{2})?$/.test(d) || /\.gov\.[a-z]{2}$/.test(d)) return 1;
   if (/\.edu(\.[a-z]{2})?$/.test(d) || /\.ac\.[a-z]{2}$/.test(d)) return 0.95;
-  if (/(who\.int|wikipedia\.org|open-meteo\.com)$/.test(d)) return 0.9;
-  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com)$/.test(d)) return 0.88;
+  if (/(who\.int|open-meteo\.com)$/.test(d)) return 0.92;
+  if (/(ibm\.com|microsoft\.com|cloudflare\.com)$/.test(d)) return 0.90;
+  if (/(reuters\.com|apnews\.com|bbc\.com|nytimes\.com|theguardian\.com)$/.test(d)) return 0.88;
+  if (/wikipedia\.org$/.test(d)) return 0.75;
   return 0.55;
 }
 
