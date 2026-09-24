@@ -159,12 +159,18 @@ export function resolveContext(message = '', history = []) {
     ? history.filter(item => item && (item.role === 'user' || item.role === 'assistant')).slice(-8)
     : [];
   const userItems = items.filter(item => item.role === 'user');
-  const contextText = items.map(item => String(item.content || '')).join(' ');
-  const context = analyzeLanguage(contextText);
+  // User turns are the authoritative source for inherited intent/topic.
+  // Assistant prose can contain many incidental domain words and should not
+  // redefine the user's conversational context.
+  const userContextText = userItems.map(item => String(item.content || '')).join(' ');
+  const context = analyzeLanguage(userContextText);
   const references = [];
   const value = current.normalized.toLowerCase();
 
-  if (/\b(aqu[ií]|all[ií]|allá|isso|isto|ese|esa|ese precio|esa empresa|ese valor|esa opción|esa opci[oó]n|eso|that|there|it|this|those|them)\b/i.test(value)) references.push('prior_context');
+  // Only explicit anaphora/follow-up markers should inherit prior context.
+  // Generic English words such as "it" or "this" are intentionally excluded
+  // because they create false context links in otherwise independent queries.
+  if (/\b(aqu[ií]|all[ií]|allá|isso|isto|esse|essa|ese|esa|ese precio|ese valor|esa empresa|esa opción|esa opci[oó]n|eso|isso|aquilo|that one|those|them|there)\b/i.test(value)) references.push('prior_context');
   if (/\b(ahora|hoy|mañana|manana|ayer|agora|hoje|amanhã|ontem|today|tomorrow|yesterday)\b/i.test(value)) references.push('temporal');
   if (/^\s*(?:y|e|and|tamb[ié]n|tambem|também|¿?cu[aá]nto|quanto|how much|how long|y cu[aá]nto|e quanto)\b/i.test(value)) references.push('follow_up');
 
@@ -178,9 +184,15 @@ export function resolveContext(message = '', history = []) {
     ? [current.normalized, topicTokens.slice(0, 8).join(' ')].filter(Boolean).join(' ').trim()
     : current.normalized;
 
-  const confidence = references.length && (inheritedEntities.length || inheritedDomains.length || topicTokens.length)
-    ? 0.92
-    : references.length ? 0.72 : 0.55;
+  const explicitReference = references.includes('prior_context') || references.includes('follow_up');
+  const usableInheritedContext = Boolean(
+    inheritedEntities.length ||
+    inheritedDomains.length ||
+    topicTokens.length >= 2
+  );
+  const confidence = explicitReference && usableInheritedContext
+    ? 0.94
+    : explicitReference ? 0.68 : 0.55;
 
   return {
     references,
@@ -190,7 +202,15 @@ export function resolveContext(message = '', history = []) {
     recent_topic_terms: topicTokens.slice(0, 12),
     search_query: searchQuery,
     context_turns: items.length,
-    confidence
+    user_turns: userItems.length,
+    confidence,
+    context_quality: {
+      explicit_reference: explicitReference,
+      usable: usableInheritedContext,
+      inherited_entity_count: inheritedEntities.length,
+      inherited_domain_count: inheritedDomains.length,
+      topic_term_count: topicTokens.length
+    }
   };
 }
 
