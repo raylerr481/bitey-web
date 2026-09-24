@@ -384,6 +384,22 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
         : 'single_tool_or_direct_reasoning'
     },
     context_inputs: contextData,
-    execution_policy:'execute_in_order_and_report_actual_results'
+    execution_policy:'execute_in_order_and_report_actual_results',
+    verification_policy:{
+      required_for:['web_search','calculator','time','weather','code_reasoning'],
+      replan_on_failure:true,
+      max_replans:2,
+      preserve_successful_results:true,
+      never_invent_missing_inputs:true
+    },
+    planner_diagnostics:{
+      context_aware:Boolean(reasoning.context_aware),
+      external_evidence_required:Boolean(reasoning.external_evidence),
+      dependency_count:dependencies.reduce((total,item)=>total+item.depends_on.length,0),
+      derived_result_requires_evidence:Boolean(
+        orderedSteps.some(item=>item.tool==='calculator') &&
+        orderedSteps.some(item=>item.tool==='web_search')
+      )
+    }
   };
 }
