@@ -808,20 +808,55 @@ function sourceAuthority(domain) {
 function detectEvidenceConsistency(query, sources) {
   const candidates = Array.isArray(sources) ? sources : [];
   if (candidates.length < 2) return { checked: false, consistent: true, contradictions: [] };
-  const normalized = candidates.map(s => normalizeSearchText((s.title || '') + ' ' + (s.snippet || '')));
-  const contradictionPairs = [];
-  const negation = /\\b(no|not|never|sin|contra|versus|however|but|pero|aunque)\\b/;
-  for (let i = 0; i < normalized.length; i++) {
-    for (let j = i + 1; j < normalized.length; j++) {
-      if (negation.test(normalized[i]) !== negation.test(normalized[j]) &&
-          meaningfulQueryTokens(query).some(t => normalized[i].includes(t) && normalized[j].includes(t))) {
-        contradictionPairs.push([i, j]);
+  const queryTokens = meaningfulQueryTokens(query);
+  const claims = candidates.map((source, index) => extractComparableEvidenceClaim(source, queryTokens, index));
+  const contradictions = [];
+
+  for (let i = 0; i < claims.length; i++) {
+    for (let j = i + 1; j < claims.length; j++) {
+      const a = claims[i], b = claims[j];
+      if (!a.subject || !b.subject || comparableSubjectOverlap(a.subject, b.subject) < 0.5) continue;
+      const numericConflict = a.numbers.length > 0 && b.numbers.length > 0 &&
+        a.numbers.some(x => b.numbers.some(y => x.unit === y.unit && Math.abs(x.value - y.value) > Math.max(1, Math.abs(x.value) * 0.02)));
+      const polarityConflict = a.polarity !== 'neutral' && b.polarity !== 'neutral' && a.polarity !== b.polarity;
+      const temporalConflict = a.dates.length > 0 && b.dates.length > 0 &&
+        a.dates.some(x => b.dates.some(y => x !== y)) &&
+        /\b(hoy|actual|actualmente|latest|today|current|2026|2025)\b/i.test(a.text + ' ' + b.text);
+      if (numericConflict || polarityConflict || temporalConflict) {
+        contradictions.push({
+          sources: [a.index, b.index],
+          type: numericConflict ? 'numeric' : (polarityConflict ? 'polarity' : 'temporal'),
+          subject: a.subject,
+          details: { left: a.signal, right: b.signal }
+        });
       }
     }
   }
-  return { checked: true, consistent: contradictionPairs.length === 0, contradictions: contradictionPairs };
+  return { checked: true, consistent: contradictions.length === 0, contradictions, contradiction_count: contradictions.length };
 }
 
+function extractComparableEvidenceClaim(source, queryTokens, index) {
+  const text = normalizeSearchText(String(source?.title || '') + ' ' + String(source?.snippet || ''));
+  const subjectTokens = queryTokens.filter(token => text.includes(token)).slice(0, 8);
+  const numbers = [...text.matchAll(/(-?\d+(?:[.,]\d+)?)\s*(%|°c|c|km\/h|usd|eur|brl|r\$|mil|million|billion)?/gi)]
+    .map(match => ({ value: Number(String(match[1]).replace(',', '.')), unit: String(match[2] || '').toLowerCase() }))
+    .filter(item => Number.isFinite(item.value));
+  const dates = [...text.matchAll(/\b(20\d{2}(?:-\d{1,2}-\d{1,2})?|\d{1,2}\/\d{1,2}\/20\d{2})\b/g)].map(match => match[1]);
+  const negative = /\b(no|not|never|sin|false|falso|nao|não|denied|rejected|declined)\b/i.test(text);
+  const positive = /\b(si|yes|true|verdadero|sim|confirmed|approved|accepted|increased|aumento|subio|subió)\b/i.test(text);
+  const polarity = negative && !positive ? 'negative' : positive && !negative ? 'positive' : 'neutral';
+  return { index, text, subject: subjectTokens.join(' '), numbers, dates, polarity,
+    signal: { subject: subjectTokens.join(' '), numbers: numbers.slice(0, 8), dates: dates.slice(0, 5), polarity } };
+}
+
+function comparableSubjectOverlap(left, right) {
+  const a = new Set(String(left || '').split(/\s+/).filter(Boolean));
+  const b = new Set(String(right || '').split(/\s+/).filter(Boolean));
+  if (!a.size || !b.size) return 0;
+  let shared = 0;
+  for (const token of a) if (b.has(token)) shared++;
+  return shared / Math.max(1, Math.min(a.size, b.size));
+}
 function sourceFreshnessScore(text) {
   const value = String(text || '').toLowerCase();
   if (/\b(2026|2025|hoy|ahora|actual|actualizado|latest|recent|recentemente|últim[oa]s?)\b/i.test(value)) return 1;
