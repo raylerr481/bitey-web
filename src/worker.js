@@ -559,7 +559,7 @@ function calculateExpression(message) {
     total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
     if (!Number.isFinite(total)) return null;
     const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
-    return { expression, value: total, answer: \`El resultado es **\${formatted}**.\`, text: \`CALCULATOR: \${expression} = \${formatted}\` };
+    return { expression, value: total, answer: 'El resultado es **' + formatted + '**.', text: 'CALCULATOR: ' + expression + ' = ' + formatted };
   } catch (_) {
     return null;
   }
