@@ -208,7 +208,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
   if (base.selected.includes('calculator') || language.intent === 'calculation') add('calculator', 'realizar cálculos deterministas');
   if (base.selected.includes('code_reasoning') || language.intent === 'code') add('code_reasoning', 'analizar código y resultados técnicos');
 
-  const compoundSignals = /\\b(compara|comparar|comparativa|contrasta|calcula|cu[aá]nto|coste|costo|precio|inversi[oó]n|recuperar|roi|entre|versus|vs\\.)\\b/i.test(text);
+  const compoundSignals = /\b(compara|comparar|comparativa|contrasta|calcula|cu[aá]nto|coste|costo|precio|inversi[oó]n|recuperar|roi|entre|versus|vs\.?)\b/i.test(text);
   if (compoundSignals && steps.length < 2) {
     add('web_search', 'obtener evidencia para la comparación');
     add('calculator', 'calcular magnitudes derivadas');
