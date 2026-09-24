@@ -420,6 +420,33 @@ function buildAnswerRecoveryPlan(validation, route = {}) {
   };
 }
 
+function extractClaimFrame(text) {
+  const normalized = normalizeSearchText(String(text || ''));
+  const stop = new Set(['para','como','esta','este','esa','ese','que','con','por','una','los','las','del','desde','sobre','entre','this','that','with','from','about','the','and','for']);
+  const tokens = meaningfulQueryTokens(normalized).filter(token => token.length >= 4 && !stop.has(token));
+  const subject = tokens.slice(0, 4);
+  const predicate = tokens.slice(4, 10);
+  return { subject, predicate, tokens };
+}
+
+function semanticClaimSupport(claim, source) {
+  const claimFrame = extractClaimFrame(claim);
+  const sourceFrame = extractClaimFrame(source);
+  const sourceSet = new Set(sourceFrame.tokens);
+  const subjectHits = claimFrame.subject.filter(token => sourceSet.has(token)).length;
+  const predicateHits = claimFrame.predicate.filter(token => sourceSet.has(token)).length;
+  const totalHits = claimFrame.tokens.filter(token => sourceSet.has(token)).length;
+  const subjectScore = claimFrame.subject.length ? subjectHits / claimFrame.subject.length : 0;
+  const predicateScore = claimFrame.predicate.length ? predicateHits / claimFrame.predicate.length : 0;
+  const totalScore = claimFrame.tokens.length ? totalHits / claimFrame.tokens.length : 0;
+  return {
+    supported: subjectScore >= 0.25 && (predicateScore >= 0.15 || totalScore >= 0.3),
+    subject_score: Number(subjectScore.toFixed(3)),
+    predicate_score: Number(predicateScore.toFixed(3)),
+    lexical_score: Number(totalScore.toFixed(3))
+  };
+}
+
 function validateAnswerClaims(answer, sources = [], route = {}) {
   const text = String(answer || '').trim();
   const claims = [];
@@ -461,10 +488,8 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
     const supports = ids.map(id => {
       const source = sourceText.find(item => item.id === id);
       if (!source) return { id, valid: false, support_score: 0 };
-      const normalized = normalizeSearchText(source.text);
-      const hits = tokens.filter(token => normalized.includes(token)).length;
-      const score = tokens.length ? hits / tokens.length : 0;
-      return { id, valid: score >= 0.2 || hits >= 2, support_score: Number(score.toFixed(3)), matched_terms: hits };
+      const support = semanticClaimSupport(cleanSentence, source.text);
+      return { id, valid: support.supported, support_score: support.lexical_score, semantic_support: support, matched_terms: Math.round(support.lexical_score * tokens.length) };
     });
     citationSupport.push({ sentence: cleanSentence.slice(0, 220), supports });
   }
@@ -480,12 +505,13 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
         .slice(0, 14);
       if (!contextTokens.length) continue;
       const supported = sourceText.some(source => {
+        const semantic = semanticClaimSupport(claim.context, source.text);
         const normalized = normalizeSearchText(source.text);
         const hits = contextTokens.filter(token => normalized.includes(token)).length;
         const threshold = claim.type === 'numeric'
           ? Math.min(2, Math.max(1, Math.ceil(contextTokens.length * 0.2)))
           : Math.min(4, Math.max(2, Math.ceil(contextTokens.length * 0.28)));
-        return hits >= threshold;
+        return semantic.supported || hits >= threshold;
       });
       if (!supported) {
         if (claim.type === 'numeric') unsupportedNumeric.push(claim);
