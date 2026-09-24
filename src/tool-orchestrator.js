@@ -53,16 +53,69 @@ const TOOL_DEFINITIONS = {
   }
 };
 
-export function selectTools({ language = {}, route = {}, message = '' } = {}) {
+export function evaluateIntent({ language = {}, route = {}, message = '', context = {} } = {}) {
+  const text = String(message || '').trim();
+  const lower = text.toLowerCase();
   const domains = new Set((language.domains || []).map(item => item?.domain).filter(Boolean));
-  const intent = String(language.intent || route.intent || 'question');
+  const explicitMode = String(route?.mode || context?.mode || 'auto').toLowerCase();
+  const signals = {
+    current: /\b(hoy|ahora|actual(?:mente)?|últim[oa]s?|latest|news|noticias?|precio|cotización|cuánto cuesta|when|where|who)\b/i.test(lower),
+    research: /\b(busca|buscar|investiga|fuentes|compara|comparar|contrasta|alternativas|opciones|search|research)\b/i.test(lower),
+    calculation: /(?:cuánto es|calcula|calcular|calculate|compute|porcentaje|roi|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i.test(lower) || language.intent === 'calculation',
+    code: language.intent === 'code' || domains.has('code') || /\b(código|code|python|javascript|sql|api|bug|error|github)\b/i.test(lower),
+    comparison: language.intent === 'comparison' || /\b(compara|comparar|versus|\bvs\.?\b|diferencia|mejor que|alternativas)\b/i.test(lower),
+    context_followup: Array.isArray(context?.references) && context.references.length > 0,
+    long_or_complex: text.length > 240 || /\b(paso a paso|analiza|análisis|planifica|diseña|arquitectura|profundo|detalladamente|deep|complex)\b/i.test(lower)
+  };
+  let primaryIntent = String(language.intent || route.intent || 'question');
+  if (signals.calculation) primaryIntent = 'calculation';
+  else if (signals.code) primaryIntent = 'code';
+  else if (signals.comparison) primaryIntent = 'comparison';
+  else if (signals.current) primaryIntent = 'current_information';
+  else if (signals.research) primaryIntent = 'research';
+  else if (language.intent === 'conversation' || /^(hola|hi|hello|olá|oi|buenas?)\b/i.test(lower)) primaryIntent = 'conversation';
+
+  let complexity = 'simple';
+  if (signals.long_or_complex || signals.comparison || signals.context_followup) complexity = 'complex';
+  else if (signals.current || signals.research || signals.calculation || signals.code) complexity = 'moderate';
+
+  let toolNeed = 'none';
+  if (signals.calculation) toolNeed = 'calculator';
+  else if (domains.has('weather') || language.intent === 'weather') toolNeed = 'weather';
+  else if (signals.code) toolNeed = 'code_reasoning';
+  else if (signals.current || signals.research || signals.comparison) toolNeed = 'web_search';
+
+  if (explicitMode === 'matemática' || explicitMode === 'math') toolNeed = 'calculator';
+  if (explicitMode === 'código' || explicitMode === 'code') toolNeed = 'code_reasoning';
+  if (explicitMode === 'investigación' || explicitMode === 'research') toolNeed = 'web_search';
+
+  const reasoningLevel = complexity === 'complex' ? 'deep' : complexity === 'moderate' ? 'standard' : 'fast';
+  return {
+    intent: primaryIntent,
+    confidence: Math.min(0.99, 0.72 + Object.values(signals).filter(Boolean).length * 0.035),
+    complexity,
+    reasoning_level: reasoningLevel,
+    tool_need: toolNeed,
+    explicit_mode: explicitMode,
+    signals,
+    should_research: toolNeed === 'web_search',
+    should_use_specialized_tool: toolNeed !== 'none',
+    fallback_to_model: true
+  };
+}
+
+export function selectTools({ language = {}, route = {}, message = '', context = {} } = {}) {
+  const intentEval = evaluateIntent({ language, route, message, context });
+
+  const domains = new Set((language.domains || []).map(item => item?.domain).filter(Boolean));
+  const intent = String(intentEval.intent || language.intent || route.intent || 'question');
   const candidates = [];
 
   if (intent === 'weather' || domains.has('weather')) candidates.push('weather');
   if (isCalculation(message, intent, domains)) candidates.push('calculator');
   if (intent === 'code' || domains.has('code')) candidates.push('code_reasoning');
 
-  const researchRequired = Boolean(route.research_required);
+  const researchRequired = Boolean(route.research_required || intentEval.should_research);
   if (researchRequired || intent === 'research' || intent === 'comparison' || intent === 'current_information') {
     candidates.push('web_search');
   }
@@ -85,6 +138,7 @@ export function selectTools({ language = {}, route = {}, message = '' } = {}) {
     fallbacks: chain.slice(1),
     selected: unique,
     reason: buildReason(primary, intent, domains),
+    intent_evaluation: intentEval,
     tool_registry_version: '1.0'
   };
 }
@@ -141,8 +195,8 @@ export function getToolRegistry() {
  * Build a multi-tool execution plan for compound requests.
  * The plan is declarative: execution must be confirmed by the worker.
  */
-export function buildCompoundPlan({ language = {}, route = {}, message = '' } = {}) {
-  const base = selectTools({ language, route, message });
+export function buildCompoundPlan({ language = {}, route = {}, message = '', context = {} } = {}) {
+  const base = selectTools({ language, route, message, context });
   const text = String(message || '').toLowerCase();
   const steps = [];
   const add = (tool, purpose) => {
