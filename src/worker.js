@@ -329,7 +329,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const compactHistory = isolatedHistory.slice(-8).map(item => ({ role: item.role, content: String(item.content || '').slice(-800) })).filter(item => item.content && (item.role === 'user' || item.role === 'assistant'));
 
   const mode = normalizeInteractionMode(payload?.mode);
-  const preliminaryRoute = planCognitiveRoute(contextualQuery, 'general', [], 'none', language, mode);
+  const preliminaryRoute = planCognitiveRoute(contextualQuery, 'general', [], 'none', language, mode, contextualMemory);
   const evidence = preliminaryRoute.research_required
     ? await recoverToolEvidence(contextualQuery, requestId)
     : { text: '', sources: [], method: 'not-required' };
@@ -338,7 +338,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
   const combinedEvidence = [backendEvidence, evidence?.text || ''].filter(Boolean).join('\n\n').slice(0, 10000);
   const sourcesFromEvidence = Array.isArray(evidence?.sources) ? evidence.sources : [];
   const cognitiveRoute = {
-    ...planCognitiveRoute(contextualQuery, 'general', sourcesFromEvidence, evidence?.method || 'none', language, mode),
+    ...planCognitiveRoute(contextualQuery, 'general', sourcesFromEvidence, evidence?.method || 'none', language, mode, contextualMemory),
     language: language.language,
     normalized_message: language.normalized,
     corrections: language.corrections,
@@ -350,6 +350,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
       recent_topic_terms: contextualMemory.recent_topic_terms,
       context_turns: contextualMemory.context_turns,
       confidence: contextualMemory.confidence,
+      intent_evaluation: cognitiveRoute.intent_evaluation,
       contextual_query: contextualQuery !== message ? contextualQuery : null
     }
   };
@@ -362,7 +363,7 @@ async function runRealAiFallback(request, env, requestId, cause, origin, upstrea
 ${combinedEvidence}
 
 Usa esta evidencia para responder. No inventes datos y no menciones herramientas internas.`
-    : (shouldResearch(message) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
+    : (shouldResearch(contextualQuery) ? 'La consulta puede requerir información externa. Si no hay evidencia recuperada, no inventes datos; explica brevemente la limitación.' : '');
   const sourceInstruction = sources.length
     ? `FUENTES CONSULTADAS:
 ${sources.map((s, i) => `[${i + 1}] ${s.title || s.url || 'Fuente'} — ${s.url || ''}`).join('\\n')}
