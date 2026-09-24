@@ -317,7 +317,51 @@ function extractCitationIds(text) {
   return [...new Set((String(text || '').match(/\[S\d+\]/g) || []))];
 }
 
-function validateSynthesizedAnswer(answer, sources, route) {
+function assessAnswerCoverage(question, answer, route = {}) {
+  const prompt = String(question || '').toLowerCase().trim();
+  const response = String(answer || '').toLowerCase().trim();
+  if (!prompt || !response) return { applicable: true, valid: false, segments: 1, uncovered: ['empty_question_or_answer'] };
+
+  const stop = new Set(['que','qué','es','son','de','del','la','el','los','las','un','una','y','o','a','en','por','para','con','como','cómo','se','me','te','lo','le','un','una','mi','tu','su','al','the','is','are','what','how','and','or','to','of','in','for']);
+  const terms = value => [...new Set(
+    String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9%$€£¥]+/gi,' ')
+      .split(/\s+/)
+      .map(x => x.trim())
+      .filter(x => x.length >= 4 && !stop.has(x))
+  )];
+
+  const rawSegments = prompt
+    .split(/\?|\b(?:y ademas|y además|tambien|también|ademas|además|;|\.)\b/gi)
+    .map(x => x.trim())
+    .filter(x => x.length > 8);
+  const segments = rawSegments.length > 1 ? rawSegments : [prompt];
+  const responseTerms = new Set(terms(response));
+  const uncovered = [];
+
+  segments.forEach((segment, index) => {
+    const required = terms(segment);
+    if (!required.length) return;
+    const matched = required.filter(term => responseTerms.has(term) || response.includes(term));
+    const ratio = matched.length / required.length;
+    // For complex/multi-part requests, require evidence that each part was addressed.
+    // A modest lexical threshold avoids rejecting valid paraphrases.
+    if (required.length >= 3 && ratio < 0.22) uncovered.push(index + 1);
+  });
+
+  const strict = Boolean(route?.intent_evaluation?.signals?.multi_task || route?.reasoning?.level === 'deep' || route?.comparison_required);
+  const valid = !strict || uncovered.length === 0;
+  return {
+    applicable: true,
+    valid,
+    segments: segments.length,
+    uncovered,
+    strict,
+    coverage_ratio: segments.length ? Number(((segments.length - uncovered.length) / segments.length).toFixed(2)) : 1
+  };
+}
+
+function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const text = String(answer || '').trim();
   const citations = extractCitationIds(text);
   const available = new Set(sources.slice(0,8).map((_, i) => '[S' + (i + 1) + ']'));
@@ -328,13 +372,15 @@ function validateSynthesizedAnswer(answer, sources, route) {
     !/\b(no pude|no encontré|no encontre|sin evidencia|no hay datos|limitación|limitacion|incertidumbre)\b/i.test(text);
   const contradictionWarning = Boolean(route?.evidence_contradictions > 0) &&
     !/\b(conflict|contradic|discrep|difier|difer|no coinciden|fuentes? indican|según|segun|incertidumbre)\b/i.test(text);
+  const coverage = assessAnswerCoverage(question, text, route);
   return {
-    valid: invalidCitations.length === 0 && !unsupportedResearchAnswer && text.length > 0,
+    valid: invalidCitations.length === 0 && !unsupportedResearchAnswer && coverage.valid && text.length > 0,
     citation_count: citations.length,
     invalid_citations: invalidCitations,
     evidence_available: hasEvidence,
     unsupported_research_answer: unsupportedResearchAnswer,
-    contradiction_warning: contradictionWarning
+    contradiction_warning: contradictionWarning,
+    answer_coverage: coverage
   };
 }
 
