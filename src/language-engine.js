@@ -18,9 +18,9 @@ const SEMANTIC_TERMS = [
 ];
 
 const LANGUAGE_MARKERS = {
-  esDistinctive: /\\b(una|uno|unos|unas|donde|cuando|quien|porque|para|tambien|hace|est[aá]s|est[aá]|puede|quiero|dime|sobre|desde|hasta)\\b|[ñ¿¡]/i,
-  ptDistinctive: /\\b(uma|um|uns|umas|onde|quando|quem|porque|também|onde|voc[eê]|est[aá]|pode|quero|diga|sobre|desde|at[eé]|não|sim|previs[aã]o)\\b|[ãõç]/i,
-  enDistinctive: /\\b(what|how|where|when|who|why|the|are|with|this|that|from|today|can|want|please|weather|temperature)\\b/i,
+  esDistinctive: /\b(una|uno|unos|unas|donde|cuando|quien|porque|para|tambien|hace|est[aá]s|est[aá]|puede|quiero|dime|sobre|desde|hasta)\b|[ñ¿¡]/i,
+  ptDistinctive: /\b(uma|um|uns|umas|onde|quando|quem|porque|também|onde|voc[eê]|est[aá]|pode|quero|diga|sobre|desde|at[eé]|não|sim|previs[aã]o)\b|[ãõç]/i,
+  enDistinctive: /\b(what|how|where|when|who|why|the|are|with|this|that|from|today|can|want|please|weather|temperature)\b/i,
   es: /\b(que|qué|como|cómo|donde|dónde|cuando|cuándo|quien|quién|para|con|por|una|una|el|la|los|las|es|en|hace|tiempo|clima)\b/i,
   pt: /\b(que|como|onde|quando|quem|para|com|por|uma|o|a|os|as|é|em|tempo|clima|previsao)\b/i,
   en: /\b(what|how|where|when|who|why|the|is|are|for|with|weather|temperature)\b/i
