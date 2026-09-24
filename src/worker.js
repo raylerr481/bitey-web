@@ -448,6 +448,29 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
     id: '[S' + (index + 1) + ']',
     text: String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '')
   }));
+  const citationSupport = [];
+  const citedSentences = text
+    .split(/(?<=[.!?¿])\\s+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+  for (const sentence of citedSentences) {
+    const ids = extractCitationIds(sentence);
+    if (!ids.length) continue;
+    const cleanSentence = sentence.replace(/\\[S\\d+\\]/g, ' ').trim();
+    const tokens = meaningfulQueryTokens(cleanSentence).filter(token => token.length >= 4).slice(0, 16);
+    const supports = ids.map(id => {
+      const source = sourceText.find(item => item.id === id);
+      if (!source) return { id, valid: false, support_score: 0 };
+      const normalized = normalizeSearchText(source.text);
+      const hits = tokens.filter(token => normalized.includes(token)).length;
+      const score = tokens.length ? hits / tokens.length : 0;
+      return { id, valid: score >= 0.2 || hits >= 2, support_score: Number(score.toFixed(3)), matched_terms: hits };
+    });
+    citationSupport.push({ sentence: cleanSentence.slice(0, 220), supports });
+  }
+  const unsupportedCitations = citationSupport.flatMap(item =>
+    item.supports.filter(item => !item.valid).map(item => ({ ...item, sentence: item.sentence }))
+  );
   const unsupportedNumeric = [];
   const unsupportedFactual = [];
   if (route?.research_required) {
@@ -475,7 +498,9 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
     claim_count: claims.length,
     unsupported_numeric_claims: unsupportedNumeric.slice(0, 10),
     unsupported_factual_claims: unsupportedFactual.slice(0, 10),
-    unsupported_count: unsupportedNumeric.length + unsupportedFactual.length
+    citation_support: citationSupport.slice(0, 20),
+    unsupported_citations: unsupportedCitations.slice(0, 20),
+    unsupported_count: unsupportedNumeric.length + unsupportedFactual.length + unsupportedCitations.length
   };
 }
 function validateSynthesizedAnswer(answer, sources, route, question = '') {
@@ -492,9 +517,10 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const coverage = assessAnswerCoverage(question, text, route);
   const claimValidation = validateAnswerClaims(text, sources, route);
   const unsupportedClaims = claimValidation.unsupported_count > 0;
+  const unsupportedCitations = claimValidation.unsupported_citations?.length > 0;
   const finalGate = {
     non_empty: text.length > 0,
-    citations_valid: invalidCitations.length === 0,
+    citations_valid: invalidCitations.length === 0 && !unsupportedCitations,
     evidence_supported: !unsupportedResearchAnswer && !unsupportedClaims,
     coverage_valid: coverage.valid,
     contradictions_acknowledged: !contradictionWarning
