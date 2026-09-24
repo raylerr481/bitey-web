@@ -3,6 +3,7 @@ const DICTIONARY = new Map([
   ['tb','tambien'], ['tmb','tambien'], ['dnd','donde'], ['qdo','cuando'],
   ['cm','como'], ['ola','hola'], ['holaa','hola'],
   ['timepoe','tiempo'], ['tiempoe','tiempo'], ['tiempe','tiempo'],
+  ['qhora','que hora'],
   ['temp','temperatura'], ['tempertaura','temperatura'], ['temperatua','temperatura'],
   ['cliam','clima'], ['clm','clima'], ['previsao','previsao'], ['previsaoo','previsao'],
   ['wheather','weather'], ['weater','weather'], ['teh','the'],
@@ -13,6 +14,7 @@ const DICTIONARY = new Map([
 
 
 const DOMAIN_LEXICON = {
+  time: ['hora','horario','hora actual','time','current time'],
   weather: ['temperatura','clima','tiempo','tempo','weather','temperature','forecast','previsao','previsão','chuva','lluvia','rain','sol','nublado','ensolarado'],
   finance: ['mercado','trading','bitcoin','acciones','bolsa','cotizacion','cotação','preço','precio','dividendos','stocks','forex','euro','dolar','dólar'],
   jobs: ['empleo','trabajo','vacante','curriculum','currículo','cv','entrevista','salario','sueldo','emprego','trabalho','vaga'],
@@ -139,8 +141,10 @@ function detectDomains(text) {
 
 function detectIntent(text) {
   const value = String(text || '');
-  const weather = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previsao)\b/i.test(value);
+  const time = /\b(hora|horario|time)\b/i.test(value) || /\bqu[eé]\s+tiempo\s+es\b/i.test(value);
+  const weather = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previsao)\b/i.test(value) && !time;
   const duration = /\b(cu[aá]nto\s+tiempo|quanto\s+tempo|how\s+long|demora|dura|duraci[oó]n|duração)\b/i.test(value);
+  if (time && !duration) return 'time';
   if (weather && !duration) return 'weather';
   if (duration && !/\b(clima|temperatura|weather|forecast|previs[aã]o)\b/i.test(value)) return 'duration';
   if (/\b(compara|comparar|comparativa|diferencia|versus|vs\.?|alternativas|opciones)\b/i.test(value)) return 'comparison';
