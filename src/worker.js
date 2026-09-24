@@ -69,7 +69,7 @@ async function tryWeatherFastPath(request, requestId) {
     const language = analyzeLanguage(rawMessage);
     const message = language.normalized || rawMessage;
     if (!WEATHER_RE.test(message) || language.intent === 'duration') return null;
-    const weather = await recoverWeather(message, requestId);
+    const weather = await recoverWeather(resolvedToolQuery, requestId);
     if (!weather) return null;
     const location = weather.location || weatherLocation(message) || 'localidade solicitada';
     const answer = formatWeatherAnswer(weather);
@@ -1255,7 +1255,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
     const executeTool = async (tool, purpose, fallbackFor = null) => {
       if (attempted.has(tool)) return false;
       if (tool === 'time') {
-        const time = recoverTime(message);
+        const time = recoverTime(resolvedToolQuery);
         evidenceParts.push(time.text);
         sources.push(...(time.sources || []));
         workingContext.evidence.push(time.text);
