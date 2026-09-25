@@ -403,6 +403,55 @@ function finalValidationSources(evidence) {
   return Array.isArray(evidence?.sources) ? evidence.sources.slice(0, 8) : [];
 }
 
+function buildEvidenceRequirements(question) {
+  const text = normalizeSearchText(String(question || ''));
+  const requirements = [];
+  const add = (id, label, cues, required = true) => {
+    if (cues.some(cue => text.includes(cue))) requirements.push({ id, label, required });
+  };
+
+  add('entity', 'entidad', ['quien es','quien','que es','qué es','empresa','accion','acciones','stock','producto','modelo','servicio']);
+  add('current_value', 'valor actual', ['precio','cuanto cuesta','cuánto cuesta','cotiza','cotizacion','cotización','valor actual','cuanto vale','cuánto vale']);
+  add('date', 'fecha', ['cuando','cuándo','fecha','dia','día','lanzamiento','actualmente','hoy','ahora']);
+  add('location', 'ubicacion', ['donde','dónde','ubicacion','ubicación','en que pais','en qué pais','en que ciudad','en qué ciudad']);
+  add('comparison', 'comparacion', ['compara','comparar','comparativa','diferencia','versus','vs','mejor que','alternativas']);
+  add('currency', 'moneda', ['reales','r$','usd','dolares','dólares','euros','€']);
+  add('unit', 'unidad', ['cuantas','cuántas','cuanto','cuánto','porcentaje','%','km','gb','tb','mb','acciones','unidades']);
+  add('performance', 'rendimiento', ['rendimiento','rentabilidad','beneficio','ganancia','dividendo','velocidad','capacidad']);
+  add('source', 'fuente verificable', ['fuente','segun','según','oficial','documentacion','documentación','actual','hoy','ahora']);
+  if (!requirements.length) requirements.push({ id: 'answer', label: 'respuesta directa', required: true });
+  return {
+    version: 1,
+    question: String(question || '').slice(0, 500),
+    requirements: [...new Map(requirements.map(item => [item.id, item])).values()]
+  };
+}
+
+function evaluateEvidenceRequirements(question, evidenceGraph) {
+  const plan = buildEvidenceRequirements(question);
+  const claims = Array.isArray(evidenceGraph?.nodes?.claims) ? evidenceGraph.nodes.claims : [];
+  const gaps = Array.isArray(evidenceGraph?.evidence_gaps) ? evidenceGraph.evidence_gaps : [];
+  const covered = new Set();
+  for (const claim of claims) {
+    const gap = claim.evidence_gap || {};
+    const support = claim.semantic_support || {};
+    if (support.entity_match) covered.add('entity');
+    if (support.value_match) covered.add('current_value');
+    if (support.temporal_match) covered.add('date');
+    if (support.attribute_match) covered.add('performance');
+    if (support.unit_match) covered.add('unit');
+    if (support.currency_match) covered.add('currency');
+  }
+  const missing = plan.requirements.filter(item => item.required && !covered.has(item.id) && item.id !== 'answer');
+  return {
+    ...plan,
+    covered: [...covered],
+    missing: missing.map(item => item.id),
+    complete: missing.length === 0 || plan.requirements.every(item => item.id === 'answer' || !item.required),
+    gap_count: gaps.length
+  };
+}
+
 function buildEvidenceGapQuery(question, validation) {
   const graph = validation?.evidence_graph;
   const claims = Array.isArray(graph?.nodes?.claims) ? graph.nodes.claims : [];
@@ -415,12 +464,17 @@ function buildEvidenceGapQuery(question, validation) {
     .sort((a, b) => a.score - b.score);
 
   const target = candidates.find(item => item.claim?.evidence_gap?.has_gap) || candidates[0];
-  if (!target) return [question, 'verificar fuente primaria evidencia específica'].filter(Boolean).join(' ');
+  const requirements = validation?.evidence_requirements;
+  const missingRequirements = Array.isArray(requirements?.missing) ? requirements.missing : [];
+  if (!target) {
+    return [question, missingRequirements.join(' '), 'verificar fuente primaria evidencia específica']
+      .filter(Boolean).join(' ').slice(0, 700);
+  }
 
   const claim = target.claim;
   const gap = claim.evidence_gap || {};
   const base = claim.text || question;
-  const missing = [];
+  const missing = [...missingRequirements];
   if (gap.missing_entity?.length) missing.push(gap.missing_entity.join(' '));
   if (gap.missing_attribute?.length) missing.push(gap.missing_attribute.join(' '));
   if (gap.missing_value?.length) missing.push('valor actual');
@@ -429,7 +483,7 @@ function buildEvidenceGapQuery(question, validation) {
   if (gap.missing_temporal) missing.push('fecha actual');
   if (gap.weak_source || !missing.length) missing.push('fuente primaria evidencia específica');
 
-  return [base, missing.join(' '), 'verificar'].filter(Boolean).join(' ').slice(0, 700);
+  return [base, [...new Set(missing)].join(' '), 'verificar'].filter(Boolean).join(' ').slice(0, 700);
 }
 
 function buildAnswerRecoveryPlan(validation, route = {}) {
@@ -444,7 +498,9 @@ function buildAnswerRecoveryPlan(validation, route = {}) {
   if (missing.includes('comparison_coverage')) actions.push('expand_comparison_evidence');
   if (validation?.contradiction_warning) actions.push('resolve_source_conflict');
   if (missing.some(item => /^part_/.test(item))) actions.push('cover_missing_question_part');
-  if (validation?.evidence_graph_score?.isolated_claims > 0 || validation?.evidence_graph_score?.weak_claims?.length) {
+  if (validation?.evidence_graph_score?.isolated_claims > 0 ||
+      validation?.evidence_graph_score?.weak_claims?.length ||
+      validation?.evidence_requirements?.missing?.length) {
     actions.push('target_weak_evidence');
   }
   return {
@@ -961,6 +1017,7 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
   const claimConflicts = detectClaimConflicts(text, sources);
   const evidenceGraph = buildEvidenceGraph(question, text, sources, route?.evidence_analysis);
   const evidenceGraphScore = scoreEvidenceGraph(evidenceGraph);
+  const evidenceRequirements = evaluateEvidenceRequirements(question, evidenceGraph);
   const unsupportedClaims = claimValidation.unsupported_count > 0;
   const unsupportedCitations = claimValidation.unsupported_citations?.length > 0;
   const isolatedEvidenceClaims = route?.research_required && evidenceGraphScore.isolated_claims > 0;
@@ -987,10 +1044,14 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     claim_support: evidenceGraphScore.claim_scores,
     evidence_gaps: evidenceGraphScore.evidence_gaps,
     semantic_edges: evidenceGraphScore.semantic_edges,
-    targeted_gap_query: evidenceGraphScore.evidence_gaps.length ? buildEvidenceGapQuery(question, {
-      evidence_graph: evidenceGraph,
-      evidence_graph_score: evidenceGraphScore
-    }) : ''
+    evidence_requirements: evidenceRequirements,
+    targeted_gap_query: (evidenceGraphScore.evidence_gaps.length || evidenceRequirements.missing.length)
+      ? buildEvidenceGapQuery(question, {
+          evidence_graph: evidenceGraph,
+          evidence_graph_score: evidenceGraphScore,
+          evidence_requirements: evidenceRequirements
+        })
+      : ''
   };
 }
 
