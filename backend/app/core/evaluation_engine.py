@@ -104,13 +104,20 @@ def verify_answer_claims(
         if len(parts) <= 1:
             return [claim]
         # Carry the sentence's leading subject into short coordinate clauses.
-        prefix = parts[0]
-        enriched = [parts[0]]
+        # Preserve the sentence subject for coordinate clauses, but do not
+        # carry the first clause's numeric values into the second claim.
+        subject_context = re.sub(
+            r"\\b(?:es|son|fue|era|será|está|están|is|are|was|were|will be|has|have)\\b.*$",
+            "",
+            parts[0],
+            flags=re.I,
+        ).strip(" ,:;-")
+        if not subject_context:
+            subject_context = " ".join(parts[0].split()[:3])
+        enriched = [f"{parts[0]} {citation}".strip()]
         for part in parts[1:]:
-            if len(tokens(part)) < 3:
-                enriched.append(f"{prefix}: {part} {citation}".strip())
-            else:
-                enriched.append(f"{part} {citation}".strip())
+            contextual = f"{subject_context}: {part}" if subject_context else part
+            enriched.append(f"{contextual} {citation}".strip())
         return enriched
 
     supported = 0
