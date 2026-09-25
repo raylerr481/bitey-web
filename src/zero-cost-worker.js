@@ -41,18 +41,8 @@ export default {
           lastModel = response?.model || null;
           return response;
         } catch (error) {
+          // Strict free-provider policy: do not fall back to Cloudflare Workers AI.
           throw error;
-          const [model, input = {}] = args;
-          const edgeResponse = await rawEdgeAi.run(model || '@cf/google/gemma-4-26b-a4b-it', input);
-          const response = {
-            response: edgeResponse?.response ?? edgeResponse?.result ?? edgeResponse?.choices?.[0]?.message?.content ?? '',
-            provider: 'cloudflare-workers-ai',
-            model: model || '@cf/google/gemma-4-26b-a4b-it',
-          };
-          if (!String(response.response || '').trim()) throw error;
-          lastProvider = response.provider;
-          lastModel = response.model;
-          return response;
         }
       },
     };
