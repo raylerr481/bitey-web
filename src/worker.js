@@ -405,14 +405,31 @@ function finalValidationSources(evidence) {
 
 function buildEvidenceGapQuery(question, validation) {
   const graph = validation?.evidence_graph;
-  const weak = Array.isArray(validation?.evidence_graph_score?.weak_claims)
-    ? validation.evidence_graph_score.weak_claims
-    : [];
   const claims = Array.isArray(graph?.nodes?.claims) ? graph.nodes.claims : [];
-  const weakIds = new Set(weak.map(item => item.id));
-  const gapClaims = claims.filter(claim => weakIds.has(claim.id) || !(claim.source_ids || []).length);
-  const claimText = gapClaims.map(claim => claim.text).filter(Boolean).slice(0, 4).join(' ');
-  return [question, claimText, 'verificar fuente primaria evidencia específica'].filter(Boolean).join(' ');
+  const scored = Array.isArray(validation?.evidence_graph_score?.claim_scores)
+    ? validation.evidence_graph_score.claim_scores
+    : [];
+  const scoreById = new Map(scored.map(item => [item.id, item]));
+  const candidates = claims
+    .map(claim => ({ claim, score: scoreById.get(claim.id)?.support_score ?? 0 }))
+    .sort((a, b) => a.score - b.score);
+
+  const target = candidates.find(item => item.claim?.evidence_gap?.has_gap) || candidates[0];
+  if (!target) return [question, 'verificar fuente primaria evidencia específica'].filter(Boolean).join(' ');
+
+  const claim = target.claim;
+  const gap = claim.evidence_gap || {};
+  const base = claim.text || question;
+  const missing = [];
+  if (gap.missing_entity?.length) missing.push(gap.missing_entity.join(' '));
+  if (gap.missing_attribute?.length) missing.push(gap.missing_attribute.join(' '));
+  if (gap.missing_value?.length) missing.push('valor actual');
+  if (gap.missing_unit?.length) missing.push(gap.missing_unit.join(' '));
+  if (gap.missing_currency?.length) missing.push(gap.missing_currency.join(' '));
+  if (gap.missing_temporal) missing.push('fecha actual');
+  if (gap.weak_source || !missing.length) missing.push('fuente primaria evidencia específica');
+
+  return [base, missing.join(' '), 'verificar'].filter(Boolean).join(' ').slice(0, 700);
 }
 
 function buildAnswerRecoveryPlan(validation, route = {}) {
@@ -561,40 +578,105 @@ function semanticClaimSupport(claim, source) {
 }
 
 function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = null) {
-  const sourceNodes = sources.slice(0, 8).map((source, index) => ({
-    id: 'source_' + (index + 1),
-    citation: '[S' + (index + 1) + ']',
-    title: String(source?.title || 'Fuente'),
-    url: String(source?.url || ''),
-    authority: Number(source?.authority || 0),
-    freshness: Number(source?.freshness || 0)
-  }));
+  const sourceNodes = sources.slice(0, 8).map((source, index) => {
+    const url = String(source?.url || '');
+    const domain = getSourceDomain(url);
+    const sourceText = String(source?.title || '') + ' ' + String(source?.snippet || '');
+    return {
+      id: 'source_' + (index + 1),
+      citation: '[S' + (index + 1) + ']',
+      title: String(source?.title || 'Fuente'),
+      url,
+      authority: Number(source?.authority || sourceAuthority(domain) || 0),
+      freshness: Number(source?.freshness || sourceFreshnessScore(sourceText) || 0)
+    };
+  });
+
+  const sourceTextById = new Map(sources.slice(0, 8).map((source, index) => [
+    'source_' + (index + 1),
+    String(source?.title || '') + ' ' + String(source?.snippet || '') + ' ' + String(source?.url || '')
+  ]));
+
   const claimNodes = String(answer || '')
-    .split(/(?<=[.!?¿])\\s+/)
+    .split(/(?<=[.!?¿])\s+/)
     .map(sentence => sentence.trim())
     .filter(sentence => sentence.length >= 30)
     .slice(0, 30)
     .map((sentence, index) => {
       const citations = extractCitationIds(sentence);
       const frame = extractClaimFrame(sentence);
+      const citedIds = citations
+        .map(id => 'source_' + id.replace(/\D/g, ''))
+        .filter(id => sourceNodes.some(source => source.id === id));
+      const semanticMatches = sourceNodes
+        .map(source => {
+          const support = semanticClaimSupport(sentence.replace(/\[S\d+\]/g, ' '), sourceTextById.get(source.id) || '');
+          return { source, support };
+        })
+        .filter(item => item.support.supported)
+        .sort((left, right) => {
+          const leftScore = semanticSupportScore(left.support);
+          const rightScore = semanticSupportScore(right.support);
+          return rightScore - leftScore;
+        });
+
+      const linkedIds = [...new Set([
+        ...citedIds,
+        ...semanticMatches.slice(0, 4).map(item => item.source.id)
+      ])];
+
+      const supportEdges = linkedIds.map(sourceId => {
+        const source = sourceNodes.find(item => item.id === sourceId);
+        const support = semanticClaimSupport(
+          sentence.replace(/\[S\d+\]/g, ' '),
+          sourceTextById.get(sourceId) || ''
+        );
+        return {
+          from: 'claim_' + (index + 1),
+          to: sourceId,
+          relation: 'supported_by',
+          cited: citedIds.includes(sourceId),
+          semantic: Boolean(support.supported),
+          support_score: semanticSupportScore(support),
+          diagnostics: {
+            entity_match: support.entity_match,
+            attribute_match: support.attribute_match,
+            value_match: support.value_match,
+            unit_match: support.unit_match,
+            currency_match: support.currency_match,
+            temporal_match: support.temporal_match
+          }
+        };
+      });
+
+      const bestSupport = semanticMatches[0]?.support || null;
+      const gap = deriveEvidenceGap(sentence, bestSupport, semanticMatches.length > 0);
       return {
         id: 'claim_' + (index + 1),
         text: sentence.slice(0, 280),
         subject: frame.subject,
         predicate: frame.predicate,
         citations,
-        source_ids: citations.map(id => 'source_' + id.replace(/\\D/g, '')).filter(id => sourceNodes.some(source => source.id === id))
+        source_ids: linkedIds,
+        evidence_gap: gap,
+        semantic_support: bestSupport ? {
+          supported: bestSupport.supported,
+          score: semanticSupportScore(bestSupport),
+          entity_match: bestSupport.entity_match,
+          attribute_match: bestSupport.attribute_match,
+          value_match: bestSupport.value_match,
+          unit_match: bestSupport.unit_match,
+          currency_match: bestSupport.currency_match,
+          temporal_match: bestSupport.temporal_match
+        } : null,
+        semantic_edges: supportEdges
       };
     });
-  const edges = [];
-  for (const claim of claimNodes) {
-    for (const sourceId of claim.source_ids) {
-      edges.push({ from: claim.id, to: sourceId, relation: 'supported_by' });
-    }
-  }
+
+  const edges = claimNodes.flatMap(claim => claim.semantic_edges || []);
   const questionFrame = extractClaimFrame(question);
   return {
-    version: 1,
+    version: 2,
     question: {
       text: String(question || '').slice(0, 500),
       subject: questionFrame.subject,
@@ -602,12 +684,87 @@ function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = n
     },
     nodes: { claims: claimNodes, sources: sourceNodes },
     edges,
+    semantic_edges: edges.length,
+    evidence_gaps: claimNodes
+      .filter(claim => claim.evidence_gap?.has_gap)
+      .map(claim => ({ claim_id: claim.id, ...claim.evidence_gap })),
     evidence_quality: evidenceAnalysis ? {
       selected: Number(evidenceAnalysis.selected || 0),
       contradictions: Number(evidenceAnalysis.contradictions || 0),
       consistency_checked: Boolean(evidenceAnalysis.consistency_checked)
     } : null
   };
+}
+
+function semanticSupportScore(support) {
+  if (!support) return 0;
+  const lexical = Number(support.lexical_score || 0);
+  const subject = Number(support.subject_score || 0);
+  const predicate = Number(support.predicate_score || 0);
+  const semanticFlags = [
+    support.entity_match,
+    support.attribute_match,
+    support.value_match,
+    support.unit_match,
+    support.currency_match,
+    support.temporal_match
+  ];
+  const flagScore = semanticFlags.length
+    ? semanticFlags.filter(Boolean).length / semanticFlags.length
+    : 0;
+  return Number((lexical * 0.35 + subject * 0.2 + predicate * 0.15 + flagScore * 0.3).toFixed(3));
+}
+
+function deriveEvidenceGap(claim, support, hasSemanticCandidate) {
+  const data = extractStructuredClaim(claim);
+  const gap = {
+    has_gap: false,
+    missing_entity: [],
+    missing_attribute: [],
+    missing_value: [],
+    missing_unit: [],
+    missing_currency: [],
+    missing_temporal: false,
+    weak_source: false,
+    reason: []
+  };
+
+  if (!hasSemanticCandidate) {
+    gap.weak_source = true;
+    gap.reason.push('no_semantically_matching_source');
+  } else if (support) {
+    if (!support.entity_match && data.entities.length) {
+      gap.missing_entity = data.entities.slice(0, 3);
+      gap.reason.push('entity_mismatch');
+    }
+    if (!support.attribute_match && data.attributes.length) {
+      gap.missing_attribute = data.attributes.slice(0, 3);
+      gap.reason.push('attribute_mismatch');
+    }
+    if (!support.value_match && data.numeric_values.length) {
+      gap.missing_value = data.numeric_values.slice(0, 4).map(item => item.raw || String(item.value));
+      gap.reason.push('value_mismatch');
+    }
+    if (!support.unit_match && data.units.length) {
+      gap.missing_unit = data.units.slice(0, 4);
+      gap.reason.push('unit_mismatch');
+    }
+    if (!support.currency_match && data.currencies.length) {
+      gap.missing_currency = data.currencies.slice(0, 4);
+      gap.reason.push('currency_mismatch');
+    }
+    if (!support.temporal_match && data.dates.length) {
+      gap.missing_temporal = true;
+      gap.reason.push('temporal_mismatch');
+    }
+    if (semanticSupportScore(support) < 0.45) {
+      gap.weak_source = true;
+      gap.reason.push('weak_semantic_support');
+    }
+  }
+
+  gap.has_gap = gap.reason.length > 0;
+  return gap;
 }
 
 function detectClaimConflicts(answer, sources = []) {
@@ -748,16 +905,31 @@ function validateAnswerClaims(answer, sources = [], route = {}) {
 function scoreEvidenceGraph(graph) {
   const claims = Array.isArray(graph?.nodes?.claims) ? graph.nodes.claims : [];
   const sources = Array.isArray(graph?.nodes?.sources) ? graph.nodes.sources : [];
-  const supportedClaims = claims.filter(claim => Array.isArray(claim.source_ids) && claim.source_ids.length > 0);
-  const isolatedClaims = claims.filter(claim => !Array.isArray(claim.source_ids) || claim.source_ids.length === 0);
+  const edges = Array.isArray(graph?.edges) ? graph.edges : [];
   const sourceById = new Map(sources.map(source => [source.id, source]));
   const claimScores = claims.map(claim => {
-    const linked = (claim.source_ids || []).map(id => sourceById.get(id)).filter(Boolean);
-    const authority = linked.length ? linked.reduce((sum, source) => sum + Math.max(0, Math.min(1, source.authority || 0)), 0) / linked.length : 0;
-    const freshness = linked.length ? linked.reduce((sum, source) => sum + Math.max(0, Math.min(1, source.freshness || 0)), 0) / linked.length : 0;
-    const coverage = linked.length ? Math.min(1, linked.length / 2) : 0;
-    return { id: claim.id, support_score: Number((coverage * 0.5 + authority * 0.3 + freshness * 0.2).toFixed(3)) };
+    const semanticEdges = edges.filter(edge => edge.from === claim.id && edge.semantic);
+    const linked = semanticEdges.map(edge => sourceById.get(edge.to)).filter(Boolean);
+    const bestEdge = semanticEdges.sort((a, b) => Number(b.support_score || 0) - Number(a.support_score || 0))[0];
+    const semantic = Number(bestEdge?.support_score || 0);
+    const authority = linked.length
+      ? linked.reduce((sum, source) => sum + Math.max(0, Math.min(1, Number(source.authority || 0))), 0) / linked.length
+      : 0;
+    const freshness = linked.length
+      ? linked.reduce((sum, source) => sum + Math.max(0, Math.min(1, Number(source.freshness || 0))), 0) / linked.length
+      : 0;
+    const coverage = Math.min(1, linked.length / 2);
+    const supportScore = semantic * 0.55 + authority * 0.25 + freshness * 0.20;
+    return {
+      id: claim.id,
+      support_score: Number(supportScore.toFixed(3)),
+      semantic_score: semantic,
+      semantic_source_count: linked.length,
+      evidence_gap: claim.evidence_gap || null
+    };
   });
+  const supportedClaims = claimScores.filter(item => item.support_score >= 0.45);
+  const isolatedClaims = claimScores.filter(item => item.semantic_source_count === 0);
   const overall = claims.length ? supportedClaims.length / claims.length : 0;
   return {
     claim_count: claims.length,
@@ -765,7 +937,11 @@ function scoreEvidenceGraph(graph) {
     isolated_claims: isolatedClaims.length,
     coverage_score: Number(overall.toFixed(3)),
     weak_claims: claimScores.filter(item => item.support_score < 0.45),
-    claim_scores: claimScores
+    claim_scores: claimScores,
+    semantic_edges: edges.filter(edge => edge.semantic).length,
+    evidence_gaps: claims
+      .filter(claim => claim.evidence_gap?.has_gap)
+      .map(claim => ({ claim_id: claim.id, ...claim.evidence_gap }))
   };
 }
 
@@ -807,7 +983,14 @@ function validateSynthesizedAnswer(answer, sources, route, question = '') {
     claim_validation: claimValidation,
     claim_conflicts: claimConflicts,
     evidence_graph: evidenceGraph,
-    evidence_graph_score: evidenceGraphScore
+    evidence_graph_score: evidenceGraphScore,
+    claim_support: evidenceGraphScore.claim_scores,
+    evidence_gaps: evidenceGraphScore.evidence_gaps,
+    semantic_edges: evidenceGraphScore.semantic_edges,
+    targeted_gap_query: evidenceGraphScore.evidence_gaps.length ? buildEvidenceGapQuery(question, {
+      evidence_graph: evidenceGraph,
+      evidence_graph_score: evidenceGraphScore
+    }) : ''
   };
 }
 
