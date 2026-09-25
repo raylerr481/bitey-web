@@ -608,18 +608,17 @@ function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = n
       const citedIds = citations
         .map(id => 'source_' + id.replace(/\D/g, ''))
         .filter(id => sourceNodes.some(source => source.id === id));
-      const semanticMatches = sourceNodes
+      const semanticCandidates = sourceNodes
         .map(source => {
-          const support = semanticClaimSupport(sentence.replace(/\[S\d+\]/g, ' '), sourceTextById.get(source.id) || '');
-          return { source, support };
+          const support = semanticClaimSupport(
+            sentence.replace(/\[S\d+\]/g, ' '),
+            sourceTextById.get(source.id) || ''
+          );
+          return { source, support, score: semanticSupportScore(support) };
         })
-        .filter(item => item.support.supported)
-        .sort((left, right) => {
-          const leftScore = semanticSupportScore(left.support);
-          const rightScore = semanticSupportScore(right.support);
-          return rightScore - leftScore;
-        });
+        .sort((left, right) => right.score - left.score);
 
+      const semanticMatches = semanticCandidates.filter(item => item.support.supported);
       const linkedIds = [...new Set([
         ...citedIds,
         ...semanticMatches.slice(0, 4).map(item => item.source.id)
@@ -649,7 +648,8 @@ function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = n
         };
       });
 
-      const bestSupport = semanticMatches[0]?.support || null;
+      const bestCandidate = semanticCandidates[0] || null;
+      const bestSupport = bestCandidate?.support || null;
       const gap = deriveEvidenceGap(sentence, bestSupport, semanticMatches.length > 0);
       return {
         id: 'claim_' + (index + 1),
