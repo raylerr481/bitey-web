@@ -31,6 +31,7 @@ class ToolOrchestrator:
     WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?|who is|what is|how much|where|when|who|what|which)\b", re.I)
     TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
     MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
+    NATURAL_MATH_RE = re.compile(r"^\s*(?:cu[aá]nto\s+es\s+)?[-+]?\d+(?:[.,]\d+)?\s*(?:%\s+de|por ciento de|\+|menos|m[aá]s|por|entre|dividido(?:\s+por)?|multiplicado(?:\s+por)?|x)\s+[-+]?\d+(?:[.,]\d+)?\s*\??\s*$", re.I)
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -59,7 +60,7 @@ class ToolOrchestrator:
         requested = list(brain.tool_priority)
         normalized = message.casefold().strip()
 
-        if self.MATH_RE.fullmatch(message.strip()):
+        if self.MATH_RE.fullmatch(message.strip()) or self.NATURAL_MATH_RE.fullmatch(message.strip()):
             requested = ["calculator"]
         elif self.WEATHER_RE.search(message) and (
             str(cognitive.intention.get("domain", "general")).lower() == "weather"
@@ -129,7 +130,8 @@ class ToolOrchestrator:
 
     async def _calculator(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            value = safe_calculate(message)
+            expression = normalize_natural_math(message)
+            value = safe_calculate(expression)
             rendered = str(int(value)) if float(value).is_integer() else str(value)
             return {"ok": True, "value": value, "expression": message.strip(), "source": "local-calculator", "evidence": f"Local deterministic calculation: {message.strip()} = {rendered}"}
         except Exception as exc:
