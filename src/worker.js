@@ -1646,7 +1646,12 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
     const validateToolOutput = (tool, output = {}) => {
       const text = String(output?.text || '').trim();
       const sourceCount = Array.isArray(output?.sources) ? output.sources.length : 0;
-      if (tool === 'time' || tool === 'weather') return text.length > 0;
+      if (tool === 'time') {
+        return text.length > 0 &&
+          /HOUR:\s*\d{2}:\d{2}:\d{2}/i.test(text) &&
+          /TIME SOURCE:\s*Runtime clock/i.test(text);
+      }
+      if (tool === 'weather') return text.length > 0;
       if (tool === 'web_search') return text.length > 0 || sourceCount > 0;
       if (tool === 'calculator') return Boolean(output?.verification?.valid);
       return true;
@@ -1670,7 +1675,13 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         workingContext.evidence.push(time.text);
         workingContext.sources.push(...(time.sources || []));
         record(tool, 'success', purpose, fallbackFor, contextForTool());
-        const semantic = validateSemanticToolOutput(tool, { text: time.text, sources: time.sources });
+        const semantic = {
+          valid: /LOCATION:\s*.+/i.test(time.text) &&
+            /CURRENT TIME:\s*.+/i.test(time.text) &&
+            /HOUR:\s*\d{2}:\d{2}:\d{2}/i.test(time.text),
+          specialized: true,
+          reason: 'runtime_clock_is_authoritative_for_current_time'
+        };
         const temporal = validateTemporalToolOutput(tool, { text: time.text, sources: time.sources }, message);
         return markResult(tool, validateToolOutput(tool, { text: time.text, sources: time.sources }) && semantic.valid && temporal.valid, { non_empty_text: Boolean(String(time.text || '').trim()), semantic, temporal });
       }
