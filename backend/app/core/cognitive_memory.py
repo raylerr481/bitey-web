@@ -97,6 +97,18 @@ class CognitiveMemoryAdapter:
             if isinstance(value, str) and value.strip():
                 return value.strip()
 
+        changes = row.get("changes")
+        if isinstance(changes, dict):
+            value = changes.get("memory_scope")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        payload = row.get("payload")
+        if isinstance(payload, dict):
+            value = payload.get("memory_scope")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
         metadata = row.get("metadata")
         if isinstance(metadata, dict):
             value = metadata.get("memory_scope")
