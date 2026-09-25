@@ -294,6 +294,31 @@ class ToolOrchestrator:
         return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "evidence": evidence}
 
 
+def normalize_natural_math(text: str) -> str:
+    s = text.strip().lower().replace(",", ".").rstrip("?").strip()
+    s = re.sub(r"^cu[aá]nto\s+es\s+", "", s)
+    s = re.sub(r"\bpor ciento de\b", "% de", s)
+    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s*%\s*de\s*([-+]?\d+(?:\.\d+)?)", s)
+    if match:
+        return f"({match.group(2)}) * ({match.group(1)}) / 100"
+    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s+por\s+([-+]?\d+(?:\.\d+)?)", s)
+    if match:
+        return f"({match.group(1)}) * ({match.group(2)})"
+    replacements = [
+        (r"\s+m[aá]s\s+", " + "),
+        (r"\s+menos\s+", " - "),
+        (r"\s+entre\s+", " / "),
+        (r"\s+dividido\s+por\s+", " / "),
+        (r"\s+dividido\s+", " / "),
+        (r"\s+multiplicado\s+por\s+", " * "),
+        (r"\s+por\s+", " * "),
+        (r"\s+x\s+", " * "),
+    ]
+    for pattern, repl in replacements:
+        s = re.sub(pattern, repl, s)
+    return s
+
+
 def safe_calculate(expression: str) -> float:
     tree = parse(expression.strip().replace("^", "**"), mode="eval")
     allowed = (Add, Sub, Mult, Div, Pow, Mod, USub, UAdd)
