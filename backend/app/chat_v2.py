@@ -476,6 +476,7 @@ def create_chat_v2_router(
                 "decision": evaluation.decision,
                 "confidence": evaluation.confidence,
                 "reasons": evaluation.reasons[:8],
+                "verification_retry": verification_retry,
             },
             evidence_analysis={
                 "source_count": len(sources),
