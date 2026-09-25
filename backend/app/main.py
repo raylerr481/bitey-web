@@ -199,6 +199,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     ctx={}
     try:
         context=context_engine.assemble(message=payload.message,metadata=payload.metadata); ctx=context.as_dict(); emit_activity("Identificando intención y contexto…")
+        emit_activity("Seleccionando las capacidades necesarias…")
         initial_cognitive=cognition.process(payload.message,ctx,evidence_available=False); ctx["cognition"]=initial_cognitive.as_dict()
         initial_domain=initial_cognitive.intention.get("domain","general"); ctx["current_intent_domain"]=initial_domain; emit_activity(f"Intención actual: {initial_domain}…")
 
@@ -220,11 +221,16 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         # The Brain owns tool policy. The legacy orchestrator remains available
         # for non-evidence utility routing, but cannot override the executive
         # evidence/tool decision for the current request.
+        emit_activity("Decidiendo si la solicitud necesita datos actuales, cálculo, código o conversación…")
         selected=list(initial_brain.tool_priority)
         if not selected:
             selected=tools.select(payload.message,ctx)
         trace.tools={"selected":list(selected)}
+        if selected:
+            emit_activity("Consultando las herramientas seleccionadas…")
         tool_results=await tools.execute(selected,message=payload.message,context=ctx)
+        if selected:
+            emit_activity("Verificando la evidencia obtenida…")
         if "web_research" in selected:
             emit_activity("Buscando información en la web…")
             web_result=tool_results.get("web_research",{}) if isinstance(tool_results.get("web_research",{}),dict) else {}
