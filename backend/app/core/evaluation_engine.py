@@ -27,7 +27,7 @@ def verify_answer_claims(
     evidence: str = "",
     sources: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Conservative final-answer verification against retrieved evidence."""
+    """Conservative final-answer verification with atomic claim-level support."""
     text = (answer or "").strip()
     sources = sources or []
     if not evidence:
@@ -36,8 +36,10 @@ def verify_answer_claims(
             "claim_count": 0,
             "supported_count": 0,
             "unsupported_count": 0,
+            "partial_count": 0,
             "uncited_count": 0,
             "issues": [],
+            "claim_details": [],
             "reason": "no_research_evidence",
         }
 
@@ -48,100 +50,153 @@ def verify_answer_claims(
         "de","la","el","los","las","que","con","por","para","una","un","del","se","en","es","como","más",
         "menos","sobre","esta","este","estas","estos","dos","tres","una",
     }
+
     def tokens(value: str) -> set[str]:
         words = re.findall(r"[A-Za-zÀ-ÿ0-9]{3,}", value.lower())
         return {w for w in words if w not in stop}
 
     raw_claims = re.split(r"(?<=[.!?])\s+|\n+", text)
-    claims = []
+    claims: list[str] = []
     skipped = 0
-    # These are answer-management statements, not externally verifiable facts.
     meta_re = re.compile(
         r"^(?:aquí|en resumen|en otras palabras|por tanto|por eso|mi respuesta|"
         r"the answer|in summary|in other words|therefore|my answer|"
-        r"puedo ayudarte|puedo explicarte|let me explain|i can help)\\b",
+        r"puedo ayudarte|puedo explicarte|let me explain|i can help)\b",
         re.I,
     )
     inference_re = re.compile(
-        r"\\b(?:esto sugiere|esto indica|parece que|podría significar|es probable que|"
+        r"\b(?:esto sugiere|esto indica|parece que|podría significar|es probable que|"
         r"esto implica|in other words|this suggests|this indicates|it appears|"
-        r"may mean|likely means|this implies)\\b",
+        r"may mean|likely means|this implies)\b",
         re.I,
     )
     for claim in raw_claims:
-        claim = re.sub(r"\\s+", " ", claim).strip(" -•")
+        claim = re.sub(r"\s+", " ", claim).strip(" -•")
         if len(claim) < 25 or claim.endswith("?"):
             continue
         if claim.startswith(("*", "#")):
             claim = claim.lstrip("*# ")
-        if meta_re.search(claim) and not re.search(r"\\b(?:es|son|fue|será|is|are|was|will)\\b", claim, re.I):
+        if meta_re.search(claim) and not re.search(r"\b(?:es|son|fue|será|is|are|was|will)\b", claim, re.I):
             skipped += 1
             continue
-        # Inferences are checked only when they contain a concrete cited claim;
-        # otherwise they should not be rejected merely because lexical overlap is low.
-        if inference_re.search(claim) and not re.search(r"\\[S\\d+\\]", claim):
+        if inference_re.search(claim) and not re.search(r"\[S\d+\]", claim):
             skipped += 1
             continue
         claims.append(claim)
 
     source_blocks = re.split(r"(?=SOURCE\s*\d+)", evidence, flags=re.I)
-    indexed = {}
+    indexed: dict[int, str] = {}
     for block in source_blocks:
         match = re.search(r"SOURCE\s*(\d+)", block, re.I)
         if match:
             indexed[int(match.group(1))] = block
 
+    def split_atomic(claim: str) -> list[str]:
+        """Split factual clauses while keeping enough subject context to verify them."""
+        citation = " ".join(re.findall(r"\[S\d+\]", claim))
+        body = re.sub(r"\[S\d+\]", "", claim).strip()
+        parts = re.split(
+            r"\s+(?:y|e|pero|aunque|sin embargo|and|but|however)\s+|\s*;\s*|\s*,\s+(?=(?:y|e|pero|aunque|and|but|however)\b)",
+            body,
+            flags=re.I,
+        )
+        parts = [re.sub(r"\s+", " ", p).strip(" -•") for p in parts if len(p.strip()) >= 18]
+        if len(parts) <= 1:
+            return [claim]
+        # Carry the sentence's leading subject into short coordinate clauses.
+        prefix = parts[0]
+        enriched = [parts[0]]
+        for part in parts[1:]:
+            if len(tokens(part)) < 3:
+                enriched.append(f"{prefix}: {part} {citation}".strip())
+            else:
+                enriched.append(f"{part} {citation}".strip())
+        return enriched
+
     supported = 0
     unsupported = 0
+    partial = 0
     uncited = 0
-    issues = []
-    for claim in claims[:30]:
-        citation_ids = [int(x) for x in re.findall(r"\[S(\d+)\]", claim)]
-        clean_claim = re.sub(r"\[S\d+\]", " ", claim)
-        claim_tokens = tokens(clean_claim)
-        numbers = set(re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", clean_claim))
-        candidates = [(sid, indexed[sid]) for sid in citation_ids if sid in indexed] if citation_ids else list(indexed.items())
-        if citation_ids and not candidates:
-            unsupported += 1
-            issues.append({"claim": claim[:260], "reason": "invalid_source_citation"})
-            continue
-        if not citation_ids:
-            uncited += 1
+    issues: list[dict[str, Any]] = []
+    claim_details: list[dict[str, Any]] = []
 
-        best_overlap = 0.0
-        best_numbers = False
-        best_sid = None
-        for sid, block in candidates:
-            block_tokens = tokens(block)
-            overlap = len(claim_tokens & block_tokens) / max(1, len(claim_tokens))
-            block_numbers = set(re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", block))
-            number_ok = not numbers or numbers.issubset(block_numbers)
-            score = overlap + (0.20 if number_ok else -0.20)
-            if score > best_overlap:
-                best_overlap, best_sid = score, sid
-                best_numbers = number_ok
+    for sentence in claims[:30]:
+        atomic_claims = split_atomic(sentence)
+        sentence_supported = 0
+        sentence_unsupported = 0
+        for claim in atomic_claims:
+            citation_ids = [int(x) for x in re.findall(r"\[S(\d+)\]", claim)]
+            clean_claim = re.sub(r"\[S\d+\]", " ", claim)
+            claim_tokens = tokens(clean_claim)
+            numbers = set(re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", clean_claim))
+            candidates = [(sid, indexed[sid]) for sid in citation_ids if sid in indexed] if citation_ids else list(indexed.items())
 
-        # A citation must point to evidence that supports the claim's subject.
-        # Numeric claims additionally require every reported value to exist in
-        # the cited evidence; this prevents a citation from laundering a mixed claim.
-        if best_overlap >= 0.48 and best_numbers:
-            supported += 1
-        else:
-            unsupported += 1
-            issues.append({
-                "claim": claim[:260],
-                "reason": "insufficient_evidence_support",
-                "source": best_sid,
+            if citation_ids and not candidates:
+                status = "unsupported"
+                sentence_unsupported += 1
+                unsupported += 1
+                issues.append({"claim": claim[:260], "reason": "invalid_source_citation"})
+                claim_details.append({
+                    "claim": claim[:500], "status": status, "sources": citation_ids,
+                    "support_score": 0.0, "unsupported_parts": ["invalid source citation"],
+                })
+                continue
+
+            if not citation_ids:
+                uncited += 1
+
+            best_score = -1.0
+            best_overlap = 0.0
+            best_numbers = False
+            best_sid = None
+            for sid, block in candidates:
+                block_tokens = tokens(block)
+                overlap = len(claim_tokens & block_tokens) / max(1, len(claim_tokens))
+                block_numbers = set(re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", block))
+                number_ok = not numbers or numbers.issubset(block_numbers)
+                score = overlap + (0.20 if number_ok else -0.20)
+                if score > best_score:
+                    best_score, best_overlap, best_sid, best_numbers = score, overlap, sid, number_ok
+
+            support_score = max(0.0, min(1.0, best_overlap + (0.20 if best_numbers else 0.0)))
+            if best_overlap >= 0.48 and best_numbers:
+                status = "supported"
+                sentence_supported += 1
+                supported += 1
+            elif best_overlap >= 0.32 and not numbers:
+                status = "partial"
+                sentence_supported += 1
+                partial += 1
+                issues.append({"claim": claim[:260], "reason": "partial_evidence_support", "source": best_sid})
+            else:
+                status = "unsupported"
+                sentence_unsupported += 1
+                unsupported += 1
+                issues.append({"claim": claim[:260], "reason": "insufficient_evidence_support", "source": best_sid})
+
+            claim_details.append({
+                "claim": claim[:500],
+                "status": status,
+                "sources": citation_ids or ([best_sid] if best_sid is not None else []),
+                "support_score": round(support_score, 3),
+                "unsupported_parts": [] if status == "supported" else [claim[:240]],
             })
 
-    total = len(claims)
+        # A sentence containing both supported and unsupported atomic claims is partial.
+        if sentence_supported and sentence_unsupported:
+            sentence_detail = {"claim": sentence[:500], "status": "partial", "sources": [], "support_score": 0.0}
+            claim_details.append(sentence_detail)
+
+    total = len(claim_details)
     return {
         "valid": unsupported == 0,
         "claim_count": total,
         "supported_count": supported,
         "unsupported_count": unsupported,
+        "partial_count": partial,
         "uncited_count": uncited,
         "issues": issues[:8],
+        "claim_details": claim_details[:40],
         "reason": "claims_checked",
         "skipped_claims": skipped,
     }
