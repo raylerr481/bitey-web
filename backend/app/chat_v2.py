@@ -242,8 +242,6 @@ def create_chat_v2_router(
         evidence_source_count = len(sources)
         conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
         conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
-        conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
-        conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
         ctx.update({
             "evidence": evidence,
             "evidence_available": bool(evidence),
