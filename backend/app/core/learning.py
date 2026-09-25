@@ -44,6 +44,62 @@ class LearningEngine:
             })
             return candidate
 
+    async def observe_validated(
+        self,
+        title: str,
+        payload: dict[str, Any],
+        *,
+        source: str = "validated_response",
+        confidence: float = 0.8,
+        memory_scope: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Persist a validated lesson without making the model's output current evidence."""
+        if not self.persistent:
+            return None
+        clean_confidence = max(0.0, min(1.0, confidence))
+        lesson = {
+            "schema_version": "validated-lesson-v1",
+            "task": str(payload.get("task") or "")[:1000],
+            "strategy": str(payload.get("strategy") or "")[:240],
+            "validated_answer": str(payload.get("validated_answer") or "")[:6000],
+            "evidence_refs": list(payload.get("evidence_refs") or [])[:8],
+            "tools": list(payload.get("tools") or [])[:12],
+            "memory_scope": memory_scope,
+        }
+        digest = hashlib.sha256(repr(sorted(lesson.items())).encode("utf-8")).hexdigest()
+        row = {
+            "candidate_type": "validated_lesson",
+            "title": str(title)[:240],
+            "payload": {**lesson, "input_hash": digest},
+            "confidence": clean_confidence,
+            "source": source,
+            "evidence_count": max(1, len(lesson["evidence_refs"])),
+            "status": "validated",
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{self.url}/rest/v1/cognitive_learning_candidates",
+                headers=self._headers(),
+                json=row,
+            )
+            response.raise_for_status()
+            data = response.json()
+            candidate = data[0] if data else None
+            await client.post(
+                f"{self.url}/rest/v1/cognitive_learning_events",
+                headers=self._headers(),
+                json={
+                    "event_type": "validated_lesson",
+                    "source_type": source,
+                    "source_ref": title,
+                    "input_hash": digest,
+                    "changes": lesson,
+                    "confidence": clean_confidence,
+                    "outcome": "validated_lesson",
+                },
+            )
+            return candidate
+
     async def record_cycle(self, trigger_source: str, observations: int = 1, improvements: int = 0, summary: dict[str, Any] | None = None) -> None:
         if not self.persistent:
             return
