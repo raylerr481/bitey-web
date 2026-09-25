@@ -1349,7 +1349,7 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
   if (hasFreeProvider) {
     try {
       const teacherResult = useTeachers
-        ? await runTeacherEnsemble(env, { messages, max_tokens: 512, temperature: 0.1 })
+        ? await runTeacherEnsemble(env, { messages, sources, max_tokens: 512, temperature: 0.1 })
         : null;
       const providerResult = teacherResult?.consensus
         ? { ok: true, response: teacherResult.consensus }
@@ -1383,6 +1383,8 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
             enabled: true,
             teacher_count: teacherResult.teacher_count,
             agreement_score: teacherResult.consensus?.agreement_score ?? null,
+            evidence_score: teacherResult.consensus?.evidence_score ?? null,
+            judge_score: teacherResult.consensus?.judge_score ?? null,
             trained: teacherResult.trained
           } : { enabled: false, teacher_count: 0, trained: false },
           activity_events: [
