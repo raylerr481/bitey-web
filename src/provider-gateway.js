@@ -44,7 +44,7 @@ export async function runTeacherEnsemble(env, input = {}) {
   }
   return {
     teachers,
-    consensus: selectTeacherConsensus(teachers),
+    consensus: selectTeacherConsensus(teachers, input.sources || []),
     trained: teachers.length >= 1,
     teacher_count: teachers.length,
     providers: teachers.map(item => item.provider)
@@ -83,7 +83,7 @@ async function callProvider(provider, env, options) {
   return callOpenAiCompatible({ provider, ...config, ...options });
 }
 
-function selectTeacherConsensus(teachers) {
+function selectTeacherConsensus(teachers, sources = []) {
   if (!teachers.length) return null;
   if (teachers.length === 1) return { ...teachers[0], agreement_score: 0.5, judge: 'single-teacher' };
   const ranked = teachers.map(candidate => {
@@ -92,8 +92,9 @@ function selectTeacherConsensus(teachers) {
       sum + tokenOverlap(normalizeForComparison(candidate.response), normalizeForComparison(item.response))
     ), 0) / others.length;
     const completeness = Math.min(1, Math.max(0.2, String(candidate.response || '').length / 900));
-    const score = Number((agreement * 0.65 + completeness * 0.35).toFixed(3));
-    return { candidate, agreement, score };
+    const evidence = sources.length ? evidenceSupport(candidate.response, sources) : 0.5;
+    const score = Number((agreement * 0.45 + evidence * 0.35 + completeness * 0.20).toFixed(3));
+    return { candidate, agreement, evidence, score };
   }).sort((a, b) => b.score - a.score);
   const winner = ranked[0];
   return {
@@ -102,13 +103,20 @@ function selectTeacherConsensus(teachers) {
     agreement_score: winner.agreement,
     judge_score: winner.score,
     judge: 'agreement-and-completeness',
+    evidence_score: winner.evidence,
     candidates: ranked.map(item => ({
       provider: item.candidate.provider,
       model: item.candidate.model,
       agreement_score: item.agreement,
-      judge_score: item.score
+      judge_score: item.score,
+      evidence_score: item.evidence
     }))
   };
+}
+
+function evidenceSupport(text, sources) {
+  const sourceText = sources.map(source => `${source.title || ''} ${source.url || ''} ${source.snippet || ''}`).join(' ');
+  return Math.min(1, 0.45 + tokenOverlap(normalizeForComparison(text), normalizeForComparison(sourceText)) * 0.55);
 }
 
 function normalizeForComparison(value) {
