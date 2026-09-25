@@ -73,6 +73,21 @@ def create_chat_v2_router(
             "tools": tools.available(),
         }
 
+    @router.get("/chat/activity/{request_id}")
+    async def chat_activity(request_id: str):
+        """Return safe, non-sensitive progress for an in-flight chat request."""
+        trace = next(iter(trace_store.recent(request_id=request_id, limit=1)), None)
+        if not trace:
+            return {"request_id": request_id, "found": False, "stage": "WAITING", "activities": [], "final_status": "unknown"}
+        return {
+            "request_id": request_id,
+            "found": True,
+            "trace_id": trace.get("trace_id"),
+            "stage": trace.get("stage", "ANALYZING"),
+            "activities": trace.get("activities", [])[-12:],
+            "final_status": trace.get("final_status", "running"),
+        }
+
     @router.post("/chat", response_model=ChatV2Response)
     async def chat(payload: ChatV2Request):
         started = time.perf_counter()
