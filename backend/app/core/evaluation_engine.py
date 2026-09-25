@@ -54,12 +54,34 @@ def verify_answer_claims(
 
     raw_claims = re.split(r"(?<=[.!?])\s+|\n+", text)
     claims = []
+    skipped = 0
+    # These are answer-management statements, not externally verifiable facts.
+    meta_re = re.compile(
+        r"^(?:aquí|en resumen|en otras palabras|por tanto|por eso|mi respuesta|"
+        r"the answer|in summary|in other words|therefore|my answer|"
+        r"puedo ayudarte|puedo explicarte|let me explain|i can help)\\b",
+        re.I,
+    )
+    inference_re = re.compile(
+        r"\\b(?:esto sugiere|esto indica|parece que|podría significar|es probable que|"
+        r"esto implica|in other words|this suggests|this indicates|it appears|"
+        r"may mean|likely means|this implies)\\b",
+        re.I,
+    )
     for claim in raw_claims:
-        claim = re.sub(r"\s+", " ", claim).strip(" -•")
+        claim = re.sub(r"\\s+", " ", claim).strip(" -•")
         if len(claim) < 25 or claim.endswith("?"):
             continue
         if claim.startswith(("*", "#")):
             claim = claim.lstrip("*# ")
+        if meta_re.search(claim) and not re.search(r"\\b(?:es|son|fue|será|is|are|was|will)\\b", claim, re.I):
+            skipped += 1
+            continue
+        # Inferences are checked only when they contain a concrete cited claim;
+        # otherwise they should not be rejected merely because lexical overlap is low.
+        if inference_re.search(claim) and not re.search(r"\\[S\\d+\\]", claim):
+            skipped += 1
+            continue
         claims.append(claim)
 
     source_blocks = re.split(r"(?=SOURCE\s*\d+)", evidence, flags=re.I)
@@ -118,6 +140,7 @@ def verify_answer_claims(
         "uncited_count": uncited,
         "issues": issues[:8],
         "reason": "claims_checked",
+        "skipped_claims": skipped,
     }
 
 
