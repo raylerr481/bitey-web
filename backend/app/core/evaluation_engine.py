@@ -183,6 +183,11 @@ class EvaluationEngine:
             contradiction_risk += 0.20
             reasons.append("overconfident_claim")
 
+        answer_verification = context.get("answer_verification") or {}
+        if evidence and int(answer_verification.get("unsupported_count", 0) or 0) > 0:
+            evidence_alignment = min(evidence_alignment, 0.45)
+            reasons.append("unsupported_answer_claims")
+
         quality = max(0.0, min(1.0, quality))
         safety = max(0.0, min(1.0, safety))
         contradiction_risk = max(0.0, min(1.0, contradiction_risk))
@@ -196,11 +201,6 @@ class EvaluationEngine:
             decision = "revise"
         else:
             decision = "accept"
-
-        answer_verification = context.get("answer_verification") or {}
-        if evidence and int(answer_verification.get("unsupported_count", 0) or 0) > 0:
-            evidence_alignment = min(evidence_alignment, 0.45)
-            reasons.append("unsupported_answer_claims")
 
         brain_state = context.get("bitey_brain") or context.get("_bitey_brain_state")
         selected_tools = context.get("selected_tools") if "selected_tools" in context else None
