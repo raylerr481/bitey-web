@@ -12,6 +12,7 @@ from .core.bitey_brain import BiteyBrain
 from .core.cognitive_trace import CognitiveTraceStore
 from .core.deep_research import DeepResearchEngine
 from .core.evaluation_engine import EvaluationEngine
+from .core.execution_context import server_execution_context
 from .core.mathematics import analyze as math_analyze, calculate as math_calculate
 from .core.provider_gateway import ProviderGateway
 from .core.tool_orchestrator import ToolOrchestrator
@@ -45,6 +46,7 @@ def create_chat_v2_router(
     brain: BiteyBrain,
     cognitive_trace: CognitiveTraceStore | None = None,
     evaluator: EvaluationEngine | None = None,
+    learning=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/v2", tags=["chat"])
     research = DeepResearchEngine()
@@ -320,6 +322,35 @@ def create_chat_v2_router(
             answer = "La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida."
         elif evaluation.decision == "revise":
             answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
+
+        # Only accepted responses can become persistent learning. Learned lessons
+        # are advisory context for future requests and never replace current evidence.
+        if learning is not None and evaluation.decision == "accept":
+            try:
+                scope = server_execution_context(cid).memory_scope
+                evidence_refs = [
+                    {"title": str(source.get("title") or "")[:180], "url": str(source.get("url") or "")[:500]}
+                    for source in sources[:8]
+                    if isinstance(source, dict) and (source.get("title") or source.get("url"))
+                ]
+                await learning.observe_validated(
+                    title=f"validated:{brain_state.task_class}:{cid}",
+                    source="bitey_chat_v2",
+                    confidence=float(evaluation.confidence or 0.8),
+                    memory_scope=scope,
+                    payload={
+                        "task": query,
+                        "strategy": f"{brain_state.reasoning_mode}:{','.join(selected[:8])}",
+                        "validated_answer": answer,
+                        "evidence_refs": evidence_refs,
+                        "tools": selected,
+                    },
+                )
+                emit("Aprendizaje validado guardado en la memoria cognitiva…")
+            except Exception:
+                # Learning persistence is non-blocking: an unavailable Supabase
+                # learning table must never break an otherwise valid answer.
+                pass
 
         await memory.append(cid, {"role": "user", "content": query})
         await memory.append(cid, {"role": "assistant", "content": answer})
