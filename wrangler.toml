@@ -9,8 +9,6 @@ JOBIA_API_ORIGIN = "https://jobia-api.onrender.com"
 SBT_API_ORIGIN = "https://bitey-system-bots-trading-api.onrender.com"
 BITEY_DAILY_NEURON_LIMIT = "10000"
 
-[ai]
-binding = "AI"
 
 [assets]
 directory = "."
