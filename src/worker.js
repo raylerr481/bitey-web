@@ -2,6 +2,7 @@ import { classifyCapability } from './capability-router.js';
 import { filterConversationHistory } from './conversation-isolation.js';
 import { analyzeLanguage, resolveContext } from './language-engine.js';
 import { selectTools, buildCompoundPlan, buildToolActivity, getToolRegistry, evaluateIntent } from './tool-orchestrator.js';
+import { runFreeProviderChain, runTeacherEnsemble } from './provider-gateway.js';
 
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
@@ -1264,7 +1265,8 @@ async function synthesizeWithEvidence({env, message, originalAnswer, evidenceTex
 }
 
 async function runRealAiFallback(request, env, requestId, cause, origin, upstreamBody = null) {
-  if (!env.AI) return null;
+  const hasFreeProvider = Boolean(env.GROQ_API_KEY || env.OPENROUTER_API_KEY);
+  if (!env.AI && !hasFreeProvider) return null;
   let payload;
   try {
     payload = await request.clone().json();
@@ -1339,6 +1341,67 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
     : '';
   const system = buildInteractionSystemPrompt(mode);
   const messages = [{ role: 'system', content: system }, ...(contextInstruction ? [{ role: 'system', content: contextInstruction }] : []), ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []), ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []), ...compactHistory, { role: 'user', content: message }];
+
+  const teacherMode = String(env.BITEY_TEACHER_MODE || 'auto').toLowerCase();
+  const useTeachers = teacherMode === 'true'
+    || (teacherMode === 'auto' && (cognitiveRoute.research_required || cognitiveRoute.comparison_required || message.length > 220));
+
+  if (hasFreeProvider) {
+    try {
+      const teacherResult = useTeachers
+        ? await runTeacherEnsemble(env, { messages, max_tokens: 512, temperature: 0.1 })
+        : null;
+      const providerResult = teacherResult?.consensus
+        ? { ok: true, response: teacherResult.consensus }
+        : await runFreeProviderChain(env, { messages, max_tokens: 512, temperature: 0.2 });
+
+      if (providerResult.ok && providerResult.response?.response) {
+        let answer = String(providerResult.response.response).trim();
+        const synthesized = await synthesizeWithEvidence({
+          env, message, originalAnswer: answer, evidenceText: combinedEvidence,
+          sources, requestId, route: cognitiveRoute
+        });
+        if (synthesized?.answer) answer = String(synthesized.answer).trim();
+        const answerValidation = synthesized?.validation || {
+          valid: true, evidence_available: sources.length > 0,
+          synthesis_applied: false, teacher_count: teacherResult?.teacher_count || 0,
+          fallback_answer_preserved: true
+        };
+        return jsonResponse({
+          conversation_id: conversationId,
+          original_message: rawMessage,
+          language: { detected: language.language, normalized: language.normalized, corrections: language.corrections },
+          answer,
+          cognitive_route: cognitiveRoute,
+          research_attempted: cognitiveRoute.research_attempted,
+          research_required: cognitiveRoute.research_required,
+          research_reasons: cognitiveRoute.reasons,
+          comparison_required: cognitiveRoute.comparison_required,
+          providers: teacherResult?.providers || [providerResult.response.provider],
+          selected_provider: providerResult.response.provider,
+          teacher_training: teacherResult ? {
+            enabled: true,
+            teacher_count: teacherResult.teacher_count,
+            agreement_score: teacherResult.consensus?.agreement_score ?? null,
+            trained: teacherResult.trained
+          } : { enabled: false, teacher_count: 0, trained: false },
+          activity_events: [
+            'Intención comprendida y ruta cognitiva seleccionada.',
+            cognitiveRoute.tool_step,
+            ...(sources.length ? ['Evidencia recopilada.', 'Fuentes comparadas y filtradas por relevancia.'] : []),
+            ...(teacherResult ? ['Groq y OpenRouter actuaron como profesores cognitivos.', 'Las propuestas fueron comparadas antes de validar la respuesta.'] : []),
+            'Respuesta preliminar revisada antes de entregar.',
+            synthesized?.answer ? 'Respuesta final validada.' : 'Respuesta final generada y validada.'
+          ],
+          answer_validation: answerValidation,
+          sources,
+          request_id: requestId
+        }, 200, 'free-provider-cognitive-fallback', requestId);
+      }
+    } catch (error) {
+      console.error('Bitey free cognitive provider path failed', { requestId, error: String(error) });
+    }
+  }
 
   const attempts = [
     { messages, max_tokens: 512 },
