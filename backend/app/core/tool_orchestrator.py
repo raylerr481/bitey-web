@@ -106,6 +106,17 @@ class ToolOrchestrator:
             except Exception as exc:
                 results[name] = {"ok": False, "error": type(exc).__name__}
 
+            if name == "weather" and not results[name].get("ok") and "web_research" in self._tools:
+                try:
+                    fallback = await self._tools["web_research"].handler(**kwargs)
+                    if isinstance(fallback, dict):
+                        fallback = dict(fallback)
+                        fallback["fallback_from"] = "weather"
+                        fallback["specialized_tool_error"] = results[name].get("error") or results[name].get("reason")
+                    results["web_research"] = fallback
+                except Exception as fallback_exc:
+                    results["web_research"] = {"ok": False, "error": type(fallback_exc).__name__, "fallback_from": "weather", "specialized_tool_error": results[name].get("error") or results[name].get("reason")}
+
         # Preserve each tool's full result, especially web-research provenance,
         # conflict metadata, verified-source counts, and raw discovery results.
         # Older code rebuilt a synthetic "web_research" result here and silently
