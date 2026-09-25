@@ -231,14 +231,30 @@ class CognitiveModel:
             }
         freshness = domain in {"weather", "finance"} or bool(context.get("freshness_required"))
         evidence = freshness or bool(context.get("research") or context.get("requires_web_research") or context.get("needs_web")) or domain == "research"
+        # Detect compound requests so the planner can preserve the user's requested sequence.
+        lower_message = message.lower()
+        step_cues = (" y luego ", " después ", " despues ", " luego ", " después de ", " despues de ", "then ", "after that", "and then", "primero", "first")
+        compound = any(cue in lower_message for cue in step_cues)
+        action_cues = ("analiza", "analizar", "busca", "buscar", "investiga", "calcula", "calcular", "compara", "explica", "resume", "responde", "verifica", "revisa", "implementa")
+        action_count = sum(1 for cue in action_cues if cue in lower_message)
+        multi_step = compound or action_count >= 2
+        steps = []
+        if multi_step:
+            if any(cue in lower_message for cue in ("busca", "buscar", "investiga", "investigar", "fuentes")): steps.append("retrieve_evidence")
+            if any(cue in lower_message for cue in ("calcula", "calcular", "porcentaje", "cuánto", "cuanto")): steps.append("calculate")
+            if any(cue in lower_message for cue in ("analiza", "analizar", "revisa", "revisar", "compara")): steps.append("analyze")
+            if any(cue in lower_message for cue in ("verifica", "verificar", "contrasta", "contrastar")): steps.append("verify")
+            steps.append("synthesize_answer")
         return {
             "objective": "retrieve_current_data_and_answer" if freshness else "answer_or_assist",
             "domain": domain,
             "needs_evidence": evidence,
             "freshness_required": freshness,
             "requires_specialized_module": domain not in {"general", "research", "weather"},
-            "verification_required": evidence or domain == "research",
-            "stop_condition": "fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence",
+            "verification_required": evidence or domain == "research" or multi_step,
+            "multi_step": multi_step,
+            "steps": list(dict.fromkeys(steps)),
+            "stop_condition": "all_planned_steps_completed_and_verified" if multi_step else ("fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence"),
         }
 
     def evaluate(self, state: CognitiveState, *, evidence_available: bool = False) -> CognitiveState:
