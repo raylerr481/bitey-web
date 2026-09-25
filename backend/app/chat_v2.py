@@ -189,6 +189,11 @@ def create_chat_v2_router(
                     if tool_payload.get("evidence"):
                         evidence_parts.append(f"{tool_name}: {tool_payload.get('evidence')}")
                     raw_sources.extend(tool_payload.get("sources") or tool_payload.get("results") or [])
+                    if tool_payload.get("conflict_detected"):
+                        conflict_detected = True
+                    for candidate in tool_payload.get("conflict_candidates") or []:
+                        if candidate not in conflict_candidates:
+                            conflict_candidates.append(candidate)
             evidence = "\\n\\n".join(evidence_parts)
 
             for item in raw_sources:
@@ -198,6 +203,7 @@ def create_chat_v2_router(
                         "title": item.get("title") or item.get("url"),
                         "verified": True,
                         "quality": item.get("source_quality", 0.65),
+                        "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
                     })
 
             if sources:
@@ -233,33 +239,15 @@ def create_chat_v2_router(
             else:
                 emit("No se pudo verificar evidencia suficiente; no se presentará como confirmada.")
 
-        def detect_evidence_conflicts(items: list[dict[str, Any]], evidence_text: str) -> dict[str, Any]:
-            """Detect strong, explainable conflicts without exposing model reasoning."""
-            usable = [e for e in items if isinstance(e, dict) and e.get("url")]
-            # Normalize explicit numeric/date claims by source. This is a signal, not
-            # a semantic verdict; the evaluator still decides how the answer is framed.
-            claims: dict[str, set[str]] = {}
-            for idx, source in enumerate(usable, 1):
-                block = str(source.get("content") or "")
-                if not block:
-                    continue
-                numbers = set(re.findall(r"(?<![\\w])(?:20\\d{2}|\\d+(?:[.,]\\d+)?%?)(?![\\w])", block))
-                for token in numbers:
-                    claims.setdefault(token, set()).add(str(idx))
-            # Flag when the evidence contains materially different numeric/date tokens
-            # in the same compact context. Keep the signal conservative.
-            conflict_tokens = []
-            for token, source_ids in claims.items():
-                if len(source_ids) >= 2 and ("%" in token or token.startswith("20") or re.match(r"\\d+[.,]\\d+", token)):
-                    conflict_tokens.append(token)
-            return {"conflict_count": len(conflict_tokens), "conflict_tokens": conflict_tokens[:12], "sources_checked": len(usable)}
-
         evidence_source_count = len(sources)
+        conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
+        conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
         evidence_conflict = detect_evidence_conflicts([{"url": s.get("url"), "content": next((e.content for e in getattr(research, "_last_plan", []).evidence), "")} for s in sources], evidence) if False else {"conflict_count": 0, "conflict_tokens": [], "sources_checked": evidence_source_count}
         conflict_detected = bool(evidence_conflict["conflict_count"])
         ctx.update({
             "evidence": evidence,
             "evidence_available": bool(evidence),
+            "evidence_conflicts": conflict_candidates[:12],
             "evidence_source_count": evidence_source_count,
             "selected_tools": selected,
             "research_required": research_required,
