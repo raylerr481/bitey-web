@@ -360,16 +360,55 @@ def create_chat_v2_router(
         trace_store.set_stage(trace, "VALIDATING_EVIDENCE")
         answer_verification = verify_answer_claims(answer, evidence, sources)
         ctx["answer_verification"] = answer_verification
+        verification_retry = False
+        if answer_verification.get("unsupported_count", 0) > 0 and evidence and calculations is None:
+            emit("Corrigiendo la respuesta con la evidencia verificada…")
+            trace_store.set_stage(trace, "REVISING")
+            retry_system = (
+                "Revise the answer using ONLY the VERIFIED WEB EVIDENCE below. "
+                "Remove or rewrite every unsupported factual claim. Preserve useful supported content. "
+                "Do not invent facts. Keep the user's language. Cite factual claims with [S#]. "
+                "Do not mention this internal verification process.\n\n"
+                f"VERIFIED WEB EVIDENCE:\n{evidence}"
+            )
+            retry_messages = [
+                {"role": "system", "content": retry_system},
+                {"role": "user", "content": query},
+                {"role": "assistant", "content": answer},
+                {"role": "user", "content": "Return the corrected final answer only."},
+            ]
+            try:
+                revised = await providers.generate(
+                    messages=retry_messages,
+                    context={
+                        **ctx,
+                        "cost_mode": "free_only",
+                        "evidence": evidence,
+                        "evidence_source_count": evidence_source_count,
+                        "verification_retry": True,
+                    },
+                )
+                revised_check = verify_answer_claims(revised, evidence, sources)
+                if revised_check.get("valid"):
+                    answer = revised
+                    answer_verification = revised_check
+                    verification_retry = True
+                    emit("Respuesta corregida y verificada.")
+                else:
+                    emit("La corrección no superó la verificación; conservando el resultado seguro.")
+            except Exception:
+                emit("No fue posible completar la corrección automática; conservando el resultado seguro.")
+
+        ctx["answer_verification"] = answer_verification
         if answer_verification.get("unsupported_count", 0) > 0:
             emit("Se detectaron afirmaciones que requieren revisión de evidencia.")
-            if evaluation.decision == "accept":
-                evaluation = response_evaluator.evaluate(
-                    user_message=query,
-                    answer=answer,
-                    context=ctx,
-                    evidence=evidence,
-                    conflict_detected=True,
-                )
+            evaluation = response_evaluator.evaluate(
+                user_message=query,
+                answer=answer,
+                context=ctx,
+                evidence=evidence,
+                conflict_detected=True,
+            )
         evaluation_dict = evaluation.as_dict()
         ctx["evaluation"] = evaluation_dict
         trace.evaluation = evaluation.as_dict()
