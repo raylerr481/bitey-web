@@ -28,6 +28,7 @@ class CognitiveModel:
         # "tiempo", "mercado" and "cliente" are intentionally excluded here;
         # they need contextual evidence before selecting a specialized domain.
         "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao"),
+        "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
         "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
         "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair"),
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar"),
@@ -40,6 +41,7 @@ class CognitiveModel:
         "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
         "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather", "tiempo hoy", "el tiempo hoy", "tiempo en", "clima en", "como esta el tiempo", "cómo está el tiempo", "com esta el tiempo", "com esta el clima"),
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
+        "finance": ("precio de", "precio ahora", "cotiza", "cotización", "cotizacion", "acciones de", "acción de", "dividendos", "valor de mercado"),
     }
 
     _GREETING_PATTERNS = (
@@ -77,6 +79,7 @@ class CognitiveModel:
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
         "tienpo": "tiempo", "timepo": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
         "contiua": "continua", "contina": "continua", "continuaaa": "continua",
+        "preico": "precio", "prceio": "precio", "cotizacon": "cotizacion", "accin": "accion",
     }
 
     @classmethod
@@ -145,6 +148,10 @@ class CognitiveModel:
         weather_temporal = any(x in text for x in ("tiempo", "clima", "temperatura", "weather")) and any(x in text for x in ("hoy", "ahora", "actual", "actualmente", "ahora mismo"))
         if weather_temporal:
             scores["weather"] = max(scores.get("weather", 0), 2)
+        # Current financial facts need fresh evidence rather than static knowledge.
+        finance_current = any(x in text for x in ("precio", "cotización", "cotizacion", "cotiza", "acciones", "dividendos")) and any(x in text for x in ("ahora", "hoy", "actual", "actualmente", "último", "última", "cuánto", "cuanto", "vale"))
+        if finance_current:
+            scores["finance"] = max(scores.get("finance", 0), 2)
         conceptual = any(cue in text for cue in self._CONCEPTUAL_CUES)
         greeting = self._is_greeting(text)
         identity_request = self._is_identity_request(text)
@@ -222,7 +229,7 @@ class CognitiveModel:
                 "verification_required": False,
                 "stop_condition": "natural_conversational_response",
             }
-        freshness = domain == "weather" or bool(context.get("freshness_required"))
+        freshness = domain in {"weather", "finance"} or bool(context.get("freshness_required"))
         evidence = freshness or bool(context.get("research") or context.get("requires_web_research") or context.get("needs_web")) or domain == "research"
         return {
             "objective": "retrieve_current_data_and_answer" if freshness else "answer_or_assist",
