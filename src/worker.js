@@ -650,7 +650,7 @@ function buildEvidenceGraph(question, answer, sources = [], evidenceAnalysis = n
 
       const bestCandidate = semanticCandidates[0] || null;
       const bestSupport = bestCandidate?.support || null;
-      const gap = deriveEvidenceGap(sentence, bestSupport, semanticMatches.length > 0);
+      const gap = deriveEvidenceGap(sentence, bestSupport, semanticCandidates.length > 0);
       return {
         id: 'claim_' + (index + 1),
         text: sentence.slice(0, 280),
