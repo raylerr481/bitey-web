@@ -325,6 +325,12 @@ def create_chat_v2_router(
             if evidence:
                 system += f"\nVERIFIED WEB EVIDENCE:\n{evidence}"
                 system += "\nUse only the numbered SOURCE entries present in the evidence and cite factual web claims with [S#]."
+            if conflict_detected and conflict_analysis.get("candidates"):
+                system += (
+                    "\nEVIDENCE CONFLICT NOTICE: Retrieved sources contain potentially inconsistent claims. "
+                    "Do not silently choose one value. If the discrepancy affects the answer, state briefly that sources differ, "
+                    "cite the relevant [S#] sources, and distinguish confirmed facts from uncertainty."
+                )
             elif research_required:
                 system += "\nRESEARCH FAILURE: no usable evidence was verified. State that limitation and do not invent current facts."
             messages.insert(0, {"role": "system", "content": system})
@@ -357,6 +363,8 @@ def create_chat_v2_router(
         emit("Evaluando respuesta y controles de calidad…")
         trace_store.set_stage(trace, "EVALUATING")
 
+        if conflict_detected and conflict_analysis.get("conflict_count", 0) > 0:
+            emit("Detectada una discrepancia entre fuentes; ajustando la respuesta…")
         if evaluation.decision == "reject":
             answer = "La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida."
         elif evaluation.decision == "revise":
