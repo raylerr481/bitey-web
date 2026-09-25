@@ -141,8 +141,12 @@ function detectDomains(text) {
 
 function detectIntent(text) {
   const value = String(text || '');
-  const time = /\b(hora|horario|time)\b/i.test(value) || /\bqu[eé]\s+tiempo\s+es\b/i.test(value);
-  const weather = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previsao)\b/i.test(value) && !time;
+  const time = /\b(hora|horario|time)\b/i.test(value)
+    || /\bqu[eé]\s+tiempo\s+es\b/i.test(value)
+    || /\bcu[aá]l\s+es\s+(?:el\s+)?tiempo\s+(?:hoy|ahora|en\s+esteio|en\s+porto\s+alegre)\b/i.test(value);
+  const weather = /\b(temperatura|clima|tiempo|weather|temperature|forecast|previsao|previs[aã]o)\b/i.test(value)
+    && !time
+    && !/\b(?:qu[eé]|cu[aá]l)\s+es\s+(?:el\s+)?tiempo\b/i.test(value);
   const duration = /\b(cu[aá]nto\s+tiempo|quanto\s+tempo|how\s+long|demora|dura|duraci[oó]n|duração)\b/i.test(value);
   if (time && !duration) return 'time';
   if (weather && !duration) return 'weather';
