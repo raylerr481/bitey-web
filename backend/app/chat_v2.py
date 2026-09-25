@@ -242,8 +242,8 @@ def create_chat_v2_router(
         evidence_source_count = len(sources)
         conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
         conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
-        evidence_conflict = detect_evidence_conflicts([{"url": s.get("url"), "content": next((e.content for e in getattr(research, "_last_plan", []).evidence), "")} for s in sources], evidence) if False else {"conflict_count": 0, "conflict_tokens": [], "sources_checked": evidence_source_count}
-        conflict_detected = bool(evidence_conflict["conflict_count"])
+        conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
+        conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
         ctx.update({
             "evidence": evidence,
             "evidence_available": bool(evidence),
@@ -263,6 +263,7 @@ def create_chat_v2_router(
             "source_count": evidence_source_count,
             "verified_sources": sources[:12],
             "conflict_detected": conflict_detected,
+            "conflict_analysis": conflict_analysis,
         }
 
         # Pure mathematical requests never pass through an LLM. This keeps
