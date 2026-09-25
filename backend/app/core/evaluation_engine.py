@@ -121,6 +121,9 @@ def verify_answer_claims(
                 best_overlap, best_sid = score, sid
                 best_numbers = number_ok
 
+        # A citation must point to evidence that supports the claim's subject.
+        # Numeric claims additionally require every reported value to exist in
+        # the cited evidence; this prevents a citation from laundering a mixed claim.
         if best_overlap >= 0.48 and best_numbers:
             supported += 1
         else:
