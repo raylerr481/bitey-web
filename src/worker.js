@@ -1351,9 +1351,32 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
       const teacherResult = useTeachers
         ? await runTeacherEnsemble(env, { messages, sources, max_tokens: 512, temperature: 0.1 })
         : null;
-      const providerResult = teacherResult?.consensus
+      let providerResult = teacherResult?.consensus?.response
         ? { ok: true, response: teacherResult.consensus }
         : await runFreeProviderChain(env, { messages, max_tokens: 512, temperature: 0.2 });
+
+      if (teacherResult?.consensus?.requires_replan) {
+        const recoveryMessages = [
+          { role: 'system', content: system },
+          ...(contextInstruction ? [{ role: 'system', content: contextInstruction }] : []),
+          ...(evidenceInstruction ? [{ role: 'system', content: evidenceInstruction }] : []),
+          ...(sourceInstruction ? [{ role: 'system', content: sourceInstruction }] : []),
+          {
+            role: 'user',
+            content: `Las fuentes/propuestas disponibles presentan conflicto. Reevalúa la pregunta usando únicamente la evidencia proporcionada, identifica qué afirmaciones están en conflicto y responde solo con lo que pueda sostenerse. Si falta evidencia suficiente, dilo explícitamente. Pregunta original: ${message}`
+          }
+        ];
+        const recovery = await runFreeProviderChain(env, {
+          messages: recoveryMessages,
+          max_tokens: 512,
+          temperature: 0.05
+        });
+        if (recovery.ok) {
+          providerResult = recovery;
+          cognitiveRoute.replan_reason = 'teacher_conflict';
+          cognitiveRoute.replan_attempted = true;
+        }
+      }
 
       if (providerResult.ok && providerResult.response?.response) {
         let answer = String(providerResult.response.response).trim();
@@ -1365,6 +1388,8 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
         const answerValidation = synthesized?.validation || {
           valid: true, evidence_available: sources.length > 0,
           synthesis_applied: false, teacher_count: teacherResult?.teacher_count || 0,
+          teacher_conflict: Boolean(teacherResult?.consensus?.conflict),
+          replan_attempted: Boolean(cognitiveRoute.replan_attempted),
           fallback_answer_preserved: true
         };
         return jsonResponse({
@@ -1392,6 +1417,7 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
             cognitiveRoute.tool_step,
             ...(sources.length ? ['Evidencia recopilada.', 'Fuentes comparadas y filtradas por relevancia.'] : []),
             ...(teacherResult ? ['Groq y OpenRouter actuaron como profesores cognitivos.', 'Las propuestas fueron comparadas antes de validar la respuesta.'] : []),
+            ...(cognitiveRoute.replan_attempted ? ['Se detectó conflicto entre propuestas y se ejecutó una recuperación cognitiva.'] : []),
             'Respuesta preliminar revisada antes de entregar.',
             synthesized?.answer ? 'Respuesta final validada.' : 'Respuesta final generada y validada.'
           ],
