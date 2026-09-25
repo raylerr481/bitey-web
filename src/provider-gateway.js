@@ -97,12 +97,15 @@ function selectTeacherConsensus(teachers, sources = []) {
     return { candidate, agreement, evidence, score };
   }).sort((a, b) => b.score - a.score);
   const winner = ranked[0];
+  const conflict = candidates.length > 1 && winner.agreement < 0.12;
   return {
-    response: winner.candidate.response,
-    provider: winner.agreement >= 0.18 ? 'teacher-consensus' : winner.candidate.provider,
+    response: conflict ? '' : winner.candidate.response,
+    provider: conflict ? 'teacher-conflict' : (winner.agreement >= 0.18 ? 'teacher-consensus' : winner.candidate.provider),
     agreement_score: winner.agreement,
     judge_score: winner.score,
-    judge: 'agreement-and-completeness',
+    judge: 'agreement-evidence-completeness',
+    conflict,
+    requires_replan: conflict,
     evidence_score: winner.evidence,
     candidates: ranked.map(item => ({
       provider: item.candidate.provider,
