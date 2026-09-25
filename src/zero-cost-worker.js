@@ -2,7 +2,7 @@ import biteyWorker from './capability-worker.js';
 import { providerStatus, createProviderAi } from './provider-gateway.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
-const PROVIDER_POLICY = 'groq-primary-free-only';
+const PROVIDER_POLICY = 'groq-openrouter-free-only-no-paid-fallback';
 
 export default {
   async fetch(request, env, ctx) {
@@ -41,7 +41,7 @@ export default {
           lastModel = response?.model || null;
           return response;
         } catch (error) {
-          if (!rawEdgeAi || error?.code !== 'BITEY_PROVIDER_UNAVAILABLE') throw error;
+          throw error;
           const [model, input = {}] = args;
           const edgeResponse = await rawEdgeAi.run(model || '@cf/google/gemma-4-26b-a4b-it', input);
           const response = {
@@ -93,7 +93,7 @@ export default {
       }
     }
 
-    const providerEnv = { ...env, AI: providerAi, BITEY_EDGE_FALLBACK_AI: rawEdgeAi };
+    const providerEnv = { ...env, AI: providerAi, BITEY_EDGE_FALLBACK_AI: null };
     try {
       const response = await biteyWorker.fetch(request, providerEnv, ctx);
       return await normalizePublicResponse(response, lastProvider, lastModel);
