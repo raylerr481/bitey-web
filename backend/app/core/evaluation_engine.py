@@ -22,6 +22,105 @@ class EvaluationResult:
         return asdict(self)
 
 
+def verify_answer_claims(
+    answer: str,
+    evidence: str = "",
+    sources: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Conservative final-answer verification against retrieved evidence."""
+    text = (answer or "").strip()
+    sources = sources or []
+    if not evidence:
+        return {
+            "valid": True,
+            "claim_count": 0,
+            "supported_count": 0,
+            "unsupported_count": 0,
+            "uncited_count": 0,
+            "issues": [],
+            "reason": "no_research_evidence",
+        }
+
+    stop = {
+        "the","and","for","with","that","this","from","were","have","has","had","was","are","is",
+        "not","did","does","their","they","there","into","about","than","then","also","after","before",
+        "more","less","very","only","its","his","her","our","you","your","what","when","where","which",
+        "de","la","el","los","las","que","con","por","para","una","un","del","se","en","es","como","más",
+        "menos","sobre","esta","este","estas","estos","dos","tres","una",
+    }
+    def tokens(value: str) -> set[str]:
+        words = re.findall(r"[A-Za-zÀ-ÿ0-9]{3,}", value.lower())
+        return {w for w in words if w not in stop and not w.startswith("s") or (w.startswith("s") and w[1:].isdigit())}
+
+    raw_claims = re.split(r"(?<=[.!?])\s+|\n+", text)
+    claims = []
+    for claim in raw_claims:
+        claim = re.sub(r"\s+", " ", claim).strip(" -•")
+        if len(claim) < 25 or claim.endswith("?"):
+            continue
+        if claim.startswith(("*", "#")):
+            claim = claim.lstrip("*# ")
+        claims.append(claim)
+
+    source_blocks = re.split(r"(?=SOURCE\s*\d+)", evidence, flags=re.I)
+    indexed = {}
+    for block in source_blocks:
+        match = re.search(r"SOURCE\s*(\d+)", block, re.I)
+        if match:
+            indexed[int(match.group(1))] = block
+
+    supported = 0
+    unsupported = 0
+    uncited = 0
+    issues = []
+    for claim in claims[:30]:
+        citation_ids = [int(x) for x in re.findall(r"\[S(\d+)\]", claim)]
+        clean_claim = re.sub(r"\[S\d+\]", " ", claim)
+        claim_tokens = tokens(clean_claim)
+        numbers = set(re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", clean_claim))
+        candidates = [(sid, indexed[sid]) for sid in citation_ids if sid in indexed] if citation_ids else list(indexed.items())
+        if citation_ids and not candidates:
+            unsupported += 1
+            issues.append({"claim": claim[:260], "reason": "invalid_source_citation"})
+            continue
+        if not citation_ids:
+            uncited += 1
+
+        best_overlap = 0.0
+        best_numbers = False
+        best_sid = None
+        for sid, block in candidates:
+            block_tokens = tokens(block)
+            overlap = len(claim_tokens & block_tokens) / max(1, len(claim_tokens))
+            block_numbers = set(re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", block))
+            number_ok = not numbers or numbers.issubset(block_numbers)
+            score = overlap + (0.20 if number_ok else -0.20)
+            if score > best_overlap:
+                best_overlap, best_sid = score, sid
+                best_numbers = number_ok
+
+        if best_overlap >= 0.48 and best_numbers:
+            supported += 1
+        else:
+            unsupported += 1
+            issues.append({
+                "claim": claim[:260],
+                "reason": "insufficient_evidence_support",
+                "source": best_sid,
+            })
+
+    total = len(claims)
+    return {
+        "valid": unsupported == 0,
+        "claim_count": total,
+        "supported_count": supported,
+        "unsupported_count": unsupported,
+        "uncited_count": uncited,
+        "issues": issues[:8],
+        "reason": "claims_checked",
+    }
+
+
 class EvaluationEngine:
     """Deterministic post-generation evaluator owned by Bitey."""
 
