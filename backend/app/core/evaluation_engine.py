@@ -107,7 +107,7 @@ def verify_answer_claims(
         # Preserve the sentence subject for coordinate clauses, but do not
         # carry the first clause's numeric values into the second claim.
         subject_context = re.sub(
-            r"\\b(?:es|son|fue|era|será|está|están|is|are|was|were|will be|has|have)\\b.*$",
+            r"\b(?:es|son|fue|era|será|está|están|is|are|was|were|will be|has|have)\b.*$",
             "",
             parts[0],
             flags=re.I,
