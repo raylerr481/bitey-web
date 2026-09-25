@@ -85,14 +85,29 @@ async function callProvider(provider, env, options) {
 
 function selectTeacherConsensus(teachers) {
   if (!teachers.length) return null;
-  if (teachers.length === 1) return teachers[0];
-  const [first, second] = teachers;
-  const overlap = tokenOverlap(normalizeForComparison(first.response), normalizeForComparison(second.response));
+  if (teachers.length === 1) return { ...teachers[0], agreement_score: 0.5, judge: 'single-teacher' };
+  const ranked = teachers.map(candidate => {
+    const others = teachers.filter(item => item !== candidate);
+    const agreement = others.reduce((sum, item) => (
+      sum + tokenOverlap(normalizeForComparison(candidate.response), normalizeForComparison(item.response))
+    ), 0) / others.length;
+    const completeness = Math.min(1, Math.max(0.2, String(candidate.response || '').length / 900));
+    const score = Number((agreement * 0.65 + completeness * 0.35).toFixed(3));
+    return { candidate, agreement, score };
+  }).sort((a, b) => b.score - a.score);
+  const winner = ranked[0];
   return {
-    response: first.response,
-    provider: overlap >= 0.18 ? 'teacher-consensus' : first.provider,
-    agreement_score: overlap,
-    candidates: teachers.map(item => ({ provider: item.provider, model: item.model }))
+    response: winner.candidate.response,
+    provider: winner.agreement >= 0.18 ? 'teacher-consensus' : winner.candidate.provider,
+    agreement_score: winner.agreement,
+    judge_score: winner.score,
+    judge: 'agreement-and-completeness',
+    candidates: ranked.map(item => ({
+      provider: item.candidate.provider,
+      model: item.candidate.model,
+      agreement_score: item.agreement,
+      judge_score: item.score
+    }))
   };
 }
 
