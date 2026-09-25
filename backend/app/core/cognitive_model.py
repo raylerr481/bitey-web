@@ -75,7 +75,7 @@ class CognitiveModel:
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
-        "tienpo": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
+        "tienpo": "tiempo", "timepo": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
         "contiua": "continua", "contina": "continua", "continuaaa": "continua",
     }
 
@@ -139,6 +139,12 @@ class CognitiveModel:
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
+        # Current-data questions can be written with imperfect spelling. Treat
+        # a normalized weather cue plus a temporal cue as a semantic weather
+        # intent even when the sentence is not grammatically complete.
+        weather_temporal = any(x in text for x in ("tiempo", "clima", "temperatura", "weather")) and any(x in text for x in ("hoy", "ahora", "actual", "actualmente", "ahora mismo"))
+        if weather_temporal:
+            scores["weather"] = max(scores.get("weather", 0), 2)
         conceptual = any(cue in text for cue in self._CONCEPTUAL_CUES)
         greeting = self._is_greeting(text)
         identity_request = self._is_identity_request(text)
