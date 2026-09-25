@@ -409,6 +409,17 @@ def create_chat_v2_router(
                 evidence=evidence,
                 conflict_detected=True,
             )
+        elif verification_retry:
+            # A successful revision is a new answer and must receive a fresh
+            # deterministic evaluation before persistence or learning.
+            emit("Reevaluando la respuesta corregida…")
+            evaluation = response_evaluator.evaluate(
+                user_message=query,
+                answer=answer,
+                context=ctx,
+                evidence=evidence,
+                conflict_detected=conflict_detected,
+            )
         evaluation_dict = evaluation.as_dict()
         ctx["evaluation"] = evaluation_dict
         trace.evaluation = evaluation.as_dict()
