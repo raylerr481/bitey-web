@@ -265,6 +265,16 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
 
         plan=research_engine.plan(payload.message,ctx); deep_plan=deep_research.plan(payload.message,ctx)
         evidence=tool_results.get("web_research",{}).get("evidence",""); search_results=tool_results.get("web_research",{}).get("results",[])
+        # Specialized tools (weather, SBT, calculator) are first-class evidence providers.
+        specialized_evidence=[]
+        for tool_name, result in tool_results.items():
+            if tool_name == "web_research" or not isinstance(result, dict):
+                continue
+            tool_evidence=str(result.get("evidence") or "").strip()
+            if result.get("ok") and tool_evidence:
+                specialized_evidence.append(f"TOOL {tool_name.upper()} VERIFIED EVIDENCE:\n{tool_evidence}")
+        if specialized_evidence:
+            evidence="\n\n".join([evidence, *specialized_evidence]).strip()
         # Search result snippets are discovery metadata, not verified evidence.
         # Never promote a snippet into the evidence channel when page retrieval
         # failed; otherwise Bitey could appear evidence-grounded without having
@@ -314,7 +324,9 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         research_required=bool(plan.required or deep_plan.reasons or selected)
         failed_tools=[name for name in selected if name not in recovered_tools and (not isinstance(tool_results.get(name),dict) or not tool_results.get(name,{}).get("ok",False))]
         evidence_attempted=bool(selected) or bool(plan.required or deep_plan.reasons)
-        research_failure=bool(research_required and not evidence) or bool(failed_tools)
+        # A successful specialized tool satisfies its own evidence requirement.
+        specialized_evidence_available=bool(specialized_evidence)
+        research_failure=(bool(research_required and not evidence) and not specialized_evidence_available) or bool(failed_tools and not specialized_evidence_available)
         tool_source_count=sum(1 for name in selected if isinstance(tool_results.get(name),dict) and tool_results.get(name,{}).get("source"))
         tool_evidence_count=sum(1 for name in selected if isinstance(tool_results.get(name),dict) and tool_results.get(name,{}).get("evidence"))
         conflict_detected=any(bool(tool_results.get(name,{}).get("conflict_detected")) for name in selected if isinstance(tool_results.get(name),dict))
