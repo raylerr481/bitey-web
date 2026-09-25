@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from .core.bitey_brain import BiteyBrain
 from .core.cognitive_trace import CognitiveTraceStore
 from .core.deep_research import DeepResearchEngine
-from .core.evaluation_engine import EvaluationEngine
+from .core.evaluation_engine import EvaluationEngine, verify_answer_claims
 from .core.execution_context import server_execution_context
 from .core.mathematics import analyze as math_analyze, calculate as math_calculate
 from .core.provider_gateway import ProviderGateway
@@ -115,6 +115,7 @@ def create_chat_v2_router(
         evidence = ""
         selected: list[str] = []
         conflict_detected = False
+        conflict_candidates: list[dict[str, Any]] = []
 
         history = await memory.history(cid)
         learning_context: list[dict[str, Any]] = []
@@ -355,6 +356,20 @@ def create_chat_v2_router(
                 conflict_detected=conflict_detected,
             )
 
+        emit("Verificando afirmaciones de la respuesta…")
+        trace_store.set_stage(trace, "VALIDATING_EVIDENCE")
+        answer_verification = verify_answer_claims(answer, evidence, sources)
+        ctx["answer_verification"] = answer_verification
+        if answer_verification.get("unsupported_count", 0) > 0:
+            emit("Se detectaron afirmaciones que requieren revisión de evidencia.")
+            if evaluation.decision == "accept":
+                evaluation = response_evaluator.evaluate(
+                    user_message=query,
+                    answer=answer,
+                    context=ctx,
+                    evidence=evidence,
+                    conflict_detected=True,
+                )
         evaluation_dict = evaluation.as_dict()
         ctx["evaluation"] = evaluation_dict
         trace.evaluation = evaluation.as_dict()
@@ -413,7 +428,12 @@ def create_chat_v2_router(
             trace_id=trace.trace_id,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
             answer_validation={
-                "valid": evaluation.decision == "accept",
+                "valid": evaluation.decision == "accept" and answer_verification.get("valid", True),
+                "claims": answer_verification.get("claim_count", 0),
+                "supported_claims": answer_verification.get("supported_count", 0),
+                "unsupported_claims": answer_verification.get("unsupported_count", 0),
+                "uncited_claims": answer_verification.get("uncited_count", 0),
+                "issues": answer_verification.get("issues", [])[:5],
                 "decision": evaluation.decision,
                 "confidence": evaluation.confidence,
                 "reasons": evaluation.reasons[:8],
