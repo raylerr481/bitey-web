@@ -38,7 +38,7 @@ class CognitiveModel:
 
     _STRONG_INTENT = {
         "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
-        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "acciones", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
+        "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
         "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather", "tiempo hoy", "el tiempo hoy", "tiempo en", "clima en", "como esta el tiempo", "cómo está el tiempo", "com esta el tiempo", "com esta el clima"),
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
         "finance": ("precio de", "precio ahora", "cotiza", "cotización", "cotizacion", "acciones de", "acción de", "dividendos", "valor de mercado"),
