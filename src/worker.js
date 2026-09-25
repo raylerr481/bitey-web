@@ -3,6 +3,7 @@ import { filterConversationHistory } from './conversation-isolation.js';
 import { analyzeLanguage, resolveContext } from './language-engine.js';
 import { selectTools, buildCompoundPlan, buildToolActivity, getToolRegistry, evaluateIntent } from './tool-orchestrator.js';
 import { runFreeProviderChain, runTeacherEnsemble } from './provider-gateway.js';
+import { buildTrainingCandidate, shouldLearn } from './trainer-contract.js';
 
 const AI_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 const NO_PROVIDER_ANSWER = 'Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos.';
@@ -1392,6 +1393,19 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
           replan_attempted: Boolean(cognitiveRoute.replan_attempted),
           fallback_answer_preserved: true
         };
+        const trainingCandidate = buildTrainingCandidate({
+          message,
+          answer,
+          route: cognitiveRoute,
+          validation: answerValidation,
+          sources,
+          teacherTraining: teacherResult ? {
+            judge_score: teacherResult.consensus?.judge_score,
+            evidence_score: teacherResult.consensus?.evidence_score,
+            agreement_score: teacherResult.consensus?.agreement_score
+          } : {}
+        });
+        const trainerReady = shouldLearn(trainingCandidate);
         return jsonResponse({
           conversation_id: conversationId,
           original_message: rawMessage,
@@ -1422,6 +1436,7 @@ Cuando afirmes datos procedentes de estas fuentes, cita [1], [2], etc. No invent
             synthesized?.answer ? 'Respuesta final validada.' : 'Respuesta final generada y validada.'
           ],
           answer_validation: answerValidation,
+          trainer: { ready: trainerReady, schema_version: trainingCandidate?.schema_version || null },
           sources,
           request_id: requestId
         }, 200, 'free-provider-cognitive-fallback', requestId);
