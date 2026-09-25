@@ -197,6 +197,11 @@ class EvaluationEngine:
         else:
             decision = "accept"
 
+        answer_verification = context.get("answer_verification") or {}
+        if evidence and int(answer_verification.get("unsupported_count", 0) or 0) > 0:
+            evidence_alignment = min(evidence_alignment, 0.45)
+            reasons.append("unsupported_answer_claims")
+
         brain_state = context.get("bitey_brain") or context.get("_bitey_brain_state")
         selected_tools = context.get("selected_tools") if "selected_tools" in context else None
         if selected_tools is None and "tools_selected" in context:
