@@ -223,41 +223,102 @@ class ToolOrchestrator:
         evidence = "\n\n".join(evidence_blocks)
 
         def conflict_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            """Find conservative cross-source numeric/date and polarity disagreements."""
+            """Find conservative cross-source disagreements about the same claim."""
             records: list[dict[str, Any]] = []
-            negation = re.compile(r"\b(?:no|not|never|without|did not|does not|cannot|can't|isn't|aren't|wasn't|weren't)\b", re.I)
-            sentence_re = re.compile(r"[^.!?\n]{20,260}[.!?]?", re.M)
-            stop = {"the","and","for","with","that","this","from","were","have","has","had","was","are","is","not","did","does","their","they","there","into","about","than","then","also","after","before","more","less","very","only","its","his","her","our","you","your","de","la","el","los","las","que","con","por","para","una","un","del","se","en","es","no","fue","son","como","más","menos","una"}
-            def topic(text: str) -> set[str]:
+            negation = re.compile(
+                r"\\b(?:no|not|never|without|did not|does not|cannot|can't|isn't|aren't|wasn't|weren't|no es|no son|no fue|no hay|nunca|sin)\\b",
+                re.I,
+            )
+            sentence_re = re.compile(r"[^.!?\\n]{20,260}[.!?]?", re.M)
+            stop = {
+                "the","and","for","with","that","this","from","were","have","has","had","was","are","is",
+                "not","did","does","their","they","there","into","about","than","then","also","after","before",
+                "more","less","very","only","its","his","her","our","you","your","de","la","el","los","las",
+                "que","con","por","para","una","un","del","se","en","es","no","fue","son","como","más","menos",
+            }
+
+            def tokens(text: str) -> set[str]:
                 words = re.findall(r"[A-Za-zÀ-ÿ]{3,}", text.lower())
                 return {w for w in words if w not in stop}
+
+            def claim_value(sentence: str) -> tuple[list[str], str]:
+                # Keep the unit/category attached to the value so 10% does not
+                # conflict with 10 people, dollars, years, etc.
+                value_re = re.compile(
+                    r"(?<![\\w])(?:20\\d{2}(?:-\\d{2}-\\d{2})?|\\d+(?:[.,]\\d+)?)(?:\\s*(?:%|percent|por ciento|\\$|€|R\\$|USD|EUR|BRL|km/h|km|mi|kg|g|mg|m|cm|mm|million|millions|mil|millones|people|persons|personas|years|a[nñ]os|days|d[ií]as|months|meses))?(?![\\w])",
+                    re.I,
+                )
+                values = [v.strip() for v in value_re.findall(sentence)]
+                normalized = []
+                for value in values:
+                    normalized.append(re.sub(r"\\s+", " ", value.lower().replace(",", ".")))
+                unit_re = re.compile(
+                    r"(?:%|percent|por ciento|\\$|€|r\\$|usd|eur|brl|km/h|km|mi|kg|g|mg|million|millions|mil|millones|people|persons|personas|years|a[nñ]os|days|d[ií]as|months|meses)",
+                    re.I,
+                )
+                units = [u.lower().replace("r$", "brl") for u in unit_re.findall(sentence)]
+                category = " ".join(sorted(set(units)))
+                return normalized, category
+
             for index, item in enumerate(items, 1):
                 content = str(item.get("page_evidence") or "")
                 source_key = str(item.get("url") or f"source-{index}")
                 for sentence in sentence_re.findall(content):
-                    numbers = re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", sentence)
-                    dates = re.findall(r"\b20\d{2}(?:-\d{2}-\d{2})?\b", sentence)
-                    values = list(dict.fromkeys(numbers + dates))
-                    if values:
-                        records.append({"source": source_key, "index": index, "topic": topic(re.sub(r"\d+(?:[.,]\d+)?%?", " ", sentence)), "values": values, "text": sentence.strip()[:300], "negative": bool(negation.search(sentence))})
-            conflicts = []
+                    values, unit_category = claim_value(sentence)
+                    if not values:
+                        continue
+                    subject = tokens(re.sub(r"(?:20\\d{2}(?:-\\d{2}-\\d{2})?|\\d+(?:[.,]\\d+)?)(?:\\s*(?:%|percent|por ciento|\\$|€|R\\$|USD|EUR|BRL|km/h|km|mi|kg|g|mg|m|cm|mm|million|millions|mil|millones|people|persons|personas|years|a[nñ]os|days|d[ií]as|months|meses))?", " ", sentence))
+                    # Very short subjects are too ambiguous for a cross-source conflict.
+                    if len(subject) < 2:
+                        continue
+                    records.append({
+                        "source": source_key,
+                        "index": index,
+                        "subject": subject,
+                        "values": values,
+                        "unit_category": unit_category,
+                        "text": sentence.strip()[:300],
+                        "negative": bool(negation.search(sentence)),
+                    })
+
+            conflicts: list[dict[str, Any]] = []
+            seen: set[tuple[str, str, str, str]] = set()
             for left in records:
                 for right in records:
                     if left["index"] >= right["index"] or left["source"] == right["source"]:
                         continue
-                    overlap = len(left["topic"] & right["topic"]) / max(1, len(left["topic"] | right["topic"]))
-                    if overlap < 0.45:
+                    # Compare the same subject, not merely sentences that happen
+                    # to share generic words such as "government" or "population".
+                    overlap = len(left["subject"] & right["subject"]) / max(1, len(left["subject"] | right["subject"]))
+                    shared = len(left["subject"] & right["subject"])
+                    if shared < 2 or overlap < 0.60:
                         continue
-                    if set(left["values"]) == set(right["values"]) and left["negative"] == right["negative"]:
+                    # Numeric conflicts are meaningful only when the value units
+                    # are compatible. Empty categories are allowed for plain counts.
+                    if left["unit_category"] != right["unit_category"]:
                         continue
-                    if set(left["values"]) != set(right["values"]) or left["negative"] != right["negative"]:
-                        conflicts.append({
-                            "type": "claim_disagreement",
-                            "sources": [left["source"], right["source"]],
-                            "values": sorted(set(left["values"]) | set(right["values"]))[:8],
-                            "polarity_difference": left["negative"] != right["negative"],
-                            "contexts": [left["text"], right["text"]],
-                        })
+                    values_differ = set(left["values"]) != set(right["values"])
+                    polarity_differ = left["negative"] != right["negative"]
+                    if not values_differ and not polarity_differ:
+                        continue
+                    key = (
+                        min(left["source"], right["source"]),
+                        max(left["source"], right["source"]),
+                        "|".join(sorted(set(left["values"]) | set(right["values"]))),
+                        str(polarity_differ),
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    conflicts.append({
+                        "type": "claim_disagreement",
+                        "sources": [left["source"], right["source"]],
+                        "values": sorted(set(left["values"]) | set(right["values"]))[:8],
+                        "unit_category": left["unit_category"],
+                        "subject_overlap": round(overlap, 3),
+                        "polarity_difference": polarity_differ,
+                        "contexts": [left["text"], right["text"]],
+                    })
                     if len(conflicts) >= 12:
                         return conflicts
             return conflicts
