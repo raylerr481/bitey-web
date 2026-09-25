@@ -223,27 +223,44 @@ class ToolOrchestrator:
         evidence = "\n\n".join(evidence_blocks)
 
         def conflict_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            fields: dict[str, dict[str, set[str]]] = {}
+            """Find conservative cross-source numeric/date and polarity disagreements."""
+            records: list[dict[str, Any]] = []
+            negation = re.compile(r"\b(?:no|not|never|without|did not|does not|cannot|can't|isn't|aren't|wasn't|weren't)\b", re.I)
+            sentence_re = re.compile(r"[^.!?\n]{20,260}[.!?]?", re.M)
+            stop = {"the","and","for","with","that","this","from","were","have","has","had","was","are","is","not","did","does","their","they","there","into","about","than","then","also","after","before","more","less","very","only","its","his","her","our","you","your","de","la","el","los","las","que","con","por","para","una","un","del","se","en","es","no","fue","son","como","más","menos","una"}
+            def topic(text: str) -> set[str]:
+                words = re.findall(r"[A-Za-zÀ-ÿ]{3,}", text.lower())
+                return {w for w in words if w not in stop}
             for index, item in enumerate(items, 1):
                 content = str(item.get("page_evidence") or "")
                 source_key = str(item.get("url") or f"source-{index}")
-                for match in re.finditer(
-                    r"(?im)^\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 _/-]{1,40})\s*[:=-]\s*(\d+(?:[.,]\d+)?(?:%|°C|\s?(?:km/h|USD|EUR|BRL))?)\s*$",
-                    content,
-                ):
-                    label = re.sub(r"\s+", " ", match.group(1).strip().lower())
-                    value = re.sub(r"\s+", " ", match.group(2).strip().lower())
-                    fields.setdefault(label, {}).setdefault(source_key, set()).add(value)
-                for match in re.finditer(r"\b(20\d{2}-\d{2}-\d{2})\b", content):
-                    fields.setdefault("__date__", {}).setdefault(source_key, set()).add(match.group(1))
+                for sentence in sentence_re.findall(content):
+                    numbers = re.findall(r"(?<![\w])(?:20\d{2}|\d+(?:[.,]\d+)?%?)(?![\w])", sentence)
+                    dates = re.findall(r"\b20\d{2}(?:-\d{2}-\d{2})?\b", sentence)
+                    values = list(dict.fromkeys(numbers + dates))
+                    if values:
+                        records.append({"source": source_key, "index": index, "topic": topic(re.sub(r"\d+(?:[.,]\d+)?%?", " ", sentence)), "values": values, "text": sentence.strip()[:300], "negative": bool(negation.search(sentence))})
             conflicts = []
-            for label, by_source in fields.items():
-                if len(by_source) < 2:
-                    continue
-                distinct = {value for values in by_source.values() for value in values}
-                if len(distinct) > 1:
-                    conflicts.append({"field": label, "values": sorted(distinct), "sources": list(by_source)})
-            return conflicts[:12]
+            for left in records:
+                for right in records:
+                    if left["index"] >= right["index"] or left["source"] == right["source"]:
+                        continue
+                    overlap = len(left["topic"] & right["topic"]) / max(1, len(left["topic"] | right["topic"]))
+                    if overlap < 0.45:
+                        continue
+                    if set(left["values"]) == set(right["values"]) and left["negative"] == right["negative"]:
+                        continue
+                    if set(left["values"]) != set(right["values"]) or left["negative"] != right["negative"]:
+                        conflicts.append({
+                            "type": "claim_disagreement",
+                            "sources": [left["source"], right["source"]],
+                            "values": sorted(set(left["values"]) | set(right["values"]))[:8],
+                            "polarity_difference": left["negative"] != right["negative"],
+                            "contexts": [left["text"], right["text"]],
+                        })
+                    if len(conflicts) >= 12:
+                        return conflicts
+            return conflicts
 
         conflicts = conflict_candidates(verified)
         return {
