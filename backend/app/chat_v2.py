@@ -34,6 +34,8 @@ class ChatV2Response(BaseModel):
     calculations: dict[str, Any] | None = None
     trace_id: str | None = None
     elapsed_ms: int
+    answer_validation: dict[str, Any] = Field(default_factory=dict)
+    evidence_analysis: dict[str, Any] = Field(default_factory=dict)
 
 
 def create_chat_v2_router(
@@ -308,7 +310,8 @@ def create_chat_v2_router(
                 conflict_detected=conflict_detected,
             )
 
-        ctx["evaluation"] = evaluation.as_dict()
+        evaluation_dict = evaluation.as_dict()
+        ctx["evaluation"] = evaluation_dict
         trace.evaluation = evaluation.as_dict()
         emit("Evaluando respuesta y controles de calidad…")
         trace_store.set_stage(trace, "EVALUATING")
@@ -333,6 +336,17 @@ def create_chat_v2_router(
             calculations=calculations,
             trace_id=trace.trace_id,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
+            answer_validation={
+                "valid": evaluation.decision == "accept",
+                "decision": evaluation.decision,
+                "confidence": evaluation.confidence,
+                "reasons": evaluation.reasons[:8],
+            },
+            evidence_analysis={
+                "source_count": len(sources),
+                "contradiction_count": 1 if conflict_detected else 0,
+                "conflict_detected": conflict_detected,
+            },
         )
 
     return router
