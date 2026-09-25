@@ -50,7 +50,7 @@ def verify_answer_claims(
     }
     def tokens(value: str) -> set[str]:
         words = re.findall(r"[A-Za-zÀ-ÿ0-9]{3,}", value.lower())
-        return {w for w in words if w not in stop and not w.startswith("s") or (w.startswith("s") and w[1:].isdigit())}
+        return {w for w in words if w not in stop}
 
     raw_claims = re.split(r"(?<=[.!?])\s+|\n+", text)
     claims = []
