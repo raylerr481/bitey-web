@@ -102,6 +102,13 @@ def create_chat_v2_router(
         conflict_detected = False
 
         history = await memory.history(cid)
+        learning_context: list[dict[str, Any]] = []
+        if learning is not None:
+            try:
+                scope = server_execution_context(cid).memory_scope
+                learning_context = await learning.retrieve_lessons(scope, query, limit=5)
+            except Exception:
+                learning_context = []
         ctx: dict[str, Any] = {
             "conversation_id": cid,
             "current_message": query,
@@ -283,6 +290,11 @@ def create_chat_v2_router(
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
             )
+            if learning_context:
+                system += "\\nPRIOR VALIDATED LEARNING (advisory only; never treat as current evidence):\\n"
+                for index, lesson in enumerate(learning_context, 1):
+                    system += f"L{index}: strategy={lesson.get('strategy','')}; confidence={lesson.get('confidence',0)}; prior_answer={lesson.get('validated_answer','')}\\n"
+                system += "Use prior learning only to improve strategy and continuity. Re-check current facts with tools/evidence."
             if evidence:
                 system += f"\nVERIFIED WEB EVIDENCE:\n{evidence}"
                 system += "\nUse only the numbered SOURCE entries present in the evidence and cite factual web claims with [S#]."
