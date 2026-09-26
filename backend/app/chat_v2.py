@@ -623,7 +623,7 @@ def create_chat_v2_router(
         plan_step("verify", "running")
         emit("Verificando afirmaciones de la respuesta…")
         trace_store.set_stage(trace, "VALIDATING_EVIDENCE")
-        answer_verification = verify_answer_claims(answer, evidence, sources)
+        answer_verification = verify_answer_claims(answer, evidence, sources, query=query)
         ctx["answer_verification"] = answer_verification
         verification_retry = False
         if (
@@ -660,7 +660,7 @@ def create_chat_v2_router(
                         "verification_retry": True,
                     },
                 )
-                revised_check = verify_answer_claims(revised, evidence, sources)
+                revised_check = verify_answer_claims(revised, evidence, sources, query=query)
                 if revised_check.get("valid"):
                     answer = revised
                     answer_verification = revised_check
