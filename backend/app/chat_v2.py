@@ -1107,7 +1107,26 @@ def create_chat_v2_router(
                 for step in brain_state.plan_steps:
                     if isinstance(step, dict) and str(step.get("id") or "") == "compare":
                         step["status"] = "completed"
-            brain_state.plan_version = "1.1"
+            # A tool result can change the required capabilities. Recompute the
+            # executive plan from the new evidence state without replacing the
+            # user's current request or continuity context.
+            refreshed_ctx = dict(ctx)
+            refreshed_ctx["evidence_available"] = bool(evidence)
+            refreshed_ctx["freshness_required"] = bool(brain_state.freshness_required)
+            refreshed_ctx["requires_web_research"] = bool(brain_state.evidence_required)
+            refreshed_ctx["required_capabilities"] = list(brain_state.required_capabilities)
+            refreshed_ctx["message"] = query
+            replanned = brain.think(query, refreshed_ctx)
+            if replanned.decision_fingerprint != brain_state.decision_fingerprint:
+                brain_state.plan_steps = replanned.plan_steps
+                brain_state.tool_priority = list(dict.fromkeys(replanned.tool_priority + executed_tools))
+                brain_state.required_capabilities = list(replanned.required_capabilities)
+                brain_state.reasoning_mode = replanned.reasoning_mode
+                brain_state.model_role = replanned.model_role
+                brain_state.model_selection_reason = replanned.model_selection_reason
+                brain_state.plan_version = "1.2"
+            else:
+                brain_state.plan_version = "1.1"
 
         # Any conditional or unused plan phase is explicitly closed so the
         # activity UI never leaves a stale "pending" phase after completion.
