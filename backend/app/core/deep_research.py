@@ -30,6 +30,8 @@ class DeepResearchPlan:
     verification_required: bool = False
     query_variants: list[str] = field(default_factory=list)
     clarification_needed: bool = False
+    target_sources: int = 2
+    max_research_passes: int = 2
 
 
 class DeepResearchEngine:
@@ -108,6 +110,19 @@ class DeepResearchEngine:
         )))
         variants = self._build_query_variants(query, reasons)
         clarification_needed = bool(self.AMBIGUOUS_RE.match(query.strip()))
+
+        # Adapt research depth to the evidence burden instead of always using
+        # the maximum search budget. Explicit cross-checks, medical/current
+        # facts, and research requests need more independent evidence; simple
+        # knowledge questions can stop earlier when a strong source is found.
+        if "medical_domain" in reasons or "research_intent" in reasons:
+            target_sources, max_passes = 3, 3
+        elif "freshness" in reasons or "year_specific" in reasons or "required_research" in reasons:
+            target_sources, max_passes = 2, 2
+        elif "knowledge_request" in reasons:
+            target_sources, max_passes = 1, 2
+        else:
+            target_sources, max_passes = 1, 1
         return DeepResearchPlan(
             query=query,
             reasons=reasons,
@@ -115,6 +130,8 @@ class DeepResearchEngine:
             verification_required=verification_required,
             query_variants=variants,
             clarification_needed=clarification_needed,
+            target_sources=target_sources,
+            max_research_passes=max_passes,
         )
 
     @staticmethod
@@ -243,6 +260,8 @@ class DeepResearchEngine:
             if not urls and plan.reasons:
                 # Research each reformulation until enough distinct sources are collected.
                 for variant in plan.query_variants or [plan.query]:
+                    if plan.research_passes >= plan.max_research_passes:
+                        break
                     found = await self._search(client, variant, limit=4, medical="medical_domain" in plan.reasons)
                     if not found and "knowledge_request" in plan.reasons:
                         found = await self._search_wikipedia(client, variant, limit=3)
@@ -252,7 +271,10 @@ class DeepResearchEngine:
                             urls.append(url)
                         if len(urls) >= 8:
                             break
-                    if len(urls) >= 8:
+                    # Stop discovery once the planned independent-source
+                    # budget is available; fetching/verification comes next.
+                    discovered_hosts = {self._source_key(url) for url in urls if self._source_key(url)}
+                    if len(discovered_hosts) >= plan.target_sources or len(urls) >= 8:
                         break
             # Prefer independent publisher hosts for the evidence set. Keep
             # same-host pages only after distinct hosts have been exhausted.
@@ -364,6 +386,8 @@ class DeepResearchEngine:
                 "verification_required": plan.verification_required,
                 "query_variants": plan.query_variants,
                 "clarification_needed": plan.clarification_needed,
+                "target_sources": plan.target_sources,
+                "max_research_passes": plan.max_research_passes,
             }
             for e in plan.evidence
         ]
