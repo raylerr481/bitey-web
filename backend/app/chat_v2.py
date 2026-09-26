@@ -454,9 +454,24 @@ def create_chat_v2_router(
         ctx["freshness_required"] = bool(ctx.get("freshness_required", brain_state.freshness_required))
         ctx["verification_profile"] = brain_state.verification_profile
         ctx["cognitive_plan"] = brain_state.plan_steps
-        # Resume the explicit active task by preferring its next unfinished plan step.
+        # Resume the explicit active task using persisted progress, while allowing
+        # the current request/evidence to trigger a fresh capability decision.
         if active_task.get("active") and active_task.get("continuation_detected") and brain_state.plan_steps:
-            pending = next((step for step in brain_state.plan_steps if isinstance(step, dict) and str(step.get("status", "pending")) in {"pending", "conditional"}), None)
+            previous = active_task.get("previous_plan") or []
+            previous_done = {
+                str(step.get("id") or "")
+                for step in previous
+                if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+            }
+            pending = next(
+                (
+                    step for step in brain_state.plan_steps
+                    if isinstance(step, dict)
+                    and str(step.get("status", "pending")) in {"pending", "conditional", "required"}
+                    and str(step.get("id") or "") not in previous_done
+                ),
+                None,
+            )
             if pending:
                 emit(f"Retomando la tarea activa: {pending.get('action', 'siguiente paso')}…")
                 active_task["resumed_step"] = str(pending.get("id") or "")
