@@ -94,9 +94,11 @@ class CognitiveTraceStore:
             return "VALIDATING_EVIDENCE"
         if "brain:" in label or "módulo" in label or "patrones cognitivos" in label:
             return "REASONING"
-        if "seleccionando la mejor ia" in label:
+        if "seleccionando la mejor ia" in label or "generando respuesta" in label:
             return "GENERATING"
-        if "evaluando respuesta" in label:
+        if "corrigiendo la respuesta" in label or "revisando la respuesta" in label:
+            return "REVISING"
+        if "reevaluando la respuesta" in label or "evaluando respuesta" in label:
             return "EVALUATING"
         if "respuesta lista" in label:
             return "DONE"
