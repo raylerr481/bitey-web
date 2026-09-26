@@ -125,7 +125,11 @@ class MemoryStore:
                 response.raise_for_status()
                 rows = response.json()
                 self.conversations[conversation_id] = [
-                    {"role": row["role"], "content": row["content"]}
+                    {
+                        "role": row["role"],
+                        "content": row["content"],
+                        "metadata": row.get("metadata") or {},
+                    }
                     for row in rows
                 ]
         return list(self.conversations.get(conversation_id, []))
