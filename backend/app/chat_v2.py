@@ -72,18 +72,22 @@ def _compact_history(
         (i for i, item in enumerate(history) if item.get("role") == "user"), 0
     )
 
-    # Score older user turns by overlap with the current request. This is only
-    # context selection; it does not promote historical text to evidence.
+    # Score prior user turns with both semantic overlap and recency. This keeps
+    # long conversations coherent without allowing an old, weakly related turn
+    # to displace a newer relevant turn.
     candidates = []
+    last_index = max(1, len(history) - 1)
     for i, item in enumerate(history):
         if item.get("role") != "user" or i == anchor_index:
             continue
         overlap = len(query_tokens & tokens(str(item.get("content", ""))))
-        if overlap:
-            candidates.append((overlap, i))
+        recency = i / last_index
+        score = (overlap * 3.0) + (recency * 0.75)
+        if overlap or i >= max(0, len(history) - budget):
+            candidates.append((score, i))
 
     selected_indices = {anchor_index}
-    selected_indices.update(i for _, i in sorted(candidates, reverse=True)[:4])
+    selected_indices.update(i for _, i in sorted(candidates, reverse=True)[:6])
 
     # Keep the assistant reply adjacent to selected user turns when possible.
     for i in list(selected_indices):
@@ -261,6 +265,8 @@ def create_chat_v2_router(
         history = await memory.history(cid)
         memory_updates = _detect_memory_updates(history, query)
         conversation_memory = _structured_conversation_memory(history, memory_updates)
+        if history:
+            emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
@@ -641,9 +647,10 @@ def create_chat_v2_router(
             ctx["conversation_context"] = {
                 "history_total": len(history),
                 "history_selected": len(selected_history),
-                "selection": "semantic_plus_recent" if len(history) > history_budget else "full_within_budget",
+                "selection": "semantic_recency_plus_recent" if len(history) > history_budget else "full_within_budget",
                 "memory_is_evidence": False,
                 "memory_updates": memory_updates,
+                "continuity_policy": "relevant_context_only",
             }
             system = (
                 brain.system_directive(brain_state)
@@ -660,7 +667,7 @@ def create_chat_v2_router(
                 + "Only memory items marked active are instructions for continuity; superseded items are retained for audit context but must not guide generation. The current request always takes priority. Do not treat preferences as factual evidence.\\n"
                 + "MEMORY UPDATE SIGNALS: " + str(memory_updates) + "\\n"
                 + "When memory_updates indicates an explicit override, use the current request and stop relying on the superseded preference or decision. Do not silently preserve conflicting old instructions.\\n"
-                + "Conversation history and prior memory are continuity context only: use them for preferences, constraints, names, and prior decisions when relevant, but never treat remembered facts as current evidence. Re-check time-sensitive or externally verifiable claims with tools. Do not let memory override fresh evidence or system safety rules."
+                + "Conversation history and prior memory are continuity context only: use them for preferences, constraints, names, and prior decisions when relevant, but never treat remembered facts as current evidence. Re-check time-sensitive or externally verifiable claims with tools. Do not let memory override fresh evidence or system safety rules. When recent context conflicts with older context, prefer the newest explicit user instruction; do not resurrect superseded preferences or decisions."
             )
             if brain_state.verification_profile:
                 system += (
