@@ -813,6 +813,22 @@ def create_chat_v2_router(
             )
 
         plan_step("synthesize", "completed")
+        # Advance the active task state after this turn: completed plan steps are
+        # represented explicitly so the next continuation can resume from the next step.
+        if active_task.get("active"):
+            completed_steps = [
+                str(step.get("id") or "")
+                for step in brain_state.plan_steps
+                if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+            ]
+            if completed_steps:
+                active_task["completed_steps"] = completed_steps[-12:]
+            active_task["progress"] = {
+                "completed": len(completed_steps),
+                "total": len([step for step in brain_state.plan_steps if isinstance(step, dict) and step.get("id")]),
+            }
+            ctx["active_task"] = active_task
+
         plan_step("verify", "running")
         emit("Verificando afirmaciones de la respuesta…")
         trace_store.set_stage(trace, "VALIDATING_EVIDENCE")
