@@ -84,7 +84,15 @@ class DeepResearchEngine:
             variants.append(f"{base} latest current information")
         elif "research_intent" in reasons:
             variants.append(f"{base} sources evidence")
-        return list(dict.fromkeys(v for v in variants if v))[:4]
+        if "medical_domain" in reasons:
+            variants.append(f"{base} official medical guidance")
+        if "freshness" in reasons:
+            variants.append(f"{base} official source latest")
+        if "year_specific" in reasons:
+            variants.append(f"{base} {re.search(self.YEAR_RE, base).group(0) if self.YEAR_RE.search(base) else ''} official data")
+        # Keep reformulations compact and distinct so fallback research can
+        # change the retrieval angle instead of repeating the same query.
+        return list(dict.fromkeys(v.strip() for v in variants if v.strip()))[:6]
 
     def plan(self, query: str, context: dict[str, Any] | None = None) -> DeepResearchPlan:
         context = context or {}
@@ -298,7 +306,20 @@ class DeepResearchEngine:
             # Rank discovered sources before fetching. Authority and source
             # diversity matter more than raw search-result order.
             unique_urls = list(dict.fromkeys(urls))
-            unique_urls.sort(key=lambda u: self._source_profile(u)[0], reverse=True)
+            # Prefer sources whose host/title contains terms from the current
+            # research query. Authority still breaks ties, so relevance does
+            # not cause low-quality pages to outrank authoritative evidence.
+            query_terms = {
+                token for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{4,}", plan.query.casefold())
+                if token not in {"para", "como", "cual", "cuál", "what", "where", "when"}
+            }
+            def retrieval_score(url: str) -> tuple[float, float]:
+                host = self._source_key(url)
+                source_terms = set(re.findall(r"[A-Za-zÀ-ÿ0-9]{4,}", host.casefold()))
+                relevance = len(query_terms & source_terms) / max(1, len(query_terms))
+                authority, _ = self._source_profile(url)
+                return relevance, authority
+            unique_urls.sort(key=retrieval_score, reverse=True)
             diverse_urls: list[str] = []
             seen_hosts: set[str] = set()
             for url in unique_urls:
