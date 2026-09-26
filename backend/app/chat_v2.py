@@ -411,7 +411,34 @@ def create_chat_v2_router(
                 (str(source["url"]).split("/")[2] if "//" in str(source["url"]) else str(source["url"])).lower().removeprefix("www.")
                 for source in sources
             }
-            if not evidence or len(distinct_hosts) < (2 if brain_state.task_class in {"general", "research"} else 1):
+            explicit_cross_check = bool(
+                re.search(r"\\b(?:fuentes?|compara(?:r)?|contrasta(?:r)?|corrobora(?:r)?|evidencia|cross[- ]?check)\\b", query, re.I)
+            )
+            source_qualities = [
+                float(source.get("quality", 0.0) or 0.0)
+                for source in sources
+                if isinstance(source, dict)
+            ]
+            has_strong_source = any(score >= 0.85 for score in source_qualities)
+            # Do not force a second web pass merely because a general question
+            # has one verified source. Escalate when evidence is missing,
+            # corroboration was explicitly requested, or the available source
+            # quality is too weak for a current/research claim.
+            needs_second_pass = (
+                not evidence
+                or (explicit_cross_check and len(distinct_hosts) < 2)
+                or (
+                    brain_state.task_class in {"general", "research"}
+                    and len(distinct_hosts) < 2
+                    and not has_strong_source
+                    and (
+                        brain_state.freshness_required
+                        or brain_state.evidence_required
+                        or brain_state.task_class == "research"
+                    )
+                )
+            )
+            if needs_second_pass:
                 plan_step("compare", "running")
                 emit("Contrastando evidencia con una segunda pasada…")
                 plan = research.plan(query, {"research_required": True, "current_intent_domain": brain_state.task_class})
