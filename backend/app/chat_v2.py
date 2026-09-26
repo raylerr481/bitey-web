@@ -833,6 +833,22 @@ def create_chat_v2_router(
             emit("Control final completado; respuesta lista.")
         else:
             emit("Control final detectó requisitos pendientes; manteniendo una respuesta conservadora.")
+            if brain_state.evidence_required and not evidence:
+                answer = (
+                    "No encontré evidencia verificable suficiente para responder esta parte "
+                    "como un hecho actual. Puedo continuar investigando si es necesario."
+                )
+                evaluation = response_evaluator.evaluate(
+                    user_message=query,
+                    answer=answer,
+                    context={**ctx, "final_contract": final_contract},
+                    evidence=evidence,
+                    conflict_detected=conflict_detected,
+                )
+                evaluation_dict = evaluation.as_dict()
+                ctx["evaluation"] = evaluation_dict
+                trace.evaluation = evaluation_dict
+                emit("Aplicando salida segura por falta de evidencia…")
 
         # Only accepted responses can become persistent learning. Learned lessons
         # are advisory context for future requests and never replace current evidence.
