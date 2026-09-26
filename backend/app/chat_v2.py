@@ -39,6 +39,22 @@ class ChatV2Response(BaseModel):
     evidence_analysis: dict[str, Any] = Field(default_factory=dict)
 
 
+def _compact_history(history: list[dict[str, Any]], budget: int = 24) -> list[dict[str, Any]]:
+    """Keep conversation continuity while bounding model context deterministically."""
+    if not history:
+        return []
+    budget = max(4, budget)
+    if len(history) <= budget:
+        return history
+    # Preserve the opening user turn as the conversation anchor, then prioritize
+    # the newest turns. This is context selection, not factual summarization.
+    anchor = next((item for item in history if item.get("role") == "user"), history[0])
+    recent = history[-(budget - 1):]
+    if anchor in recent:
+        return recent
+    return [anchor, *recent]
+
+
 def create_chat_v2_router(
     memory,
     providers: ProviderGateway,
@@ -312,7 +328,14 @@ def create_chat_v2_router(
             # crowd out the current request or verified evidence. The memory layer remains
             # authoritative for persistence; this is only the inference context window.
             history_budget = max(4, int(__import__("os").getenv("AI_HISTORY_MESSAGES", "24")))
-            messages = history[-history_budget:] + [{"role": "user", "content": query}]
+            selected_history = _compact_history(history, history_budget)
+            messages = selected_history + [{"role": "user", "content": query}]
+            ctx["conversation_context"] = {
+                "history_total": len(history),
+                "history_selected": len(selected_history),
+                "selection": "anchor_plus_recent" if len(history) > history_budget else "full_within_budget",
+                "memory_is_evidence": False,
+            }
             system = (
                 brain.system_directive(brain_state)
                 + "\n\n"
