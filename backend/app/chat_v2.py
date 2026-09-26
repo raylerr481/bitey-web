@@ -452,7 +452,8 @@ def create_chat_v2_router(
                             "url": item.url,
                             "title": item.title or item.url,
                             "verified": True,
-                            "quality": 0.65,
+                            "quality": float(getattr(item, "quality", 0.65) or 0.65),
+                            "authority": getattr(item, "authority", "unknown"),
                         })
 
             if sources:
