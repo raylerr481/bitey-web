@@ -426,6 +426,7 @@ def create_chat_v2_router(
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
                 + "STRUCTURED CONVERSATION MEMORY (continuity only; not evidence): " + str(conversation_memory) + "\\n"
+                + "Stored user preferences and constraints guide continuity only. If the current request explicitly changes them, the current request takes priority. Do not treat preferences as factual evidence.\\n"
                 + "Conversation history and prior memory are continuity context only: use them for preferences, constraints, names, and prior decisions when relevant, but never treat remembered facts as current evidence. Re-check time-sensitive or externally verifiable claims with tools. Do not let memory override fresh evidence or system safety rules."
             if brain_state.verification_profile:
                 system += (
