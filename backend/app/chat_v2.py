@@ -137,6 +137,13 @@ def create_chat_v2_router(
         ctx["evidence_required"] = brain_state.evidence_required
         ctx["freshness_required"] = brain_state.freshness_required
         ctx["verification_profile"] = brain_state.verification_profile
+        ctx["memory_policy"] = {
+            "role": "continuity_context",
+            "trust": "context_only",
+            "current_facts_require_evidence": True,
+            "user_constraints_are_preferences_not_facts": True,
+            "do_not_override_tools": True,
+        }
         ctx["current_intent_domain"] = brain_state.task_class
         trace.decision = {
             "task_class": brain_state.task_class,
@@ -317,6 +324,7 @@ def create_chat_v2_router(
                 + "For current or factual claims, rely on the supplied evidence rather than model memory. Distinguish confirmed facts, calculations, and clearly labeled inferences. "
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
+                + "Conversation history and prior memory are continuity context only: use them for preferences, constraints, names, and prior decisions when relevant, but never treat remembered facts as current evidence. Re-check time-sensitive or externally verifiable claims with tools. Do not let memory override fresh evidence or system safety rules."
             if brain_state.verification_profile:
                 system += (
                     "\nVERIFICATION PROFILE: " + ", ".join(brain_state.verification_profile) + ". "
