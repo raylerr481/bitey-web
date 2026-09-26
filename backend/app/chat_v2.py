@@ -420,12 +420,27 @@ def create_chat_v2_router(
                 if isinstance(source, dict)
             ]
             has_strong_source = any(score >= 0.85 for score in source_qualities)
+            query_terms = {
+                token for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{4,}", query.casefold())
+                if token not in {"para", "como", "cual", "cuál", "what", "where", "when", "that", "this"}
+            }
+            source_relevance_scores = []
+            for source in sources:
+                source_text = f"{source.get('title', '')} {source.get('url', '')}".casefold()
+                source_terms = set(re.findall(r"[A-Za-zÀ-ÿ0-9]{4,}", source_text))
+                if query_terms:
+                    source_relevance_scores.append(
+                        len(query_terms & source_terms) / len(query_terms)
+                    )
+            max_source_relevance = max(source_relevance_scores, default=0.0)
+            relevant_source_count = sum(score >= 0.12 for score in source_relevance_scores)
             # Do not force a second web pass merely because a general question
             # has one verified source. Escalate when evidence is missing,
             # corroboration was explicitly requested, or the available source
             # quality is too weak for a current/research claim.
             needs_second_pass = (
                 not evidence
+                or (bool(sources) and max_source_relevance < 0.12)
                 or (explicit_cross_check and len(distinct_hosts) < 2)
                 or (
                     brain_state.task_class in {"general", "research"}
@@ -489,6 +504,8 @@ def create_chat_v2_router(
             "evidence_source_count": evidence_source_count,
             "evidence_quality": round(evidence_quality, 3),
             "strong_source_count": strong_source_count,
+            "max_source_relevance": round(max_source_relevance, 3),
+            "relevant_source_count": relevant_source_count,
             "independent_source_count": independent_source_count,
             "selected_tools": selected,
             "research_required": research_required,
