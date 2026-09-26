@@ -276,6 +276,7 @@ def create_chat_v2_router(
         ctx["evidence_required"] = brain_state.evidence_required
         ctx["freshness_required"] = brain_state.freshness_required
         ctx["verification_profile"] = brain_state.verification_profile
+        ctx["cognitive_plan"] = brain_state.plan_steps
         ctx["conversation_memory"] = conversation_memory
         ctx["memory_updates"] = memory_updates
         ctx["memory_policy"] = {
@@ -292,6 +293,7 @@ def create_chat_v2_router(
             "evidence_required": brain_state.evidence_required,
             "freshness_required": brain_state.freshness_required,
             "verification_profile": brain_state.verification_profile,
+            "plan_steps": brain_state.plan_steps,
             "risk_level": brain_state.risk_level,
             "tool_priority": brain_state.tool_priority,
             "decision_fingerprint": brain_state.decision_fingerprint,
