@@ -187,10 +187,18 @@ class CognitiveModel:
             }
 
         if conceptual:
+            current_conceptual_weather = any(
+                x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico", "forecast")
+            )
+            # Conceptual questions are stable knowledge unless the user explicitly
+            # asks for a current/fresh fact. Do not let domain keywords such as
+            # "acción", "API", "trading" or "Python" force external research.
+            if not current_conceptual_weather:
+                scores = {domain: 0 for domain in scores}
+                scores["general"] = 1
             for domain in strong_scores:
-                if domain != "weather" or not any(x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico")):
+                if domain != "weather" or not current_conceptual_weather:
                     strong_scores[domain] = 0
-            scores["general"] = 1
 
         max_strong = max(strong_scores.values(), default=0)
         if max_strong:
@@ -229,8 +237,22 @@ class CognitiveModel:
                 "verification_required": False,
                 "stop_condition": "natural_conversational_response",
             }
-        freshness = domain in {"weather", "finance"} or bool(context.get("freshness_required"))
-        evidence = freshness or bool(context.get("research") or context.get("requires_web_research") or context.get("needs_web")) or domain == "research"
+        current_cues = (
+            "ahora", "ahora mismo", "hoy", "actual", "actualmente",
+            "último", "última", "ultimo", "ultima", "reciente", "latest",
+            "current", "recent", "en vivo", "tiempo real", "cotiza"
+        )
+        explicit_current = any(cue in lower_message for cue in current_cues)
+        freshness = (
+            bool(context.get("freshness_required"))
+            or (domain == "weather" and explicit_current)
+            or (domain == "finance" and explicit_current)
+        )
+        evidence = freshness or bool(
+            context.get("research")
+            or context.get("requires_web_research")
+            or context.get("needs_web")
+        ) or domain == "research"
         # Detect compound requests so the planner can preserve the user's requested sequence.
         lower_message = message.lower()
         step_cues = (" y luego ", " después ", " despues ", " luego ", " después de ", " despues de ", "then ", "after that", "and then", "primero", "first")
