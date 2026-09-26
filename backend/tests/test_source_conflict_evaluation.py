@@ -146,3 +146,20 @@ def test_brain_classifies_opinion_without_making_it_a_fact():
     state = brain.think("¿Qué opinas sobre esta alternativa?", {})
     assert "opinion" in state.verification_profile
     assert "fact" in state.verification_profile
+
+
+def test_compact_history_preserves_anchor_and_recent_turns():
+    from app.chat_v2 import _compact_history
+
+    history = [
+        {"role": "user", "content": "Proyecto inicial"},
+        {"role": "assistant", "content": "Contexto inicial"},
+        {"role": "user", "content": "turno 2"},
+        {"role": "assistant", "content": "turno 3"},
+        {"role": "user", "content": "turno 4"},
+        {"role": "assistant", "content": "turno 5"},
+    ]
+    selected = _compact_history(history, 4)
+    assert selected[0]["content"] == "Proyecto inicial"
+    assert [x["content"] for x in selected[-2:]] == ["turno 4", "turno 5"]
+    assert len(selected) == 4
