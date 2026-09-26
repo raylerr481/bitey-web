@@ -183,3 +183,15 @@ def test_compact_history_prioritizes_relevant_older_turn():
     assert "Proyecto Bitey IA" in contents
     assert "hablamos de cocina" not in contents
     assert "Bitey IA necesita memoria semántica" in contents
+
+
+def test_detect_memory_updates_marks_explicit_change():
+    from app.chat_v2 import _detect_memory_updates
+
+    history = [
+        {"role": "user", "content": "Prefiero trabajar con Python"},
+        {"role": "assistant", "content": "Entendido"},
+    ]
+    update = _detect_memory_updates(history, "Ahora prefiero trabajar con TypeScript en vez de Python")
+    assert update["current_overrides"] is True
+    assert update["supersedes"]
