@@ -156,6 +156,42 @@ def _structured_conversation_memory(
     return buckets
 
 
+
+def _active_conversation_state(
+    history: list[dict[str, Any]],
+    memory_updates: dict[str, Any] | None,
+    current_query: str,
+    limit: int = 4,
+) -> dict[str, Any]:
+    """Build a compact explicit session state for continuity; never infer hidden intent."""
+    structured = _structured_conversation_memory(history, memory_updates, limit=limit)
+
+    def active(bucket: str) -> list[str]:
+        return [
+            str(item.get("text", "")).strip()
+            for item in structured.get(bucket, [])
+            if item.get("status") == "active" and str(item.get("text", "")).strip()
+        ][-limit:]
+
+    recent_user = [
+        " ".join(str(item.get("content", "")).split())
+        for item in history
+        if item.get("role") == "user" and str(item.get("content", "")).strip()
+    ]
+
+    return {
+        "current_request": " ".join(current_query.split())[:1000],
+        "current_goal": active("goals")[-1:] or [],
+        "active_constraints": active("constraints"),
+        "active_preferences": active("preferences"),
+        "latest_decisions": active("decisions"),
+        "last_user_request": (recent_user[-1][:1000] if recent_user else ""),
+        "override_detected": bool((memory_updates or {}).get("current_overrides")),
+        "superseded_count": len((memory_updates or {}).get("supersedes", [])),
+        "priority": "current_request_then_explicit_active_state",
+        "trust": "continuity_only_not_evidence",
+    }
+
 def _detect_memory_updates(
     history: list[dict[str, Any]],
     current_query: str,
@@ -267,6 +303,7 @@ def create_chat_v2_router(
         history = await memory.history(cid)
         memory_updates = _detect_memory_updates(history, query)
         conversation_memory = _structured_conversation_memory(history, memory_updates)
+        active_state = _active_conversation_state(history, memory_updates, query)
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
@@ -311,6 +348,7 @@ def create_chat_v2_router(
         def plan_step(step_id: str, status: str) -> None:
             trace_store.set_plan_step(trace, step_id, status)
         ctx["conversation_memory"] = conversation_memory
+        ctx["active_conversation_state"] = active_state
         ctx["memory_updates"] = memory_updates
         ctx["memory_policy"] = {
             "role": "continuity_context",
@@ -330,6 +368,7 @@ def create_chat_v2_router(
             "risk_level": brain_state.risk_level,
             "tool_priority": brain_state.tool_priority,
             "decision_fingerprint": brain_state.decision_fingerprint,
+            "active_conversation_state": active_state,
         }
 
         plan_step("understand", "completed")
@@ -653,6 +692,7 @@ def create_chat_v2_router(
                 "memory_is_evidence": False,
                 "memory_updates": memory_updates,
                 "continuity_policy": "relevant_context_only",
+                "active_state": active_state,
             }
             system = (
                 brain.system_directive(brain_state)
@@ -665,6 +705,7 @@ def create_chat_v2_router(
                 + "For current or factual claims, rely on the supplied evidence rather than model memory. Distinguish confirmed facts, calculations, and clearly labeled inferences. "
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
+                + "ACTIVE CONVERSATION STATE (continuity only; not evidence): " + str(active_state) + "\\n"
                 + "STRUCTURED CONVERSATION MEMORY (continuity only; not evidence): " + str(conversation_memory) + "\\n"
                 + "Only memory items marked active are instructions for continuity; superseded items are retained for audit context but must not guide generation. The current request always takes priority. Do not treat preferences as factual evidence.\\n"
                 + "MEMORY UPDATE SIGNALS: " + str(memory_updates) + "\\n"
