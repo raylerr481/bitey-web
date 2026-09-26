@@ -277,7 +277,7 @@ def create_chat_v2_router(
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
         ctx["cognition"] = initial_cognitive.as_dict()
         ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
-        emit(f"Intención cognitiva: {ctx["current_intent_domain"]}…")
+        emit(f"Intención cognitiva: {ctx['current_intent_domain']}…")
         brain_state = brain.think(query, ctx)
 
         # Explicit UI modes are hard user intent overrides. Auto mode remains
