@@ -163,3 +163,23 @@ def test_compact_history_preserves_anchor_and_recent_turns():
     assert selected[0]["content"] == "Proyecto inicial"
     assert [x["content"] for x in selected[-2:]] == ["turno 4", "turno 5"]
     assert len(selected) == 4
+
+
+def test_compact_history_prioritizes_relevant_older_turn():
+    from app.chat_v2 import _compact_history
+
+    history = [
+        {"role": "user", "content": "Proyecto Bitey IA"},
+        {"role": "assistant", "content": "Contexto del proyecto"},
+        {"role": "user", "content": "hablamos de cocina"},
+        {"role": "assistant", "content": "receta"},
+        {"role": "user", "content": "otros temas"},
+        {"role": "assistant", "content": "respuesta"},
+        {"role": "user", "content": "Bitey IA necesita memoria semántica"},
+        {"role": "assistant", "content": "respuesta reciente"},
+    ]
+    selected = _compact_history(history, 6, "mejora la memoria semántica de Bitey IA")
+    contents = [x["content"] for x in selected]
+    assert "Proyecto Bitey IA" in contents
+    assert "hablamos de cocina" not in contents
+    assert "Bitey IA necesita memoria semántica" in contents
