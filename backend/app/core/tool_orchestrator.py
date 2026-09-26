@@ -59,8 +59,15 @@ class ToolOrchestrator:
         ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
         normalized = message.casefold().strip()
+        arithmetic_request = bool(
+            self.MATH_RE.fullmatch(message.strip())
+            or self.NATURAL_MATH_RE.fullmatch(message.strip())
+        )
+        calculation_profile = "calculation" in set(brain.verification_profile or [])
 
-        if self.MATH_RE.fullmatch(message.strip()) or self.NATURAL_MATH_RE.fullmatch(message.strip()):
+        # Calculator is an executable capability, not merely a label. Use it
+        # for deterministic arithmetic only; symbolic math remains model work.
+        if arithmetic_request and calculation_profile:
             requested = ["calculator"]
         elif self.WEATHER_RE.search(message) and (
             str(cognitive.intention.get("domain", "general")).lower() == "weather"
@@ -69,9 +76,11 @@ class ToolOrchestrator:
             requested = ["weather"]
             if re.search(r"\b(fuente|fuentes|compara|contrasta|corrobora)\b", normalized):
                 requested.append("search")
-        elif brain.evidence_required and "search" not in requested:
+        elif brain.evidence_required and "search" not in requested and "web_research" not in requested:
             requested.append("search")
 
+        # Brain capabilities such as code_reasoning are model roles unless a
+        # concrete executable tool is registered. Never expose a phantom tool.
         requested = ["web_research" if name == "search" else name for name in requested]
         selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
