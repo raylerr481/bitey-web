@@ -306,6 +306,10 @@ def create_chat_v2_router(
         }
 
         plan_step("understand", "completed")
+        if any(isinstance(step, dict) and step.get("id") == "decompose" for step in brain_state.plan_steps):
+            plan_step("decompose", "running")
+            emit("Descomponiendo la tarea en pasos…")
+            plan_step("decompose", "completed")
         math_like = bool(re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)) or any(
             k in query.lower()
             for k in ("promedio", "media", "mediana", "porcentaje", "cagr", "probabilidad", "desviación", "desviacion")
@@ -656,6 +660,16 @@ def create_chat_v2_router(
                 # learning table must never break an otherwise valid answer.
                 pass
 
+        # Any conditional or unused plan phase is explicitly closed so the
+        # activity UI never leaves a stale "pending" phase after completion.
+        for step in brain_state.plan_steps:
+            if not isinstance(step, dict):
+                continue
+            step_id = str(step.get("id") or "")
+            if step_id and str(trace.decision.get("plan_steps", [])):
+                snapshot = next((item for item in trace.decision.get("plan_steps", []) if item.get("id") == step_id), None)
+                if snapshot and snapshot.get("status") in {"pending", "conditional"}:
+                    plan_step(step_id, "skipped")
         plan_step("respond", "running")
         await memory.append(cid, {"role": "user", "content": query})
         await memory.append(cid, {"role": "assistant", "content": answer})
