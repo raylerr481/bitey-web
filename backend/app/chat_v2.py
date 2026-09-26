@@ -131,6 +131,34 @@ def _structured_conversation_memory(history: list[dict[str, Any]], limit: int = 
     return buckets
 
 
+def _detect_memory_updates(
+    history: list[dict[str, Any]],
+    current_query: str,
+) -> dict[str, Any]:
+    """Detect explicit continuity changes without inferring hidden user intent."""
+    import re
+
+    update = {"supersedes": [], "current_overrides": False}
+    current = " ".join(current_query.split())
+    if re.search(r"\\b(?:cambia|cambio|mejor|ahora prefiero|desde ahora|olvida|ya no|en vez de|instead|now prefer|forget)\\b", current, re.I):
+        update["current_overrides"] = True
+
+    # Explicitly identify prior statements that the current message appears to replace.
+    recent = [
+        " ".join(str(item.get("content", "")).split())
+        for item in history[-16:]
+        if item.get("role") == "user"
+    ]
+    current_tokens = set(re.findall(r"[a-záéíóúüñ0-9]{4,}", current.lower()))
+    for old in recent:
+        old_tokens = set(re.findall(r"[a-záéíóúüñ0-9]{4,}", old.lower()))
+        if current_tokens and len(current_tokens & old_tokens) >= 2:
+            if re.search(r"\\b(?:cambia|cambio|ahora|ya no|en vez de|instead|now)\\b", current, re.I):
+                update["supersedes"].append(old[:500])
+    update["supersedes"] = update["supersedes"][-4:]
+    return update
+
+
 def create_chat_v2_router(
     memory,
     providers: ProviderGateway,
@@ -211,6 +239,7 @@ def create_chat_v2_router(
 
         history = await memory.history(cid)
         conversation_memory = _structured_conversation_memory(history)
+        memory_updates = _detect_memory_updates(history, query)
         learning_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
@@ -231,6 +260,7 @@ def create_chat_v2_router(
         ctx["freshness_required"] = brain_state.freshness_required
         ctx["verification_profile"] = brain_state.verification_profile
         ctx["conversation_memory"] = conversation_memory
+        ctx["memory_updates"] = memory_updates
         ctx["memory_policy"] = {
             "role": "continuity_context",
             "trust": "context_only",
@@ -413,6 +443,7 @@ def create_chat_v2_router(
                 "history_selected": len(selected_history),
                 "selection": "semantic_plus_recent" if len(history) > history_budget else "full_within_budget",
                 "memory_is_evidence": False,
+                "memory_updates": memory_updates,
             }
             system = (
                 brain.system_directive(brain_state)
