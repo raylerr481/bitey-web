@@ -1,3 +1,4 @@
+from app.core.bitey_brain import BiteyBrain
 from app.core.evaluation_engine import verify_answer_claims
 from app.core.executive_evaluator import ExecutiveEvaluator
 
@@ -129,3 +130,19 @@ def test_claim_verification_keeps_uncited_inference_out_of_rejection():
     )
     assert result["unsupported_count"] == 0
     assert result["skipped_claims"] >= 1
+
+
+def test_brain_classifies_calculation_and_inference_profiles():
+    brain = BiteyBrain()
+    calculation = brain.think("¿Cuánto es 15% de 200?", {})
+    assert "calculation" in calculation.verification_profile
+
+    inference = brain.think("¿Qué significa que el mercado haya caído?", {})
+    assert "inference" in inference.verification_profile
+
+
+def test_brain_classifies_opinion_without_making_it_a_fact():
+    brain = BiteyBrain()
+    state = brain.think("¿Qué opinas sobre esta alternativa?", {})
+    assert "opinion" in state.verification_profile
+    assert "fact" in state.verification_profile
