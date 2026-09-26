@@ -165,8 +165,9 @@ class BiteyBrain:
                 # Main registers the evidence tool under this canonical name.
                 # Keep the executive decision aligned with the actual tool registry.
                 t.append("web_research")
-        if "code_reasoning" in capabilities:t.append("code_reasoning")
-        if context.get("workspace_files_required"):t.append("workspace_files")
+        # code_reasoning is a model capability, not an executable tool.
+        # Workspace-file handling is also only advertised when a concrete
+        # registered tool exists; never place phantom tools in the plan.
         return list(dict.fromkeys(t))
 
     @staticmethod
