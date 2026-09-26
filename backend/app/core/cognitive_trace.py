@@ -122,7 +122,7 @@ class CognitiveTraceStore:
             {
                 "id": str(step.get("id", "")),
                 "action": str(step.get("action", "")),
-                "status": str(step.get("status", "pending")),
+                "status": "pending" if str(step.get("status", "pending")) == "required" else str(step.get("status", "pending")),
             }
             for step in plan_steps
             if isinstance(step, dict) and step.get("id") and step.get("action")
