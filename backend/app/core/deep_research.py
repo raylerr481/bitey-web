@@ -17,6 +17,8 @@ class Evidence:
     content: str = ""
     ok: bool = False
     error: str | None = None
+    quality: float = 0.0
+    authority: str = "unknown"
 
 
 @dataclass
@@ -196,6 +198,23 @@ class DeepResearchEngine:
         return re.sub(r"^www\.", "", (httpx.URL(url).host or "").lower()).strip()
 
     @classmethod
+    def _source_profile(cls, url: str) -> tuple[float, str]:
+        host = cls._source_key(url)
+        if cls._is_medical_authority(url):
+            return 1.0, "specialized_authority"
+        if host.endswith(".gov") or ".gov." in host:
+            return 0.98, "government"
+        if host.endswith(".edu") or ".edu." in host:
+            return 0.95, "academic"
+        if host.endswith(".org") or ".org." in host:
+            return 0.78, "organization"
+        if host in {"reuters.com", "apnews.com", "bbc.com", "nytimes.com", "theguardian.com"}:
+            return 0.88, "established_media"
+        if host:
+            return 0.62, "general_web"
+        return 0.0, "unknown"
+
+    @classmethod
     def _is_medical_authority(cls, url: str) -> bool:
         host = cls._source_key(url)
         return any(host == domain or host.endswith("." + domain) for domain in cls.MEDICAL_AUTHORITY_DOMAINS)
@@ -276,9 +295,10 @@ class DeepResearchEngine:
                     discovered_hosts = {self._source_key(url) for url in urls if self._source_key(url)}
                     if len(discovered_hosts) >= plan.target_sources or len(urls) >= 8:
                         break
-            # Prefer independent publisher hosts for the evidence set. Keep
-            # same-host pages only after distinct hosts have been exhausted.
+            # Rank discovered sources before fetching. Authority and source
+            # diversity matter more than raw search-result order.
             unique_urls = list(dict.fromkeys(urls))
+            unique_urls.sort(key=lambda u: self._source_profile(u)[0], reverse=True)
             diverse_urls: list[str] = []
             seen_hosts: set[str] = set()
             for url in unique_urls:
@@ -311,9 +331,11 @@ class DeepResearchEngine:
                     text = re.sub(r"<[^>]+>", " ", text)
                     text = unescape(re.sub(r"\s+", " ", text)).strip()
                     if len(text) < 80:
-                        plan.evidence.append(Evidence(url=str(r.url), title=title, error="insufficient_text"))
+                        score, authority = self._source_profile(str(r.url))
+                        plan.evidence.append(Evidence(url=str(r.url), title=title, error="insufficient_text", quality=score, authority=authority))
                     else:
-                        plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True))
+                        score, authority = self._source_profile(str(r.url))
+                        plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True, quality=score, authority=authority))
                 except Exception as exc:
                     plan.evidence.append(Evidence(url=url, error=type(exc).__name__))
 
@@ -352,7 +374,8 @@ class DeepResearchEngine:
                         text = re.sub(r"<[^>]+>", " ", text)
                         text = unescape(re.sub(r"\s+", " ", text)).strip()
                         if len(text) >= 80:
-                            plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True))
+                            score, authority = self._source_profile(str(r.url))
+                            plan.evidence.append(Evidence(url=str(r.url), title=title, content=text[:16000], ok=True, quality=score, authority=authority))
                         else:
                             plan.evidence.append(Evidence(url=str(r.url), title=title, error="insufficient_text"))
                     except Exception as exc:
@@ -387,6 +410,8 @@ class DeepResearchEngine:
                 "query_variants": plan.query_variants,
                 "clarification_needed": plan.clarification_needed,
                 "target_sources": plan.target_sources,
+                "quality": e.quality,
+                "authority": e.authority,
                 "max_research_passes": plan.max_research_passes,
             }
             for e in plan.evidence
