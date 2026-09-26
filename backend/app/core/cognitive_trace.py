@@ -116,6 +116,35 @@ class CognitiveTraceStore:
         self._items[trace.trace_id] = trace
         self._trim()
 
+    def set_plan(self, trace: CognitiveTrace, plan_steps: list[dict[str, Any]]) -> None:
+        """Attach a bounded execution plan; only safe step metadata is retained."""
+        trace.decision["plan_steps"] = [
+            {
+                "id": str(step.get("id", "")),
+                "action": str(step.get("action", "")),
+                "status": str(step.get("status", "pending")),
+            }
+            for step in plan_steps
+            if isinstance(step, dict) and step.get("id") and step.get("action")
+        ]
+        self._items[trace.trace_id] = trace
+        self._trim()
+
+    def set_plan_step(self, trace: CognitiveTrace, step_id: str, status: str) -> None:
+        """Transition one execution-plan step through pending/running/completed/failed/skipped."""
+        allowed = {"pending", "running", "completed", "failed", "skipped", "conditional"}
+        normalized = str(status or "pending").strip().lower()
+        if normalized not in allowed:
+            normalized = "pending"
+        steps = trace.decision.get("plan_steps") or []
+        for step in steps:
+            if isinstance(step, dict) and step.get("id") == step_id:
+                step["status"] = normalized
+                break
+        trace.decision["plan_steps"] = steps
+        self._items[trace.trace_id] = trace
+        self._trim()
+
     def finish(self, trace: CognitiveTrace, status: str) -> None:
         trace.final_status = status
         self.set_stage(trace, "DONE" if status in {"accept", "revise"} else "ERROR")
