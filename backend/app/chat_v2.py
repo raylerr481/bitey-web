@@ -806,6 +806,34 @@ def create_chat_v2_router(
         elif evaluation.decision == "revise":
             answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
 
+        # Final deterministic contract checkpoint. The model may synthesize,
+        # but it cannot silently erase the evidence/tool contract established
+        # by the executive brain.
+        final_contract = {
+            "answer_present": bool(str(answer).strip()),
+            "question_present": bool(str(query).strip()),
+            "evidence_required": bool(brain_state.evidence_required),
+            "evidence_available": bool(evidence),
+            "verification_completed": bool(answer_verification),
+            "tools_selected": list(selected),
+            "tools_executed": list(dict.fromkeys(selected)),
+        }
+        final_contract["ready"] = (
+            final_contract["answer_present"]
+            and final_contract["question_present"]
+            and (
+                not final_contract["evidence_required"]
+                or final_contract["evidence_available"]
+                or bool(answer_verification.get("valid"))
+            )
+        )
+        ctx["final_contract"] = final_contract
+        trace.decision["final_contract"] = final_contract
+        if final_contract["ready"]:
+            emit("Control final completado; respuesta lista.")
+        else:
+            emit("Control final detectó requisitos pendientes; manteniendo una respuesta conservadora.")
+
         # Only accepted responses can become persistent learning. Learned lessons
         # are advisory context for future requests and never replace current evidence.
         if learning is not None and evaluation.decision == "accept":
