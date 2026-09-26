@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .core.bitey_brain import BiteyBrain
+from .core.cognitive_model import CognitiveModel
 from .core.cognitive_trace import CognitiveTraceStore
 from .core.deep_research import DeepResearchEngine
 from .core.evaluation_engine import EvaluationEngine, verify_answer_claims
@@ -182,6 +183,7 @@ def create_chat_v2_router(
     providers: ProviderGateway,
     tools: ToolOrchestrator,
     brain: BiteyBrain,
+    cognition: CognitiveModel,
     cognitive_trace: CognitiveTraceStore | None = None,
     evaluator: EvaluationEngine | None = None,
     learning=None,
@@ -272,9 +274,14 @@ def create_chat_v2_router(
             "request_id": request_id,
         }
 
+        initial_cognitive = cognition.process(query, ctx, evidence_available=False)
+        ctx["cognition"] = initial_cognitive.as_dict()
+        ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
+        emit(f"Intención cognitiva: {ctx["current_intent_domain"]}…")
         brain_state = brain.think(query, ctx)
         emit("Enrutando la solicitud según intención y capacidades…")
         ctx["bitey_brain"] = brain_state.as_dict()
+        ctx["requires_web_research"] = brain_state.evidence_required
         ctx["evidence_required"] = brain_state.evidence_required
         ctx["freshness_required"] = brain_state.freshness_required
         ctx["verification_profile"] = brain_state.verification_profile
@@ -497,6 +504,12 @@ def create_chat_v2_router(
         })
         conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
         conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
+        evaluated_cognitive = cognition.evaluate(initial_cognitive, evidence_available=bool(evidence))
+        ctx["cognition"] = evaluated_cognitive.as_dict()
+        ctx["current_intent_domain"] = evaluated_cognitive.intention.get("domain", ctx.get("current_intent_domain", "general"))
+        brain_state = brain.think(query, ctx)
+        ctx["bitey_brain"] = brain_state.as_dict()
+
         ctx.update({
             "evidence": evidence,
             "evidence_available": bool(evidence),
