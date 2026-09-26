@@ -488,6 +488,7 @@ def create_chat_v2_router(
             elapsed_ms=int((time.perf_counter() - started) * 1000),
             answer_validation={
                 "valid": evaluation.decision == "accept" and answer_verification.get("valid", True),
+                    "verification_profile": brain_state.verification_profile,
                 "claims": answer_verification.get("claim_count", 0),
                 "supported_claims": answer_verification.get("supported_count", 0),
                 "partial_claims": answer_verification.get("partial_count", 0),
