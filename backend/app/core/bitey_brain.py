@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 import hashlib
+import re
 
 @dataclass
 class BrainState:
@@ -19,6 +20,7 @@ class BrainState:
     required_capabilities: list[str] = field(default_factory=list)
     tool_priority: list[str] = field(default_factory=list)
     verification_required: bool = False
+    verification_profile: list[str] = field(default_factory=list)
     execution_allowed: bool = False
     model_role: str = "synthesis"
     model_selection_reason: str = "default_synthesis"
@@ -70,16 +72,39 @@ class BiteyBrain:
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
         elif any(x in low for x in self.ACTION_WORDS): risk = "medium"
-        capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx); tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}
+        capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx); tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
-        state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
+        state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, verification_profile=verification_profile, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
         if evidence: state.goals.insert(3,"ground_claims_in_evidence")
         if verification: state.goals.append("verify_before_presenting_high_impact_claims")
         if risk == "critical": state.constraints += ["never_bypass_domain_risk_gate","no_live_execution"]
         ctx["_bitey_brain_state"] = state; ctx["_bitey_brain_evidence_available"] = evidence_available; ctx["_bitey_brain_fingerprint"] = fingerprint
         return state
 
+    @staticmethod
+    def _verification_profile(text: str, domain: str, evidence: bool, freshness: bool, complexity: float) -> list[str]:
+        """Declare claim classes requiring special handling before synthesis."""
+        low = text.lower()
+        profile: list[str] = ["fact"]
+        calculation_signal = any(x in low for x in (
+            "calcula", "calcular", "cálculo", "porcentaje", "interés", "ecuación",
+            "derivada", "integral", "estadística", "probabilidad", "cuánto es",
+        )) or bool(re.search(r"\d\s*[+\-*/=]\s*\d", low))
+        inference_signal = any(x in low for x in (
+            "por qué", "porque", "causa", "consecuencia", "significa", "implica",
+            "sugiere", "probable", "podría", "por que", "why", "cause", "implies",
+        ))
+        opinion_signal = any(x in low for x in (
+            "opinión", "opinion", "qué piensas", "que piensas", "crees que",
+            "mejor", "peor", "recomienda", "recomiéndame", "recommend",
+        ))
+        if calculation_signal: profile.append("calculation")
+        if inference_signal: profile.append("inference")
+        if opinion_signal: profile.append("opinion")
+        if freshness or evidence or domain == "research": profile.append("current_fact")
+        if complexity >= 0.60: profile.append("multi_step")
+        return list(dict.fromkeys(profile))
     @staticmethod
     def _complexity(text: str, cognition: dict[str, Any]) -> float:
         explicit=(cognition.get("perception") or {}).get("complexity")
@@ -141,7 +166,7 @@ class BiteyBrain:
     def system_directive(self,state):
         directive = (
             "BITEY BRAIN EXECUTIVE CONTRACT\n"
-            f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n"
+            f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; verification_profile={','.join(state.verification_profile) or 'fact'}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n"
             "Bitey has already decided what must be done. The selected model is only an inference/synthesis worker. Do not invent facts, bypass tool/evidence requirements, or override the cognitive contract."
         )
         if state.task_class == "general":
