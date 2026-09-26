@@ -379,15 +379,24 @@ def create_chat_v2_router(
                             conflict_candidates.append(candidate)
             evidence = "\\n\\n".join(evidence_parts)
 
+            # Normalize sources at the evidence boundary. Multiple tools can
+            # return the same URL; expose each source once so source counts,
+            # corroboration thresholds, and final citations remain accurate.
+            seen_source_urls: set[str] = set()
             for item in raw_sources:
-                if isinstance(item, dict) and item.get("ok") and item.get("url"):
-                    sources.append({
-                        "url": item.get("url"),
-                        "title": item.get("title") or item.get("url"),
-                        "verified": True,
-                        "quality": item.get("source_quality", 0.65),
-                        "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
-                    })
+                if not isinstance(item, dict) or not item.get("ok") or not item.get("url"):
+                    continue
+                url = str(item.get("url")).strip()
+                if not url or url in seen_source_urls:
+                    continue
+                seen_source_urls.add(url)
+                sources.append({
+                    "url": url,
+                    "title": item.get("title") or url,
+                    "verified": True,
+                    "quality": item.get("source_quality", 0.65),
+                    "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
+                })
 
             plan_step("retrieve", "completed" if sources else "failed")
             if sources:
@@ -730,7 +739,8 @@ def create_chat_v2_router(
             },
             evidence_analysis={
                 "source_count": len(sources),
-                "contradiction_count": 1 if conflict_detected else 0,
+                "contradiction_count": len(conflict_candidates),
+                "conflict_candidates": conflict_candidates[:12],
                 "conflict_detected": conflict_detected,
             },
         )
