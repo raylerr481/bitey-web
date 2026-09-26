@@ -58,30 +58,12 @@ class BiteyBrain:
         if not text: ambiguity = 1.0
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
         lexical_research = any(x in low for x in self.RESEARCH_WORDS)
-        # Stable general-knowledge questions should be answerable directly.
-        # Evidence is required for explicit research/verification, fresh facts,
-        # existing evidence, or a cognitive evidence dependency.
         perception_question = bool(perception.get("question"))
         conversational_only = bool(perception.get("greeting") or perception.get("identity_request"))
-        explicit_evidence = bool(
-            ctx.get("requires_web_research")
-            or ctx.get("needs_web")
-            or ctx.get("research")
-            or evidence_available
-            or cognition.get("plan", {}).get("needs_evidence")
-            or lexical_research
-        )
-        question_requires_evidence = (
-            perception_question
-            and not conversational_only
-            and domain in {"research", "weather", "trading"}
-        )
+        explicit_evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research)
+        question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
         evidence = explicit_evidence or question_requires_evidence or freshness
-        conceptual_fallback = (
-            domain == "general"
-            and not evidence_available
-            and any(cue in low for cue in ("qué es", "que es", "qué son", "que son", "qué significa", "que significa", "definición", "definicion", "define", "concepto", "what is", "what are", "qual é", "o que é"))
-        )
+        conceptual_fallback = (domain == "general" and not evidence_available and any(cue in low for cue in ("qué es", "que es", "qué son", "que son", "qué significa", "que significa", "definición", "definicion", "define", "concepto", "what is", "what are", "qual é", "o que é")))
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
@@ -98,10 +80,7 @@ class BiteyBrain:
         return state
 
     @staticmethod
-    def _build_plan(*, domain: str, evidence_required: bool, freshness_required: bool,
-                    complexity: float, verification_required: bool, tools: list[str],
-                    risk: str) -> list[dict[str, Any]]:
-        """Build a bounded, inspectable plan before model synthesis."""
+    def _build_plan(*, domain: str, evidence_required: bool, freshness_required: bool, complexity: float, verification_required: bool, tools: list[str], risk: str) -> list[dict[str, Any]]:
         steps = [{"id": "understand", "action": "understand_request", "status": "required"}]
         if freshness_required or evidence_required:
             steps.append({"id": "retrieve", "action": "retrieve_evidence", "tools": list(tools), "status": "required"})
@@ -118,36 +97,30 @@ class BiteyBrain:
 
     @staticmethod
     def _verification_profile(text: str, domain: str, evidence: bool, freshness: bool, complexity: float) -> list[str]:
-        """Declare claim classes requiring special handling before synthesis."""
-        low = text.lower()
-        profile: list[str] = ["fact"]
-        calculation_signal = any(x in low for x in (
-            "calcula", "calcular", "cálculo", "porcentaje", "interés", "ecuación",
-            "derivada", "integral", "estadística", "probabilidad", "cuánto es",
-        )) or bool(re.search(r"\d\s*[+\-*/=]\s*\d", low))
-        inference_signal = any(x in low for x in (
-            "por qué", "porque", "causa", "consecuencia", "significa", "implica",
-            "sugiere", "probable", "podría", "por que", "why", "cause", "implies",
-        ))
-        opinion_signal = any(x in low for x in (
-            "opinión", "opinion", "qué piensas", "que piensas", "crees que",
-            "mejor", "peor", "recomienda", "recomiéndame", "recommend",
-        ))
+        low = text.lower(); profile: list[str] = ["fact"]
+        calculation_signal = any(x in low for x in ("calcula", "calcular", "cálculo", "porcentaje", "interés", "ecuación", "derivada", "integral", "estadística", "probabilidad", "cuánto es")) or bool(re.search(r"\d\s*[+\-*/=]\s*\d", low))
+        inference_signal = any(x in low for x in ("por qué", "porque", "causa", "consecuencia", "significa", "implica", "sugiere", "probable", "podría", "por que", "why", "cause", "implies"))
+        opinion_signal = any(x in low for x in ("opinión", "opinion", "qué piensas", "que piensas", "crees que", "mejor", "peor", "recomienda", "recomiéndame", "recommend"))
         if calculation_signal: profile.append("calculation")
         if inference_signal: profile.append("inference")
         if opinion_signal: profile.append("opinion")
         if freshness or evidence or domain == "research": profile.append("current_fact")
         if complexity >= 0.60: profile.append("multi_step")
         return list(dict.fromkeys(profile))
+
     @staticmethod
     def _complexity(text: str, cognition: dict[str, Any]) -> float:
-        explicit=(cognition.get("perception") or {}).get("complexity")
-        if isinstance(explicit,(int,float)): return max(0,min(1,float(explicit)))
-        base=.22+min(.30,len(text.split())/180); plan=cognition.get("plan") or {}
-        if plan.get("needs_evidence"): base+=.12
-        if plan.get("requires_specialized_module"): base+=.08
-        if any(x in text.lower() for x in (" y "," además "," also "," e ",";")): base+=.05
-        return min(1,base)
+        perception = cognition.get("perception") or {}
+        explicit = perception.get("complexity_signal")
+        if isinstance(explicit, (int, float)):
+            base = max(0, min(1, float(explicit)))
+        else:
+            base = .22 + min(.30, len(text.split()) / 180)
+        plan = cognition.get("plan") or {}
+        if plan.get("needs_evidence"): base += .12
+        if plan.get("requires_specialized_module"): base += .08
+        if any(x in text.lower() for x in (" y ", " además ", " also ", " e ", ";")): base += .05
+        return min(1, base)
 
     @staticmethod
     def _capabilities(domain,evidence,freshness,complexity,context):
@@ -164,22 +137,11 @@ class BiteyBrain:
 
     @staticmethod
     def _tool_policy(capabilities,domain,context):
-        # The executive brain is the single source of truth for capability
-        # selection. Specialized domains select their owning capability
-        # directly instead of being re-routed later by lexical heuristics.
-        if domain == "weather" and "fresh_data" in capabilities:
-            t=["weather"]
-        elif domain == "trading":
-            t=["sbt_market"]
+        if domain == "weather" and "fresh_data" in capabilities: t=["weather"]
+        elif domain == "trading": t=["sbt_market"]
         else:
             t=[]
-            if "external_evidence" in capabilities:
-                # Main registers the evidence tool under this canonical name.
-                # Keep the executive decision aligned with the actual tool registry.
-                t.append("web_research")
-        # code_reasoning is a model capability, not an executable tool.
-        # Workspace-file handling is also only advertised when a concrete
-        # registered tool exists; never place phantom tools in the plan.
+            if "external_evidence" in capabilities: t.append("web_research")
         return list(dict.fromkeys(t))
 
     @staticmethod
@@ -192,37 +154,19 @@ class BiteyBrain:
 
     @staticmethod
     def _model_policy(*,domain,complexity,evidence_required,required_capabilities,verification_required):
-        if "research_synthesis" in required_capabilities or complexity>=.75:
-            return "strong_reasoning_synthesis","high_complexity_or_research"
-        # Programming has its own reasoning role even when the request also
-        # carries evidence requirements (for example, API/documentation work).
-        if "code_reasoning" in required_capabilities:
-            return "code_reasoning","programming_capability_required"
-        if domain=="trading":
-            return "guarded_analysis","trading_risk_policy"
-        if verification_required or evidence_required:
-            return "evidence_grounded_synthesis","evidence_or_verification_required"
+        if "research_synthesis" in required_capabilities or complexity>=.75:return "strong_reasoning_synthesis","high_complexity_or_research"
+        if "code_reasoning" in required_capabilities:return "code_reasoning","programming_capability_required"
+        if domain=="trading":return "guarded_analysis","trading_risk_policy"
+        if verification_required or evidence_required:return "evidence_grounded_synthesis","evidence_or_verification_required"
         return "fast_synthesis","low_complexity_direct_response"
 
     def system_directive(self,state):
-        directive = (
-            "BITEY BRAIN EXECUTIVE CONTRACT\n"
-            f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; verification_profile={','.join(state.verification_profile) or 'fact'}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n"
-            "Bitey has already decided what must be done. The selected model is only an inference/synthesis worker. Do not invent facts, bypass tool/evidence requirements, or override the cognitive contract."
-        )
+        directive = ("BITEY BRAIN EXECUTIVE CONTRACT\n" f"objective={state.objective}; task={state.task_class}; mode={state.reasoning_mode}; verification_profile={','.join(state.verification_profile) or 'fact'}; capabilities={','.join(state.required_capabilities)}; tools={','.join(state.tool_priority) or 'none'}; model_role={state.model_role}; risk={state.risk_level}; evidence_required={state.evidence_required}; freshness_required={state.freshness_required}; verification_required={state.verification_required}.\n" "Bitey has already decided what must be done. The selected model is only an inference/synthesis worker. Do not invent facts, bypass tool/evidence requirements, or override the cognitive contract.")
         if state.task_class == "general":
-            directive += (
-                "\nGENERAL-DOMAIN BOUNDARY — This request is classified as general knowledge or general assistance. "
-                "Answer the user's actual question directly. Do not invoke, simulate, narrate, or claim execution of any specialized module "
-                "(including SBT/trading) merely because the topic mentions Bitcoin, crypto, bots, markets, finance, or another specialized subject. "
-                "A specialized module is allowed only when the cognitive task itself explicitly requires that specialized operation."
-            )
+            directive += ("\nGENERAL-DOMAIN BOUNDARY — This request is classified as general knowledge or general assistance. Answer the user's actual question directly. Do not invoke, simulate, narrate, or claim execution of any specialized module (including SBT/trading) merely because the topic mentions Bitcoin, crypto, bots, markets, finance, or another specialized subject. A specialized module is allowed only when the cognitive task itself explicitly requires that specialized operation.")
         elif state.task_class == "trading":
-            directive += (
-                "\nTRADING-DOMAIN BOUNDARY — Use trading/SBT behavior only because the cognitive router explicitly classified this request as trading. "
-                "Respect the SBT risk gate and never imply live execution when live trading is disabled."
-            )
+            directive += ("\nTRADING-DOMAIN BOUNDARY — Use trading/SBT behavior only because the cognitive router explicitly classified this request as trading. Respect the SBT risk gate and never imply live execution when live trading is disabled.")
         return directive
 
     def status(self):
-        return {"name":"Bitey Brain","version":"2.3.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"] ,"status_boundary":"general_domain_blocks_specialized_module_drift"}
+        return {"name":"Bitey Brain","version":"2.3.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"],"status_boundary":"general_domain_blocks_specialized_module_drift"}
