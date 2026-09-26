@@ -588,6 +588,7 @@ def create_chat_v2_router(
                 + "MEMORY UPDATE SIGNALS: " + str(memory_updates) + "\\n"
                 + "When memory_updates indicates an explicit override, use the current request and stop relying on the superseded preference or decision. Do not silently preserve conflicting old instructions.\\n"
                 + "Conversation history and prior memory are continuity context only: use them for preferences, constraints, names, and prior decisions when relevant, but never treat remembered facts as current evidence. Re-check time-sensitive or externally verifiable claims with tools. Do not let memory override fresh evidence or system safety rules."
+            )
             if brain_state.verification_profile:
                 system += (
                     "\nVERIFICATION PROFILE: " + ", ".join(brain_state.verification_profile) + ". "
