@@ -99,10 +99,28 @@ class ToolOrchestrator:
     @classmethod
     def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
         ctx = context or {}
-        if cls.MATH_RE.fullmatch(message.strip()):
+        if cls.MATH_RE.fullmatch(message.strip()) or cls.NATURAL_MATH_RE.fullmatch(message.strip()):
             return False
         if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
             return True
+
+        # The executive brain is authoritative about stable conceptual requests.
+        # Lexical words such as "precio", "documentación" or "fuentes" must not
+        # override a direct/general classification unless the user explicitly
+        # requested fresh research, a URL lookup, or another current signal.
+        brain = ctx.get("_bitey_brain_state")
+        if brain is not None:
+            try:
+                if (
+                    not bool(brain.evidence_required)
+                    and not bool(brain.freshness_required)
+                    and str(brain.task_class).lower() == "general"
+                    and str(brain.reasoning_mode).lower() == "direct"
+                ):
+                    return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message))
+            except Exception:
+                pass
+
         return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message) or cls.WEB_FACT_RE.search(message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
