@@ -279,9 +279,21 @@ def create_chat_v2_router(
         ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
         emit(f"Intención cognitiva: {ctx["current_intent_domain"]}…")
         brain_state = brain.think(query, ctx)
+
+        # Explicit UI modes are hard user intent overrides. Auto mode remains
+        # governed by the executive cognitive stack.
+        if mode == "research":
+            ctx["requires_web_research"] = True
+            ctx["evidence_required"] = True
+            ctx["freshness_required"] = True
+        elif mode == "code":
+            ctx["requested_capability"] = "code_reasoning"
+        elif mode == "math":
+            ctx["requested_capability"] = "calculator"
+
         emit("Enrutando la solicitud según intención y capacidades…")
         ctx["bitey_brain"] = brain_state.as_dict()
-        ctx["requires_web_research"] = brain_state.evidence_required
+        ctx["requires_web_research"] = bool(ctx.get("requires_web_research", brain_state.evidence_required))
         ctx["evidence_required"] = brain_state.evidence_required
         ctx["freshness_required"] = brain_state.freshness_required
         ctx["verification_profile"] = brain_state.verification_profile
