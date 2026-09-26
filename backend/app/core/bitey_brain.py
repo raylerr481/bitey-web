@@ -192,10 +192,16 @@ class BiteyBrain:
 
     @staticmethod
     def _model_policy(*,domain,complexity,evidence_required,required_capabilities,verification_required):
-        if "research_synthesis" in required_capabilities or complexity>=.75:return "strong_reasoning_synthesis","high_complexity_or_research"
-        if verification_required or evidence_required:return "evidence_grounded_synthesis","evidence_or_verification_required"
-        if "code_reasoning" in required_capabilities:return "code_reasoning","programming_capability_required"
-        if domain=="trading":return "guarded_analysis","trading_risk_policy"
+        if "research_synthesis" in required_capabilities or complexity>=.75:
+            return "strong_reasoning_synthesis","high_complexity_or_research"
+        # Programming has its own reasoning role even when the request also
+        # carries evidence requirements (for example, API/documentation work).
+        if "code_reasoning" in required_capabilities:
+            return "code_reasoning","programming_capability_required"
+        if domain=="trading":
+            return "guarded_analysis","trading_risk_policy"
+        if verification_required or evidence_required:
+            return "evidence_grounded_synthesis","evidence_or_verification_required"
         return "fast_synthesis","low_complexity_direct_response"
 
     def system_directive(self,state):
