@@ -33,6 +33,7 @@ class ChatV2Response(BaseModel):
     sources: list[dict[str, Any]] = Field(default_factory=list)
     activity_events: list[str] = Field(default_factory=list)
     calculations: dict[str, Any] | None = None
+    cognitive_plan: list[dict[str, Any]] = Field(default_factory=list)
     trace_id: str | None = None
     elapsed_ms: int
     answer_validation: dict[str, Any] = Field(default_factory=dict)
@@ -157,7 +158,7 @@ def _detect_memory_updates(
 
     update = {"supersedes": [], "current_overrides": False}
     current = " ".join(current_query.split())
-    if re.search(r"\\b(?:cambia|cambio|mejor|ahora prefiero|desde ahora|olvida|ya no|en vez de|instead|now prefer|forget)\\b", current, re.I):
+    if re.search(r"\b(?:cambia|cambio|mejor|ahora prefiero|desde ahora|olvida|ya no|en vez de|instead|now prefer|forget)\b", current, re.I):
         update["current_overrides"] = True
 
     # Explicitly identify prior statements that the current message appears to replace.
@@ -170,7 +171,7 @@ def _detect_memory_updates(
     for old in recent:
         old_tokens = set(re.findall(r"[a-záéíóúüñ0-9]{4,}", old.lower()))
         if current_tokens and len(current_tokens & old_tokens) >= 2:
-            if re.search(r"\\b(?:cambia|cambio|ahora|ya no|en vez de|instead|now)\\b", current, re.I):
+            if re.search(r"\b(?:cambia|cambio|ahora|ya no|en vez de|instead|now)\b", current, re.I):
                 update["supersedes"].append(old[:500])
     update["supersedes"] = update["supersedes"][-4:]
     return update
@@ -647,6 +648,11 @@ def create_chat_v2_router(
             sources=sources[:10],
             activity_events=events,
             calculations=calculations,
+            cognitive_plan=[
+                {"stage": str(step.get("stage", "")), "action": str(step.get("action", ""))}
+                for step in brain_state.plan_steps
+                if isinstance(step, dict) and step.get("stage") and step.get("action")
+            ],
             trace_id=trace.trace_id,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
             answer_validation={
