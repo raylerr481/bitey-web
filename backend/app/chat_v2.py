@@ -595,7 +595,6 @@ def create_chat_v2_router(
                     "label inferences as inferences rather than facts; and present opinions as perspectives or criteria, not objective facts. "
                     "Do not use an opinion or inference to fill an evidence gap."
                 )
-            )
             if learning_context:
                 system += "\\nPRIOR VALIDATED LEARNING (advisory only; never treat as current evidence):\\n"
                 for index, lesson in enumerate(learning_context, 1):
