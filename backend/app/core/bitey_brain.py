@@ -25,6 +25,8 @@ class BrainState:
     model_role: str = "synthesis"
     model_selection_reason: str = "default_synthesis"
     stop_condition: str = "sufficient_confidence"
+    plan_steps: list[dict[str, Any]] = field(default_factory=list)
+    plan_version: str = "1.0"
     goals: list[str] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
     decision_fingerprint: str = ""
@@ -75,12 +77,32 @@ class BiteyBrain:
         capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx); tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
+        plan_steps = self._build_plan(domain=domain, evidence_required=evidence, freshness_required=freshness, complexity=complexity, verification_required=verification, tools=tools, risk=risk)
         state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, verification_profile=verification_profile, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
         if evidence: state.goals.insert(3,"ground_claims_in_evidence")
         if verification: state.goals.append("verify_before_presenting_high_impact_claims")
         if risk == "critical": state.constraints += ["never_bypass_domain_risk_gate","no_live_execution"]
         ctx["_bitey_brain_state"] = state; ctx["_bitey_brain_evidence_available"] = evidence_available; ctx["_bitey_brain_fingerprint"] = fingerprint
         return state
+
+    @staticmethod
+    def _build_plan(*, domain: str, evidence_required: bool, freshness_required: bool,
+                    complexity: float, verification_required: bool, tools: list[str],
+                    risk: str) -> list[dict[str, Any]]:
+        """Build a bounded, inspectable plan before model synthesis."""
+        steps = [{"id": "understand", "action": "understand_request", "status": "required"}]
+        if freshness_required or evidence_required:
+            steps.append({"id": "retrieve", "action": "retrieve_evidence", "tools": list(tools), "status": "required"})
+            steps.append({"id": "compare", "action": "compare_evidence", "status": "required" if domain == "research" or tools else "conditional"})
+        if complexity >= 0.60:
+            steps.append({"id": "decompose", "action": "decompose_multi_step_task", "status": "required"})
+        steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
+        if verification_required:
+            steps.append({"id": "verify", "action": "verify_claims_and_risk", "status": "required"})
+        if risk in {"high", "critical"}:
+            steps.append({"id": "risk_gate", "action": "apply_risk_gate", "status": "required"})
+        steps.append({"id": "respond", "action": "respond_to_user", "status": "required"})
+        return steps
 
     @staticmethod
     def _verification_profile(text: str, domain: str, evidence: bool, freshness: bool, complexity: float) -> list[str]:
@@ -184,4 +206,4 @@ class BiteyBrain:
         return directive
 
     def status(self):
-        return {"name":"Bitey Brain","version":"2.2.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"] ,"status_boundary":"general_domain_blocks_specialized_module_drift"}
+        return {"name":"Bitey Brain","version":"2.3.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"] ,"status_boundary":"general_domain_blocks_specialized_module_drift"}
