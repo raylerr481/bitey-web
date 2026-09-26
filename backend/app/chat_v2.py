@@ -278,6 +278,10 @@ def create_chat_v2_router(
         ctx["freshness_required"] = brain_state.freshness_required
         ctx["verification_profile"] = brain_state.verification_profile
         ctx["cognitive_plan"] = brain_state.plan_steps
+        trace_store.set_plan(trace, brain_state.plan_steps)
+
+        def plan_step(step_id: str, status: str) -> None:
+            trace_store.set_plan_step(trace, step_id, status)
         ctx["conversation_memory"] = conversation_memory
         ctx["memory_updates"] = memory_updates
         ctx["memory_policy"] = {
@@ -300,12 +304,14 @@ def create_chat_v2_router(
             "decision_fingerprint": brain_state.decision_fingerprint,
         }
 
+        plan_step("understand", "completed")
         math_like = bool(re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)) or any(
             k in query.lower()
             for k in ("promedio", "media", "mediana", "porcentaje", "cagr", "probabilidad", "desviación", "desviacion")
         )
 
         if mode == "math" or (mode == "auto" and math_like):
+            plan_step("synthesize", "running")
             calculations = (
                 math_calculate(query)
                 if re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)
@@ -324,6 +330,7 @@ def create_chat_v2_router(
             research_required = False
 
         if research_required and calculations is None:
+            plan_step("retrieve", "running")
             selected = list(brain_state.tool_priority) or ["web_research"]
             emit("Buscando información en la web…")
             result = await tools.execute(
@@ -360,6 +367,7 @@ def create_chat_v2_router(
                         "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
                     })
 
+            plan_step("retrieve", "completed" if sources else "failed")
             if sources:
                 emit(f"Encontradas {len(sources)} fuentes; verificando contenido…")
             else:
@@ -373,6 +381,7 @@ def create_chat_v2_router(
                 for source in sources
             }
             if not evidence or len(distinct_hosts) < (2 if brain_state.task_class in {"general", "research"} else 1):
+                plan_step("compare", "running")
                 emit("Contrastando evidencia con una segunda pasada…")
                 plan = research.plan(query, {"research_required": True, "current_intent_domain": brain_state.task_class})
                 plan = await research.fetch(plan)
@@ -389,7 +398,10 @@ def create_chat_v2_router(
                         })
 
             if sources:
+                plan_step("compare", "completed")
                 emit(f"Evidencia verificada: {len(sources)} fuente(s).")
+            elif any(isinstance(step, dict) and step.get("id") == "compare" for step in brain_state.plan_steps):
+                plan_step("compare", "failed")
             else:
                 emit("No se pudo verificar evidencia suficiente; no se presentará como confirmada.")
 
@@ -418,6 +430,7 @@ def create_chat_v2_router(
             "conflict_analysis": conflict_analysis,
         }
 
+        plan_step("synthesize", "running")
         # Pure mathematical requests never pass through an LLM. This keeps
         # deterministic numeric results authoritative.
         if calculations is not None and (
@@ -529,6 +542,8 @@ def create_chat_v2_router(
                 conflict_detected=conflict_detected,
             )
 
+        plan_step("synthesize", "completed")
+        plan_step("verify", "running")
         emit("Verificando afirmaciones de la respuesta…")
         trace_store.set_stage(trace, "VALIDATING_EVIDENCE")
         answer_verification = verify_answer_claims(answer, evidence, sources)
@@ -573,6 +588,7 @@ def create_chat_v2_router(
                 emit("No fue posible completar la corrección automática; conservando el resultado seguro.")
 
         ctx["answer_verification"] = answer_verification
+        plan_step("verify", "completed" if answer_verification.get("valid", True) else "failed")
         if answer_verification.get("unsupported_count", 0) > 0:
             emit("Se detectaron afirmaciones que requieren revisión de evidencia.")
             evaluation = response_evaluator.evaluate(
@@ -593,11 +609,15 @@ def create_chat_v2_router(
                 evidence=evidence,
                 conflict_detected=conflict_detected,
             )
+        if brain_state.risk_level in {"high", "critical"}:
+            plan_step("risk_gate", "running")
         evaluation_dict = evaluation.as_dict()
         ctx["evaluation"] = evaluation_dict
         trace.evaluation = evaluation.as_dict()
         emit("Evaluando respuesta y controles de calidad…")
         trace_store.set_stage(trace, "EVALUATING")
+        if brain_state.risk_level in {"high", "critical"}:
+            plan_step("risk_gate", "completed" if evaluation.decision != "reject" else "failed")
 
         if conflict_detected and conflict_analysis.get("conflict_count", 0) > 0:
             emit("Detectada una discrepancia entre fuentes; ajustando la respuesta…")
@@ -635,8 +655,10 @@ def create_chat_v2_router(
                 # learning table must never break an otherwise valid answer.
                 pass
 
+        plan_step("respond", "running")
         await memory.append(cid, {"role": "user", "content": query})
         await memory.append(cid, {"role": "assistant", "content": answer})
+        plan_step("respond", "completed")
         trace_store.finish(trace, evaluation.decision)
         emit("Respuesta lista.")
 
@@ -649,9 +671,13 @@ def create_chat_v2_router(
             activity_events=events,
             calculations=calculations,
             cognitive_plan=[
-                {"stage": str(step.get("stage", "")), "action": str(step.get("action", ""))}
-                for step in brain_state.plan_steps
-                if isinstance(step, dict) and step.get("stage") and step.get("action")
+                {
+                    "id": str(step.get("id", "")),
+                    "action": str(step.get("action", "")),
+                    "status": str(step.get("status", "pending")),
+                }
+                for step in trace.decision.get("plan_steps", [])
+                if isinstance(step, dict) and step.get("id") and step.get("action")
             ],
             trace_id=trace.trace_id,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
