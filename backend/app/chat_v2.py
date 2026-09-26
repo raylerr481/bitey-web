@@ -465,6 +465,21 @@ def create_chat_v2_router(
                 emit("No se pudo verificar evidencia suficiente; no se presentará como confirmada.")
 
         evidence_source_count = len(sources)
+        source_qualities = [
+            float(source.get("quality", 0.0) or 0.0)
+            for source in sources
+            if isinstance(source, dict)
+        ]
+        evidence_quality = (
+            sum(source_qualities) / len(source_qualities)
+            if source_qualities else 0.0
+        )
+        strong_source_count = sum(1 for score in source_qualities if score >= 0.85)
+        independent_source_count = len({
+            str(source.get("url", "")).split("/")[2].lower().removeprefix("www.")
+            for source in sources
+            if isinstance(source, dict) and source.get("url") and "//" in str(source.get("url"))
+        })
         conflict_analysis = {"conflict_count": len(conflict_candidates), "candidates": conflict_candidates[:12], "sources_checked": evidence_source_count}
         conflict_detected = bool(conflict_analysis["conflict_count"]) or conflict_detected
         ctx.update({
@@ -472,6 +487,9 @@ def create_chat_v2_router(
             "evidence_available": bool(evidence),
             "evidence_conflicts": conflict_candidates[:12],
             "evidence_source_count": evidence_source_count,
+            "evidence_quality": round(evidence_quality, 3),
+            "strong_source_count": strong_source_count,
+            "independent_source_count": independent_source_count,
             "selected_tools": selected,
             "research_required": research_required,
             "evidence_attempted": bool(selected),
