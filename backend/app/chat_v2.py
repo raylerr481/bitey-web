@@ -294,8 +294,8 @@ def create_chat_v2_router(
         emit("Enrutando la solicitud según intención y capacidades…")
         ctx["bitey_brain"] = brain_state.as_dict()
         ctx["requires_web_research"] = bool(ctx.get("requires_web_research", brain_state.evidence_required))
-        ctx["evidence_required"] = brain_state.evidence_required
-        ctx["freshness_required"] = brain_state.freshness_required
+        ctx["evidence_required"] = bool(ctx.get("evidence_required", brain_state.evidence_required))
+        ctx["freshness_required"] = bool(ctx.get("freshness_required", brain_state.freshness_required))
         ctx["verification_profile"] = brain_state.verification_profile
         ctx["cognitive_plan"] = brain_state.plan_steps
         trace_store.set_plan(trace, brain_state.plan_steps)
