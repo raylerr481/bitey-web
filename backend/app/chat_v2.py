@@ -383,6 +383,14 @@ def create_chat_v2_router(
         ctx["freshness_required"] = bool(ctx.get("freshness_required", brain_state.freshness_required))
         ctx["verification_profile"] = brain_state.verification_profile
         ctx["cognitive_plan"] = brain_state.plan_steps
+        # Resume the explicit active task by preferring its next unfinished plan step.
+        if active_task.get("active") and active_task.get("continuation_detected") and brain_state.plan_steps:
+            pending = next((step for step in brain_state.plan_steps if isinstance(step, dict) and str(step.get("status", "pending")) in {"pending", "conditional"}), None)
+            if pending:
+                emit(f"Retomando la tarea activa: {pending.get('action', 'siguiente paso')}…")
+                active_task["resumed_step"] = str(pending.get("id") or "")
+                active_task["resumed_action"] = str(pending.get("action") or "")
+        ctx["active_task"] = active_task
         trace_store.set_plan(trace, brain_state.plan_steps)
 
         def plan_step(step_id: str, status: str) -> None:
