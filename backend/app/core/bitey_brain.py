@@ -137,11 +137,31 @@ class BiteyBrain:
 
     @staticmethod
     def _tool_policy(capabilities,domain,context):
-        if domain == "weather" and "fresh_data" in capabilities: t=["weather"]
-        elif domain == "trading": t=["sbt_market"]
-        else:
-            t=[]
-            if "external_evidence" in capabilities: t.append("web_research")
+        message = str(context.get("message") or context.get("query") or "").lower()
+        math_cues = (
+            bool(re.fullmatch(r"[0-9.,\\s()+\\-*/%^]+", message))
+            or any(k in message for k in (
+                "cuánto es", "cuanto es", "calcula", "calcular", "porcentaje",
+                "promedio", "media", "mediana", "cagr", "probabilidad",
+                "desviación", "desviacion"
+            ))
+        )
+        t = []
+
+        # Specialized current-data tools come first.
+        if domain == "weather" and "fresh_data" in capabilities:
+            t.append("weather")
+        elif domain == "trading":
+            t.append("sbt_market")
+
+        # Evidence can be combined with reasoning instead of replacing it.
+        if "external_evidence" in capabilities and domain not in {"weather", "trading"}:
+            t.append("web_research")
+        if "code_reasoning" in capabilities:
+            t.append("code_reasoning")
+        if math_cues and "calculator" not in t:
+            t.append("calculator")
+
         return list(dict.fromkeys(t))
 
     @staticmethod
