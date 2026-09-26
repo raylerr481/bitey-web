@@ -580,7 +580,14 @@ def create_chat_v2_router(
         answer_verification = verify_answer_claims(answer, evidence, sources)
         ctx["answer_verification"] = answer_verification
         verification_retry = False
-        if answer_verification.get("unsupported_count", 0) > 0 and evidence and calculations is None:
+        if (
+            (
+                answer_verification.get("unsupported_count", 0) > 0
+                or answer_verification.get("partial_count", 0) > 0
+            )
+            and evidence
+            and calculations is None
+        ):
             emit("Corrigiendo la respuesta con la evidencia verificada…")
             trace_store.set_stage(trace, "REVISING")
             retry_system = (
@@ -620,14 +627,20 @@ def create_chat_v2_router(
 
         ctx["answer_verification"] = answer_verification
         plan_step("verify", "completed" if answer_verification.get("valid", True) else "failed")
-        if answer_verification.get("unsupported_count", 0) > 0:
-            emit("Se detectaron afirmaciones que requieren revisión de evidencia.")
+        if (
+            answer_verification.get("unsupported_count", 0) > 0
+            or answer_verification.get("partial_count", 0) > 0
+        ):
+            if answer_verification.get("unsupported_count", 0) > 0:
+                emit("Se detectaron afirmaciones que requieren revisión de evidencia.")
+            else:
+                emit("Se detectaron afirmaciones con respaldo parcial; no se presentarán como plenamente verificadas.")
             evaluation = response_evaluator.evaluate(
                 user_message=query,
                 answer=answer,
                 context=ctx,
                 evidence=evidence,
-                conflict_detected=True,
+                conflict_detected=conflict_detected,
             )
         elif verification_retry:
             # A successful revision is a new answer and must receive a fresh
