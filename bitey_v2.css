@@ -11,3 +11,16 @@
 .activity-event{display:flex!important;align-items:center!important;gap:7px!important;padding:3px 0!important;font-size:10px!important;color:#7e929d!important;opacity:1!important}
 .activity-event-dot{width:5px!important;height:5px!important;flex:0 0 5px!important;border-radius:50%!important;background:#25c7dc!important;opacity:.7!important}
 @media(max-width:760px){.activity{font-size:10px!important}.activity-events{width:calc(100% - 20px)!important}}
+
+/* Compact ChatGPT-style composer controls: preserve writing space while keeping actions accessible. */
+.composer-main{gap:8px!important}
+.composer .composer-tool,.composer .send-button{width:40px!important;height:40px!important;flex:0 0 40px!important;border-radius:11px!important}
+.composer .composer-tool svg,.composer .send-button svg{width:18px!important;height:18px!important}
+.composer textarea{min-height:72px!important}
+.cognitive-plan-event{font-size:10px!important}
+@media(max-width:760px){
+  .composer-main{gap:6px!important}
+  .composer .composer-tool,.composer .send-button{width:36px!important;height:36px!important;flex-basis:36px!important}
+  .composer .composer-tool svg,.composer .send-button svg{width:17px!important;height:17px!important}
+  .composer textarea{min-height:68px!important}
+}
