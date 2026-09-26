@@ -362,6 +362,16 @@ def create_chat_v2_router(
                 "requires_web_research": True,
             }
             selected = tools.select(query, selection_context)
+
+            # Explicit capability modes are hard tool-routing overrides.
+            # Auto mode remains governed by the executive brain.
+            if mode == "research":
+                selected = ["web_research"]
+            elif mode == "code":
+                selected = ["code_reasoning"]
+            elif mode == "math":
+                selected = ["calculator"]
+
             if not selected:
                 selected = ["web_research"]
             ctx["selected_tools"] = selected
