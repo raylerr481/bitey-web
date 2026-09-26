@@ -82,7 +82,9 @@ def _compact_history(
             continue
         overlap = len(query_tokens & tokens(str(item.get("content", ""))))
         recency = i / last_index
-        score = (overlap * 3.0) + (recency * 0.75)
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        continuity = 0.35 if metadata.get("owner") == "bitey_ia" else 0.0
+        score = (overlap * 3.0) + (recency * 0.75) + continuity
         if overlap or i >= max(0, len(history) - budget):
             candidates.append((score, i))
 
