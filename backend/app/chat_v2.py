@@ -231,6 +231,53 @@ def _active_task_state(
 
 
 
+
+def _reconcile_task_plan(
+    plan_steps: list[dict[str, Any]],
+    *,
+    executed_tools: list[str],
+    evidence_available: bool,
+    verification_completed: bool,
+    answer_ready: bool,
+) -> list[dict[str, Any]]:
+    """Derive the next workflow state from completed capabilities, not from model prose."""
+    result = [dict(step) for step in plan_steps if isinstance(step, dict)]
+    tool_set = set(executed_tools)
+    for step in result:
+        step_id = str(step.get("id") or "")
+        if step_id == "retrieve" and evidence_available:
+            step["status"] = "completed"
+        elif step_id == "compare" and evidence_available:
+            step["status"] = "completed"
+        elif step_id == "verify" and verification_completed:
+            step["status"] = "completed"
+        elif step_id == "respond" and answer_ready:
+            step["status"] = "completed"
+        elif step_id == "decompose" and any(
+            str(item.get("id") or "") in {"retrieve", "synthesize", "verify"}
+            and str(item.get("status") or "") == "completed"
+            for item in result
+        ):
+            step["status"] = "completed"
+        elif step_id == "synthesize" and answer_ready:
+            step["status"] = "completed"
+    # Conditional phases that are no longer needed are explicitly closed.
+    if "web_research" in tool_set or "weather" in tool_set or "sbt_market" in tool_set:
+        for step in result:
+            if step.get("id") == "compare" and step.get("status") == "conditional":
+                step["status"] = "completed"
+    return result
+
+
+def _next_task_step(plan_steps: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for step in plan_steps:
+        if not isinstance(step, dict):
+            continue
+        if str(step.get("status") or "") in {"required", "pending", "conditional", "running"}:
+            return step
+    return None
+
+
 def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Recover the latest workflow state persisted in assistant-message metadata."""
     for item in reversed(history):
@@ -1033,8 +1080,29 @@ def create_chat_v2_router(
                 if snapshot and snapshot.get("status") in {"pending", "conditional"}:
                     plan_step(step_id, "skipped")
         plan_step("respond", "running")
-        await memory.append(cid, {"role": "user", "content": query})
         plan_step("respond", "completed")
+        reconciled_plan = _reconcile_task_plan(
+            brain_state.plan_steps,
+            executed_tools=executed_tools,
+            evidence_available=bool(evidence),
+            verification_completed=bool(answer_verification),
+            answer_ready=bool(str(answer).strip()),
+        )
+        next_step = _next_task_step(reconciled_plan)
+        active_task["plan_steps"] = [
+            {
+                "id": str(step.get("id") or ""),
+                "action": str(step.get("action") or ""),
+                "status": str(step.get("status") or "pending"),
+            }
+            for step in reconciled_plan
+            if step.get("id")
+        ]
+        active_task["next_step"] = (
+            {"id": str(next_step.get("id") or ""), "action": str(next_step.get("action") or "")}
+            if next_step else None
+        )
+        await memory.append(cid, {"role": "user", "content": query})
         # Persist workflow metadata alongside the assistant turn so the next
         # Render process can resume the task from Supabase-backed history.
         if active_task.get("active"):
