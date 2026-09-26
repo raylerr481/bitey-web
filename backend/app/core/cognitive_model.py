@@ -24,9 +24,6 @@ class CognitiveModel:
     """Domain-neutral structured cognition used before model routing."""
 
     _DOMAIN_HINTS = {
-        # Keep domain hints semantically specific. Generic words such as
-        # "tiempo", "mercado" and "cliente" are intentionally excluded here;
-        # they need contextual evidence before selecting a specialized domain.
         "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao"),
         "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
         "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
@@ -73,7 +70,6 @@ class CognitiveModel:
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
     _MARKET_INSTRUMENT_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", re.I)
     _MARKET_ACTION_CUES = ("precio", "cotización", "cotizacion", "valor", "cuánto vale", "cuanto vale", "cómo está", "como esta", "ahora", "ahora mismo", "cotiza")
-
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
@@ -142,13 +138,9 @@ class CognitiveModel:
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
-        # Current-data questions can be written with imperfect spelling. Treat
-        # a normalized weather cue plus a temporal cue as a semantic weather
-        # intent even when the sentence is not grammatically complete.
         weather_temporal = any(x in text for x in ("tiempo", "clima", "temperatura", "weather")) and any(x in text for x in ("hoy", "ahora", "actual", "actualmente", "ahora mismo"))
         if weather_temporal:
             scores["weather"] = max(scores.get("weather", 0), 2)
-        # Current financial facts need fresh evidence rather than static knowledge.
         finance_current = any(x in text for x in ("precio", "cotización", "cotizacion", "cotiza", "acciones", "dividendos")) and any(x in text for x in ("ahora", "hoy", "actual", "actualmente", "último", "última", "cuánto", "cuanto", "vale"))
         if finance_current:
             scores["finance"] = max(scores.get("finance", 0), 2)
@@ -156,43 +148,19 @@ class CognitiveModel:
         greeting = self._is_greeting(text)
         identity_request = self._is_identity_request(text)
         strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
-        # Explicit market instruments plus a market-action question are a
-        # strong trading signal; the instrument alone is not. This keeps
-        # conceptual questions such as "qué es Bitcoin" in the general brain.
         market_instrument = bool(self._MARKET_INSTRUMENT_RE.search(message))
         market_action = any(cue in text for cue in self._MARKET_ACTION_CUES)
         if market_instrument and market_action:
             strong_scores["trading"] = strong_scores.get("trading", 0) + 2
 
         if greeting:
-            return {
-                "domain": "general",
-                "intent": "greeting",
-                "scores": {**scores, "general": 1},
-                "confidence": 0.98,
-                "source": "structured_greeting_intent",
-                "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation",
-            }
+            return {"domain": "general", "intent": "greeting", "scores": {**scores, "general": 1}, "confidence": 0.98, "source": "structured_greeting_intent", "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation"}
 
-        # Questions about Bitey's own identity/capabilities are conversational
-        # and do not require external evidence or a specialized module.
         if identity_request:
-            return {
-                "domain": "general",
-                "intent": "self_identity",
-                "scores": {**scores, "general": 2},
-                "confidence": 0.98,
-                "source": "structured_self_identity_intent",
-                "response_guidance": "describe_bitey_identity_capabilities_and_scope_without_external_research",
-            }
+            return {"domain": "general", "intent": "self_identity", "scores": {**scores, "general": 2}, "confidence": 0.98, "source": "structured_self_identity_intent", "response_guidance": "describe_bitey_identity_capabilities_and_scope_without_external_research"}
 
         if conceptual:
-            current_conceptual_weather = any(
-                x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico", "forecast")
-            )
-            # Conceptual questions are stable knowledge unless the user explicitly
-            # asks for a current/fresh fact. Do not let domain keywords such as
-            # "acción", "API", "trading" or "Python" force external research.
+            current_conceptual_weather = any(x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico", "forecast"))
             if not current_conceptual_weather:
                 scores = {domain: 0 for domain in scores}
                 scores["general"] = 1
@@ -237,6 +205,9 @@ class CognitiveModel:
                 "verification_required": False,
                 "stop_condition": "natural_conversational_response",
             }
+
+        # Normalize once before any temporal or multi-step routing checks.
+        lower_message = message.lower()
         current_cues = (
             "ahora", "ahora mismo", "hoy", "actual", "actualmente",
             "último", "última", "ultimo", "ultima", "reciente", "latest",
@@ -253,8 +224,7 @@ class CognitiveModel:
             or context.get("requires_web_research")
             or context.get("needs_web")
         ) or domain == "research"
-        # Detect compound requests so the planner can preserve the user's requested sequence.
-        lower_message = message.lower()
+
         step_cues = (" y luego ", " después ", " despues ", " luego ", " después de ", " despues de ", "then ", "after that", "and then", "primero", "first")
         compound = any(cue in lower_message for cue in step_cues)
         action_cues = ("analiza", "analizar", "busca", "buscar", "investiga", "calcula", "calcular", "compara", "explica", "resume", "responde", "verifica", "revisa", "implementa")
@@ -267,6 +237,7 @@ class CognitiveModel:
             if any(cue in lower_message for cue in ("analiza", "analizar", "revisa", "revisar", "compara")): steps.append("analyze")
             if any(cue in lower_message for cue in ("verifica", "verificar", "contrasta", "contrastar")): steps.append("verify")
             steps.append("synthesize_answer")
+
         return {
             "objective": "retrieve_current_data_and_answer" if freshness else "answer_or_assist",
             "domain": domain,
