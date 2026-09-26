@@ -136,12 +136,14 @@ def create_chat_v2_router(
         ctx["bitey_brain"] = brain_state.as_dict()
         ctx["evidence_required"] = brain_state.evidence_required
         ctx["freshness_required"] = brain_state.freshness_required
+        ctx["verification_profile"] = brain_state.verification_profile
         ctx["current_intent_domain"] = brain_state.task_class
         trace.decision = {
             "task_class": brain_state.task_class,
             "reasoning_mode": brain_state.reasoning_mode,
             "evidence_required": brain_state.evidence_required,
             "freshness_required": brain_state.freshness_required,
+            "verification_profile": brain_state.verification_profile,
             "risk_level": brain_state.risk_level,
             "tool_priority": brain_state.tool_priority,
             "decision_fingerprint": brain_state.decision_fingerprint,
