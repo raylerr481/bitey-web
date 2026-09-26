@@ -230,6 +230,20 @@ def _active_task_state(
     }
 
 
+
+def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Recover the latest workflow state persisted in assistant-message metadata."""
+    for item in reversed(history):
+        if item.get("role") != "assistant":
+            continue
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        state = metadata.get("active_task_state")
+        if isinstance(state, dict) and state.get("active"):
+            return state
+    return None
+
 def _detect_memory_updates(
     history: list[dict[str, Any]],
     current_query: str,
@@ -344,6 +358,16 @@ def create_chat_v2_router(
         conversation_memory = _structured_conversation_memory(history, memory_updates)
         active_state = _active_conversation_state(history, memory_updates, query)
         active_task = _active_task_state(history, query, active_state)
+        persisted_task = _last_persisted_task_state(history)
+        if persisted_task and active_task.get("continuation_detected"):
+            # Persisted workflow state is continuity metadata only. The current
+            # request and current cognitive plan always remain authoritative.
+            active_task["goal"] = persisted_task.get("goal") or active_task.get("goal", [])
+            active_task["constraints"] = persisted_task.get("constraints") or active_task.get("constraints", [])
+            active_task["preferences"] = persisted_task.get("preferences") or active_task.get("preferences", [])
+            active_task["last_decisions"] = persisted_task.get("last_decisions") or active_task.get("last_decisions", [])
+            active_task["previous_progress"] = persisted_task.get("progress") or {}
+            active_task["previous_plan"] = persisted_task.get("plan_steps") or []
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
@@ -1010,8 +1034,42 @@ def create_chat_v2_router(
                     plan_step(step_id, "skipped")
         plan_step("respond", "running")
         await memory.append(cid, {"role": "user", "content": query})
-        await memory.append(cid, {"role": "assistant", "content": answer})
         plan_step("respond", "completed")
+        # Persist workflow metadata alongside the assistant turn so the next
+        # Render process can resume the task from Supabase-backed history.
+        if active_task.get("active"):
+            completed_steps = [
+                str(step.get("id") or "")
+                for step in brain_state.plan_steps
+                if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+            ]
+            total_steps = len([
+                step for step in brain_state.plan_steps
+                if isinstance(step, dict) and step.get("id")
+            ])
+            active_task["completed_steps"] = completed_steps[-12:]
+            active_task["progress"] = {
+                "completed": len(completed_steps),
+                "total": total_steps,
+                "ratio": round((len(completed_steps) / total_steps), 3) if total_steps else 0.0,
+            }
+            active_task["plan_steps"] = [
+                {
+                    "id": str(step.get("id") or ""),
+                    "action": str(step.get("action") or ""),
+                    "status": str(step.get("status") or "pending"),
+                }
+                for step in brain_state.plan_steps
+                if isinstance(step, dict) and step.get("id")
+            ]
+        await memory.append(
+            cid,
+            {
+                "role": "assistant",
+                "content": answer,
+                "metadata": {"active_task_state": active_task} if active_task.get("active") else {},
+            },
+        )
         trace_store.finish(trace, evaluation.decision)
         emit("Respuesta lista.")
 
