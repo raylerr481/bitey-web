@@ -336,8 +336,25 @@ def create_chat_v2_router(
 
         if research_required and calculations is None:
             plan_step("retrieve", "running")
-            selected = list(brain_state.tool_priority) or ["web_research"]
-            emit("Buscando información en la web…")
+            selection_context = {
+                **ctx,
+                "current_intent_domain": brain_state.task_class,
+                "evidence_required": True,
+                "requires_web_research": True,
+            }
+            selected = tools.select(query, selection_context)
+            if not selected:
+                selected = ["web_research"]
+            ctx["selected_tools"] = selected
+            trace.tools = {"selected": selected}
+            if "weather" in selected:
+                emit("Consultando datos meteorológicos…")
+            elif "sbt_market" in selected:
+                emit("Consultando datos de mercado…")
+            elif "calculator" in selected:
+                emit("Aplicando cálculo determinista…")
+            else:
+                emit("Buscando información en la web…")
             result = await tools.execute(
                 selected,
                 message=query,
