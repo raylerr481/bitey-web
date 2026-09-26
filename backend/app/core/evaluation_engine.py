@@ -249,7 +249,16 @@ class EvaluationEngine:
             quality -= 0.10
             reasons.append("response_excessively_long")
 
+        verification_profile = context.get("verification_profile") or (context.get("bitey_brain") or {}).get("verification_profile") or ["fact"]
+        calculation_mode = "calculation" in verification_profile
+        inference_mode = "inference" in verification_profile
+        opinion_mode = "opinion" in verification_profile
+
         evidence_required = bool(context.get("evidence_required"))
+        if calculation_mode and not evidence:
+            evidence_alignment = 1.0
+        if opinion_mode and not evidence:
+            evidence_alignment = max(evidence_alignment, 0.90)
         if evidence_required and not evidence:
             evidence_alignment = 0.35
             reasons.append("evidence_required_but_unavailable")
@@ -272,7 +281,12 @@ class EvaluationEngine:
             reasons.append("overconfident_claim")
 
         answer_verification = context.get("answer_verification") or {}
-        if evidence and int(answer_verification.get("unsupported_count", 0) or 0) > 0:
+        if inference_mode and evidence:
+            # Inferences may be valid without verbatim source wording, but must not
+            # be scored as unsupported facts solely because the inference is novel.
+            if int(answer_verification.get("unsupported_count", 0) or 0) > 0:
+                reasons.append("inference_requires_explicit_basis")
+        if evidence and int(answer_verification.get("unsupported_count", 0) or 0) > 0 and not (inference_mode and not evidence_required):
             evidence_alignment = min(evidence_alignment, 0.45)
             reasons.append("unsupported_answer_claims")
 
