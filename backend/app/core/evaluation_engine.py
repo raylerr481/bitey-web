@@ -196,7 +196,10 @@ def verify_answer_claims(
 
     total = len(claim_details)
     return {
-        "valid": unsupported == 0,
+        # Partial support is not equivalent to verification. A response may still be
+        # useful, but the caller must not label it fully verified when any factual
+        # claim is only partially grounded in the retrieved evidence.
+        "valid": unsupported == 0 and partial == 0,
         "claim_count": total,
         "supported_count": supported,
         "unsupported_count": unsupported,
