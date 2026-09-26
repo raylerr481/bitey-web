@@ -192,6 +192,44 @@ def _active_conversation_state(
         "trust": "continuity_only_not_evidence",
     }
 
+
+def _active_task_state(
+    history: list[dict[str, Any]],
+    current_query: str,
+    active_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Track an explicit multi-turn task without inventing hidden objectives."""
+    user_turns = [
+        " ".join(str(item.get("content", "")).split())
+        for item in history
+        if item.get("role") == "user" and str(item.get("content", "")).strip()
+    ]
+    continuation = bool(re.search(
+        r"\b(?:continua|continuemos|sigue|seguimos|avanza|aplica|hazlo|"
+        r"implementa|termina|retoma|procede|continue|keep going|go ahead)\b",
+        current_query,
+        re.I,
+    ))
+    task_like = bool(re.search(
+        r"\b(?:quiero|necesito|objetivo|meta|proyecto|implementar|mejorar|"
+        r"configurar|crear|corregir|revisar|desarrollar|construir|investigar)\b",
+        current_query,
+        re.I,
+    ))
+    return {
+        "active": bool(continuation or task_like or active_state.get("current_goal")),
+        "current_request": current_query[:1000],
+        "goal": (active_state.get("current_goal") or [])[-1:],
+        "constraints": active_state.get("active_constraints", [])[-4:],
+        "preferences": active_state.get("active_preferences", [])[-4:],
+        "last_decisions": active_state.get("latest_decisions", [])[-4:],
+        "continuation_detected": continuation,
+        "task_signal": task_like,
+        "source": "explicit_conversation_context",
+        "trust": "continuity_only_not_evidence",
+    }
+
+
 def _detect_memory_updates(
     history: list[dict[str, Any]],
     current_query: str,
@@ -305,6 +343,7 @@ def create_chat_v2_router(
         memory_updates = _detect_memory_updates(history, query)
         conversation_memory = _structured_conversation_memory(history, memory_updates)
         active_state = _active_conversation_state(history, memory_updates, query)
+        active_task = _active_task_state(history, query, active_state)
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
@@ -350,6 +389,7 @@ def create_chat_v2_router(
             trace_store.set_plan_step(trace, step_id, status)
         ctx["conversation_memory"] = conversation_memory
         ctx["active_conversation_state"] = active_state
+        ctx["active_task"] = active_task
         ctx["memory_updates"] = memory_updates
         ctx["memory_policy"] = {
             "role": "continuity_context",
@@ -370,6 +410,7 @@ def create_chat_v2_router(
             "tool_priority": brain_state.tool_priority,
             "decision_fingerprint": brain_state.decision_fingerprint,
             "active_conversation_state": active_state,
+            "active_task": active_task,
         }
 
         plan_step("understand", "completed")
@@ -695,6 +736,7 @@ def create_chat_v2_router(
                 "memory_updates": memory_updates,
                 "continuity_policy": "relevant_context_only",
                 "active_state": active_state,
+                "active_task": active_task,
             }
             system = (
                 brain.system_directive(brain_state)
@@ -708,6 +750,7 @@ def create_chat_v2_router(
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
                 + "ACTIVE CONVERSATION STATE (continuity only; not evidence): " + str(active_state) + "\\n"
+                + "ACTIVE TASK STATE (continuity only; not evidence): " + str(active_task) + "\\n"
                 + "STRUCTURED CONVERSATION MEMORY (continuity only; not evidence): " + str(conversation_memory) + "\\n"
                 + "Only memory items marked active are instructions for continuity; superseded items are retained for audit context but must not guide generation. The current request always takes priority. Do not treat preferences as factual evidence.\\n"
                 + "MEMORY UPDATE SIGNALS: " + str(memory_updates) + "\\n"
