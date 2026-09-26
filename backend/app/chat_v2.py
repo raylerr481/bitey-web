@@ -1088,6 +1088,27 @@ def create_chat_v2_router(
                 # learning table must never break an otherwise valid answer.
                 pass
 
+        # Replan after tool/evidence execution: the next capability must be
+        # derived from what actually happened, not from the initial plan alone.
+        if evidence and brain_state.evidence_required:
+            completed_ids = {
+                str(step.get("id") or "")
+                for step in brain_state.plan_steps
+                if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+            }
+            if "retrieve" in completed_ids and brain_state.verification_required and not answer_verification:
+                if not any(str(step.get("id") or "") == "verify" for step in brain_state.plan_steps):
+                    brain_state.plan_steps.append({
+                        "id": "verify",
+                        "action": "verify_claims_and_risk",
+                        "status": "required",
+                    })
+            if "web_research" in executed_tools and "compare" not in completed_ids:
+                for step in brain_state.plan_steps:
+                    if isinstance(step, dict) and str(step.get("id") or "") == "compare":
+                        step["status"] = "completed"
+            brain_state.plan_version = "1.1"
+
         # Any conditional or unused plan phase is explicitly closed so the
         # activity UI never leaves a stale "pending" phase after completion.
         for step in brain_state.plan_steps:
