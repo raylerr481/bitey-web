@@ -243,9 +243,13 @@ def _reconcile_task_plan(
     """Derive the next workflow state from completed capabilities, not from model prose."""
     result = [dict(step) for step in plan_steps if isinstance(step, dict)]
     tool_set = set(executed_tools)
+    # Understanding is completed once the current request has reached the
+    # execution/answer phase. It must not remain as the next step on resume.
     for step in result:
         step_id = str(step.get("id") or "")
-        if step_id == "retrieve" and evidence_available:
+        if step_id == "understand":
+            step["status"] = "completed"
+        elif step_id == "retrieve" and evidence_available:
             step["status"] = "completed"
         elif step_id == "compare" and evidence_available:
             step["status"] = "completed"
