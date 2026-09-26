@@ -28,10 +28,21 @@ def test_weather_typo_still_uses_specialized_tool():
 
 def test_weather_with_corroboration_uses_search_as_secondary():
     selected = ToolOrchestrator().select("temperatura hoy en Esteio, busca fuentes y corrobora", {})
-    assert selected == ["weather", "search"]
+    assert selected == ["weather", "web_research"]
 
 
 def test_weather_with_trading_terms_never_routes_to_sbt():
     selected = ToolOrchestrator().select("temperatura de BTCUSDT en Esteio", {})
     assert selected[0] == "weather"
     assert "sbt_market" not in selected
+
+
+def test_arithmetic_uses_executable_calculator():
+    selected = ToolOrchestrator().select("15% de 300", {})
+    assert selected == ["calculator"]
+
+
+def test_code_reasoning_is_not_a_phantom_tool():
+    selected = ToolOrchestrator().select("escribe una función Python para ordenar una lista", {})
+    assert "code_reasoning" not in selected
+    assert all(name in {"web_research", "weather", "sbt_market", "calculator"} for name in selected)
