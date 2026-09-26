@@ -532,6 +532,44 @@ def create_chat_v2_router(
         brain_state = brain.think(query, ctx)
         ctx["bitey_brain"] = brain_state.as_dict()
 
+        # After evidence is observed, the executive brain may discover that a
+        # second capability is required. Run that capability as a bounded
+        # follow-up pass, preserving the original evidence and tool provenance.
+        follow_up_tools = [
+            name for name in brain_state.tool_priority
+            if name not in selected and name in {"calculator", "code_reasoning", "web_research", "weather", "sbt_market"}
+        ]
+        if follow_up_tools:
+            emit("Reevaluando capacidades necesarias…")
+            follow_up_context = {
+                **ctx,
+                "evidence": evidence,
+                "evidence_available": bool(evidence),
+                "current_intent_domain": brain_state.task_class,
+                "evidence_required": brain_state.evidence_required,
+            }
+            follow_up = await tools.execute(
+                follow_up_tools,
+                message=query,
+                context=follow_up_context,
+            )
+            for tool_name, tool_payload in follow_up.items():
+                if tool_name not in selected:
+                    selected.append(tool_name)
+                if tool_name == "calculator" and isinstance(tool_payload, dict) and tool_payload.get("ok"):
+                    calculations = tool_payload
+                    emit("Cálculo complementario verificado…")
+                elif tool_name == "code_reasoning" and isinstance(tool_payload, dict):
+                    extra_evidence = tool_payload.get("evidence") or tool_payload.get("analysis")
+                    if extra_evidence:
+                        evidence = f"{evidence}\n\n{extra_evidence}" if evidence else str(extra_evidence)
+                        emit("Análisis de código complementario completado…")
+                elif tool_name in {"weather", "sbt_market", "web_research"} and isinstance(tool_payload, dict):
+                    extra_evidence = tool_payload.get("evidence")
+                    if extra_evidence:
+                        evidence = f"{evidence}\n\n{extra_evidence}" if evidence else str(extra_evidence)
+            ctx["selected_tools"] = selected
+
         ctx.update({
             "evidence": evidence,
             "evidence_available": bool(evidence),
