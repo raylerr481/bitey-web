@@ -269,7 +269,19 @@ class EvaluationEngine:
                 contradiction_risk += 0.25
                 reasons.append("missing_evidence_disclosure")
         elif evidence:
-            evidence_alignment = 0.85 if len(text) >= 60 else 0.65
+            # Evidence quality now affects the gate. A high-authority source can
+            # carry more weight than a larger pile of weak or duplicate pages.
+            source_quality = float(context.get("evidence_quality", 0.0) or 0.0)
+            independent_sources = int(context.get("independent_source_count", 0) or 0)
+            strong_sources = int(context.get("strong_source_count", 0) or 0)
+            if source_quality:
+                evidence_alignment = min(0.95, 0.55 + source_quality * 0.40)
+                if independent_sources >= 2:
+                    evidence_alignment = min(1.0, evidence_alignment + 0.08)
+                if strong_sources >= 2:
+                    evidence_alignment = min(1.0, evidence_alignment + 0.05)
+            else:
+                evidence_alignment = 0.85 if len(text) >= 60 else 0.65
 
         if domain == "trading" or any(k in user_message.lower() for k in ("trading", "forex", "mt5", "trader", "bolsa")):
             if self._RISK_WORDS.search(text):
