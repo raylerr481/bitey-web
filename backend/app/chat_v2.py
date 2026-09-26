@@ -39,20 +39,70 @@ class ChatV2Response(BaseModel):
     evidence_analysis: dict[str, Any] = Field(default_factory=dict)
 
 
-def _compact_history(history: list[dict[str, Any]], budget: int = 24) -> list[dict[str, Any]]:
-    """Keep conversation continuity while bounding model context deterministically."""
+def _compact_history(
+    history: list[dict[str, Any]],
+    budget: int = 24,
+    query: str = "",
+) -> list[dict[str, Any]]:
+    """Keep recent context plus semantically relevant prior turns."""
     if not history:
         return []
     budget = max(4, budget)
     if len(history) <= budget:
         return history
-    # Preserve the opening user turn as the conversation anchor, then prioritize
-    # the newest turns. This is context selection, not factual summarization.
-    anchor = next((item for item in history if item.get("role") == "user"), history[0])
-    recent = history[-(budget - 1):]
-    if anchor in recent:
-        return recent
-    return [anchor, *recent]
+
+    import re
+
+    stop = {
+        "para", "como", "que", "qué", "con", "una", "uno", "los", "las",
+        "del", "por", "this", "that", "with", "from", "what", "how", "the",
+        "and", "for", "you", "are", "but", "about", "una", "esto", "esta",
+    }
+
+    def tokens(value: str) -> set[str]:
+        return {
+            t for t in re.findall(r"[a-záéíóúüñ0-9]{3,}", value.lower())
+            if t not in stop
+        }
+
+    query_tokens = tokens(query)
+    anchor_index = next(
+        (i for i, item in enumerate(history) if item.get("role") == "user"), 0
+    )
+
+    # Score older user turns by overlap with the current request. This is only
+    # context selection; it does not promote historical text to evidence.
+    candidates = []
+    for i, item in enumerate(history):
+        if item.get("role") != "user" or i == anchor_index:
+            continue
+        overlap = len(query_tokens & tokens(str(item.get("content", ""))))
+        if overlap:
+            candidates.append((overlap, i))
+
+    selected_indices = {anchor_index}
+    selected_indices.update(i for _, i in sorted(candidates, reverse=True)[:4])
+
+    # Keep the assistant reply adjacent to selected user turns when possible.
+    for i in list(selected_indices):
+        if i + 1 < len(history) and history[i + 1].get("role") == "assistant":
+            selected_indices.add(i + 1)
+
+    # Recent turns remain the strongest continuity signal.
+    recent_start = max(0, len(history) - max(2, budget // 2))
+    selected_indices.update(range(recent_start, len(history)))
+
+    # If semantic selections exceed the budget, retain anchor + newest items first.
+    ordered = sorted(selected_indices)
+    if len(ordered) > budget:
+        keep = {anchor_index}
+        for i in sorted(selected_indices, reverse=True):
+            if len(keep) >= budget:
+                break
+            keep.add(i)
+        ordered = sorted(keep)
+
+    return [history[i] for i in ordered]
 
 
 def create_chat_v2_router(
@@ -328,12 +378,12 @@ def create_chat_v2_router(
             # crowd out the current request or verified evidence. The memory layer remains
             # authoritative for persistence; this is only the inference context window.
             history_budget = max(4, int(__import__("os").getenv("AI_HISTORY_MESSAGES", "24")))
-            selected_history = _compact_history(history, history_budget)
+            selected_history = _compact_history(history, history_budget, query)
             messages = selected_history + [{"role": "user", "content": query}]
             ctx["conversation_context"] = {
                 "history_total": len(history),
                 "history_selected": len(selected_history),
-                "selection": "anchor_plus_recent" if len(history) > history_budget else "full_within_budget",
+                "selection": "semantic_plus_recent" if len(history) > history_budget else "full_within_budget",
                 "memory_is_evidence": False,
             }
             system = (
