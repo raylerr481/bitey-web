@@ -111,10 +111,10 @@ def _structured_conversation_memory(history: list[dict[str, Any]], limit: int = 
 
     buckets = {"goals": [], "preferences": [], "constraints": [], "decisions": []}
     patterns = {
-        "goals": r"\\b(?:quiero|necesito|objetivo|meta|busco|me gustaría|i want|need|goal)\\b",
-        "preferences": r"\\b(?:prefiero|prefiere|me gusta|no me gusta|prefiero que|prefer|i like|i prefer)\\b",
-        "constraints": r"\\b(?:no uses|no usar|evita|evitar|solo|únicamente|sin|debe|deben|must|avoid|only)\\b",
-        "decisions": r"\\b(?:decidí|decidimos|queda|quedó|hemos decidido|vamos a|se decidió|decided|decision)\\b",
+        "goals": r"\b(?:quiero|necesito|objetivo|meta|busco|me gustaría|i want|need|goal)\b",
+        "preferences": r"\b(?:prefiero|prefiere|me gusta|no me gusta|prefiero que|prefer|i like|i prefer)\b",
+        "constraints": r"\b(?:no uses|no usar|evita|evitar|solo|únicamente|sin|debe|deben|must|avoid|only)\b",
+        "decisions": r"\b(?:decidí|decidimos|queda|quedó|hemos decidido|vamos a|se decidió|decided|decision)\b",
     }
     for item in history:
         if item.get("role") != "user":
