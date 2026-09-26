@@ -297,6 +297,7 @@ def create_chat_v2_router(
         sources: list[dict[str, Any]] = []
         evidence = ""
         selected: list[str] = []
+        executed_tools: list[str] = []
         conflict_detected = False
         conflict_candidates: list[dict[str, Any]] = []
 
@@ -394,7 +395,7 @@ def create_chat_v2_router(
         # Explicit research always enters the evidence gate. Auto mode follows
         # the executive brain; chat mode remains conversational unless the
         # executive decision says fresh evidence is mandatory.
-        research_required = mode == "research" or (
+        research_required = mode in {"research", "code"} or (
             mode == "auto" and (brain_state.evidence_required or tools.needs_web_research(query, ctx))
         )
         if mode == "chat":
@@ -441,6 +442,7 @@ def create_chat_v2_router(
                     "requires_web_research": True,
                 },
             )
+            executed_tools.extend(name for name in result.keys() if name not in executed_tools)
             evidence_parts = []
             raw_sources = []
             for tool_name, tool_payload in result.items():
@@ -866,7 +868,7 @@ def create_chat_v2_router(
             "evidence_available": bool(evidence),
             "verification_completed": bool(answer_verification),
             "tools_selected": list(selected),
-            "tools_executed": list(dict.fromkeys(selected)),
+            "tools_executed": list(dict.fromkeys(executed_tools)),
         }
         final_contract["ready"] = (
             final_contract["answer_present"]
@@ -950,7 +952,7 @@ def create_chat_v2_router(
             conversation_id=cid,
             answer=answer,
             mode="research" if research_required else ("math" if calculations is not None else mode),
-            tools_used=selected + (["mathematics"] if calculations is not None else []),
+            tools_used=list(dict.fromkeys(executed_tools + (["mathematics"] if calculations is not None else []))),
             sources=sources[:10],
             activity_events=events,
             calculations=calculations,
