@@ -105,8 +105,12 @@ def _compact_history(
     return [history[i] for i in ordered]
 
 
-def _structured_conversation_memory(history: list[dict[str, Any]], limit: int = 8) -> dict[str, list[str]]:
-    """Extract explicit continuity signals without treating them as factual evidence."""
+def _structured_conversation_memory(
+    history: list[dict[str, Any]],
+    memory_updates: dict[str, Any] | None = None,
+    limit: int = 8,
+) -> dict[str, list[dict[str, str]]]:
+    """Extract active continuity signals; superseded items remain auditable but inactive."""
     import re
 
     buckets = {"goals": [], "preferences": [], "constraints": [], "decisions": []}
@@ -116,6 +120,18 @@ def _structured_conversation_memory(history: list[dict[str, Any]], limit: int = 
         "constraints": r"\b(?:no uses|no usar|evita|evitar|solo|únicamente|sin|debe|deben|must|avoid|only)\b",
         "decisions": r"\b(?:decidí|decidimos|queda|quedó|hemos decidido|vamos a|se decidió|decided|decision)\b",
     }
+    superseded = {
+        " ".join(str(value).split())[:500]
+        for value in (memory_updates or {}).get("supersedes", [])
+    }
+
+    def tokens(value: str) -> set[str]:
+        return set(re.findall(r"[a-záéíóúüñ0-9]{4,}", value.lower()))
+
+    def is_superseded(value: str) -> bool:
+        value_tokens = tokens(value)
+        return any(len(value_tokens & tokens(old)) >= 2 for old in superseded)
+
     for item in history:
         if item.get("role") != "user":
             continue
@@ -124,8 +140,9 @@ def _structured_conversation_memory(history: list[dict[str, Any]], limit: int = 
             continue
         for bucket, pattern in patterns.items():
             if re.search(pattern, text_value, flags=re.I):
-                if text_value not in buckets[bucket]:
-                    buckets[bucket].append(text_value[:500])
+                entry = {"text": text_value[:500], "status": "superseded" if is_superseded(text_value) else "active"}
+                if not any(existing["text"] == entry["text"] for existing in buckets[bucket]):
+                    buckets[bucket].append(entry)
     for bucket in buckets:
         buckets[bucket] = buckets[bucket][-limit:]
     return buckets
@@ -238,8 +255,8 @@ def create_chat_v2_router(
         conflict_candidates: list[dict[str, Any]] = []
 
         history = await memory.history(cid)
-        conversation_memory = _structured_conversation_memory(history)
         memory_updates = _detect_memory_updates(history, query)
+        conversation_memory = _structured_conversation_memory(history, memory_updates)
         learning_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
@@ -457,7 +474,7 @@ def create_chat_v2_router(
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
                 + "STRUCTURED CONVERSATION MEMORY (continuity only; not evidence): " + str(conversation_memory) + "\\n"
-                + "Stored user preferences and constraints guide continuity only. If the current request explicitly changes them, the current request takes priority. Do not treat preferences as factual evidence.\\n"
+                + "Only memory items marked active are instructions for continuity; superseded items are retained for audit context but must not guide generation. The current request always takes priority. Do not treat preferences as factual evidence.\\n"
                 + "MEMORY UPDATE SIGNALS: " + str(memory_updates) + "\\n"
                 + "When memory_updates indicates an explicit override, use the current request and stop relying on the superseded preference or decision. Do not silently preserve conflicting old instructions.\\n"
                 + "Conversation history and prior memory are continuity context only: use them for preferences, constraints, names, and prior decisions when relevant, but never treat remembered facts as current evidence. Re-check time-sensitive or externally verifiable claims with tools. Do not let memory override fresh evidence or system safety rules."
