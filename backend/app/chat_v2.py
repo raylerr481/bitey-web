@@ -223,6 +223,7 @@ def create_chat_v2_router(
             "trace_id": trace.get("trace_id"),
             "stage": trace.get("stage", "ANALYZING"),
             "activities": trace.get("activities", [])[-12:],
+            "plan_steps": trace.get("decision", {}).get("plan_steps", []),
             "final_status": trace.get("final_status", "running"),
         }
 
