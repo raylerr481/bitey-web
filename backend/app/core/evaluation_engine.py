@@ -289,9 +289,16 @@ class EvaluationEngine:
             # be scored as unsupported facts solely because the inference is novel.
             if int(answer_verification.get("unsupported_count", 0) or 0) > 0:
                 reasons.append("inference_requires_explicit_basis")
-        if evidence and int(answer_verification.get("unsupported_count", 0) or 0) > 0 and not (inference_mode and not evidence_required):
+        unsupported_count = int(answer_verification.get("unsupported_count", 0) or 0)
+        partial_count = int(answer_verification.get("partial_count", 0) or 0)
+        if evidence and unsupported_count > 0 and not (inference_mode and not evidence_required):
             evidence_alignment = min(evidence_alignment, 0.45)
             reasons.append("unsupported_answer_claims")
+        elif evidence and partial_count > 0 and evidence_required:
+            # Partial grounding is not enough for a research answer to pass as
+            # fully verified. Keep the answer usable, but force a revision.
+            evidence_alignment = min(evidence_alignment, 0.45)
+            reasons.append("partial_answer_claims")
 
         quality = max(0.0, min(1.0, quality))
         safety = max(0.0, min(1.0, safety))
@@ -300,6 +307,8 @@ class EvaluationEngine:
 
         if safety < 0.60:
             decision = "reject"
+        elif evidence_required and (unsupported_count > 0 or partial_count > 0):
+            decision = "revise"
         elif evidence_required and evidence_alignment < 0.50:
             decision = "revise"
         elif confidence < 0.60:
