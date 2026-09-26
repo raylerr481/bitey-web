@@ -1118,7 +1118,20 @@ def create_chat_v2_router(
             refreshed_ctx["message"] = query
             replanned = brain.think(query, refreshed_ctx)
             if replanned.decision_fingerprint != brain_state.decision_fingerprint:
-                brain_state.plan_steps = replanned.plan_steps
+                # Replanning must be additive: never resurrect a phase that the
+                # current execution has already completed.
+                completed_now = {
+                    str(step.get("id") or "")
+                    for step in brain_state.plan_steps
+                    if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+                }
+                merged_plan = []
+                for step in replanned.plan_steps:
+                    item = dict(step)
+                    if str(item.get("id") or "") in completed_now:
+                        item["status"] = "completed"
+                    merged_plan.append(item)
+                brain_state.plan_steps = merged_plan
                 brain_state.tool_priority = list(dict.fromkeys(replanned.tool_priority + executed_tools))
                 brain_state.required_capabilities = list(replanned.required_capabilities)
                 brain_state.reasoning_mode = replanned.reasoning_mode
