@@ -317,6 +317,13 @@ def create_chat_v2_router(
                 + "For current or factual claims, rely on the supplied evidence rather than model memory. Distinguish confirmed facts, calculations, and clearly labeled inferences. "
                 + "When sources are supplied, cite factual web claims inline as [S1], [S2], etc., matching the SOURCE numbering in the evidence. "
                 + "Never invent a source, URL, current value, tool result, or completed action. External model output is inference, not evidence."
+            if brain_state.verification_profile:
+                system += (
+                    "\nVERIFICATION PROFILE: " + ", ".join(brain_state.verification_profile) + ". "
+                    "Treat facts as claims requiring evidence when evidence is required; keep calculations deterministic; "
+                    "label inferences as inferences rather than facts; and present opinions as perspectives or criteria, not objective facts. "
+                    "Do not use an opinion or inference to fill an evidence gap."
+                )
             )
             if learning_context:
                 system += "\\nPRIOR VALIDATED LEARNING (advisory only; never treat as current evidence):\\n"
