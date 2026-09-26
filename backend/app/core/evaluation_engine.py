@@ -26,6 +26,7 @@ def verify_answer_claims(
     answer: str,
     evidence: str = "",
     sources: list[dict[str, Any]] | None = None,
+    query: str = "",
 ) -> dict[str, Any]:
     """Conservative final-answer verification with atomic claim-level support."""
     text = (answer or "").strip()
@@ -86,10 +87,19 @@ def verify_answer_claims(
 
     source_blocks = re.split(r"(?=SOURCE\s*\d+)", evidence, flags=re.I)
     indexed: dict[int, str] = {}
+    query_tokens = tokens(query)
+    source_relevance: dict[int, float] = {}
     for block in source_blocks:
         match = re.search(r"SOURCE\s*(\d+)", block, re.I)
         if match:
-            indexed[int(match.group(1))] = block
+            sid = int(match.group(1))
+            indexed[sid] = block
+            if query_tokens:
+                block_tokens = tokens(block)
+                source_relevance[sid] = round(len(query_tokens & block_tokens) / max(1, len(query_tokens)), 3)
+
+    relevant_sources = [score for score in source_relevance.values() if score > 0]
+    average_source_relevance = round(sum(relevant_sources) / len(relevant_sources), 3) if relevant_sources else 0.0
 
     def split_atomic(claim: str) -> list[str]:
         """Split factual clauses while keeping enough subject context to verify them."""
@@ -209,6 +219,9 @@ def verify_answer_claims(
         "claim_details": claim_details[:40],
         "reason": "claims_checked",
         "skipped_claims": skipped,
+        "source_relevance": source_relevance,
+        "average_source_relevance": average_source_relevance,
+        "relevant_source_count": sum(1 for score in source_relevance.values() if score >= 0.12),
     }
 
 
