@@ -475,6 +475,7 @@ def create_chat_v2_router(
             active_task["last_decisions"] = persisted_task.get("last_decisions") or active_task.get("last_decisions", [])
             active_task["previous_progress"] = persisted_task.get("progress") or {}
             active_task["previous_plan"] = persisted_task.get("plan_steps") or []
+            active_task["previous_execution_state"] = persisted_task.get("execution_state") or {}
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
