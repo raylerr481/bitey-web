@@ -666,6 +666,8 @@ def create_chat_v2_router(
                 ]
                 if not selected and brain_state.evidence_required:
                     selected = ["web_research"]
+                elif prior_tools and not selected:
+                    emit("Reutilizando el estado de ejecución anterior…")
 
             # Explicit capability modes are hard tool-routing overrides.
             # Auto mode remains governed by the executive brain.
