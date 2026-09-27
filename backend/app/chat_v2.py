@@ -251,6 +251,8 @@ def _reconcile_task_plan(
             step["status"] = "completed"
         elif step_id == "tool_execute" and tool_set:
             step["status"] = "completed"
+        elif step_id == "evidence_gate" and evidence_available:
+            step["status"] = "completed"
         elif step_id == "retrieve" and evidence_available:
             step["status"] = "completed"
         elif step_id == "compare" and evidence_available:
