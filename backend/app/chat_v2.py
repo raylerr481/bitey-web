@@ -841,6 +841,7 @@ def create_chat_v2_router(
         ]
         if follow_up_tools:
             emit("Reevaluando capacidades necesarias…")
+            emit("Ejecutando herramientas complementarias: " + ", ".join(follow_up_tools) + "…")
             follow_up_context = {
                 **ctx,
                 "evidence": evidence,
