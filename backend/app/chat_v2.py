@@ -289,6 +289,55 @@ def _next_task_step(plan_steps: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _execution_state(
+    *,
+    query: str,
+    plan: list[dict[str, Any]],
+    executed_tools: list[str],
+    evidence: list[dict[str, Any]],
+    answer_verification: dict[str, Any],
+    next_step: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Persist a compact execution snapshot without duplicating full tool payloads."""
+    unsupported = int(answer_verification.get("unsupported_count", 0) or 0)
+    partial = int(answer_verification.get("partial_count", 0) or 0)
+    verified = bool(answer_verification.get("valid"))
+    if verified:
+        confidence = "high"
+    elif unsupported or partial:
+        confidence = "needs_review"
+    elif evidence:
+        confidence = "grounded"
+    else:
+        confidence = "direct"
+
+    return {
+        "query": " ".join(str(query).split())[:1000],
+        "completed_phases": [
+            str(step.get("id") or "")
+            for step in plan
+            if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+        ][-12:],
+        "executed_tools": list(dict.fromkeys(str(tool) for tool in executed_tools))[-12:],
+        "evidence_count": len(evidence),
+        "verification": {
+            "completed": bool(answer_verification),
+            "valid": verified,
+            "unsupported_count": unsupported,
+            "partial_count": partial,
+        },
+        "confidence_state": confidence,
+        "next_step": (
+            {
+                "id": str(next_step.get("id") or ""),
+                "action": str(next_step.get("action") or ""),
+            }
+            if next_step else None
+        ),
+        "state_version": "1.0",
+    }
+
+
 def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Recover the latest workflow state persisted in assistant-message metadata."""
     for item in reversed(history):
@@ -1200,6 +1249,14 @@ def create_chat_v2_router(
         active_task["next_step"] = (
             {"id": str(next_step.get("id") or ""), "action": str(next_step.get("action") or "")}
             if next_step else None
+        )
+        active_task["execution_state"] = _execution_state(
+            query=query,
+            plan=reconciled_plan,
+            executed_tools=executed_tools,
+            evidence=evidence,
+            answer_verification=answer_verification,
+            next_step=next_step,
         )
         await memory.append(cid, {"role": "user", "content": query})
         # Persist workflow metadata alongside the assistant turn so the next
