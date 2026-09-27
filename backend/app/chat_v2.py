@@ -1301,6 +1301,20 @@ def create_chat_v2_router(
             answer_verification=answer_verification,
             next_step=next_step,
         )
+        # Keep the execution snapshot internally consistent with the reconciled
+        # workflow that is persisted for the next turn.
+        active_task["execution_state"]["completed_phases"] = [
+            str(step.get("id") or "")
+            for step in reconciled_plan
+            if isinstance(step, dict) and str(step.get("status") or "") == "completed"
+        ][-12:]
+        active_task["execution_state"]["next_step"] = (
+            {
+                "id": str(next_step.get("id") or ""),
+                "action": str(next_step.get("action") or ""),
+            }
+            if next_step else None
+        )
         await memory.append(cid, {"role": "user", "content": query})
         # Persist workflow metadata alongside the assistant turn so the next
         # Render process can resume the task from Supabase-backed history.
