@@ -648,6 +648,25 @@ def create_chat_v2_router(
             }
             selected = tools.select(query, selection_context)
 
+            # On continuation, reuse already-executed tools only for stable tasks.
+            # Current/fresh requests must always refresh their evidence.
+            previous_execution = active_task.get("previous_execution_state") or {}
+            prior_tools = [
+                str(tool) for tool in previous_execution.get("executed_tools", [])
+                if str(tool).strip()
+            ] if isinstance(previous_execution, dict) else []
+            if (
+                active_task.get("continuation_detected")
+                and prior_tools
+                and not brain_state.freshness_required
+            ):
+                selected = [
+                    name for name in selected
+                    if name not in prior_tools
+                ]
+                if not selected and brain_state.evidence_required:
+                    selected = ["web_research"]
+
             # Explicit capability modes are hard tool-routing overrides.
             # Auto mode remains governed by the executive brain.
             if mode == "research":
