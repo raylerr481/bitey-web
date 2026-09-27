@@ -743,6 +743,61 @@ def create_chat_v2_router(
                 })
 
             plan_step("retrieve", "completed" if sources else "failed")
+
+            # Evidence recovery: if an evidence-required auto/research task
+            # returns no usable sources, make one bounded web-research retry
+            # instead of synthesizing from an empty evidence set.
+            if (
+                not sources
+                and mode in {"auto", "research"}
+                and "web_research" not in selected
+            ):
+                emit("La evidencia obtenida es insuficiente; realizando una búsqueda de respaldo…")
+                fallback_result = await tools.execute(
+                    ["web_research"],
+                    message=query,
+                    context={
+                        **ctx,
+                        "current_intent_domain": brain_state.task_class,
+                        "evidence_required": True,
+                        "requires_web_research": True,
+                        "fallback_research": True,
+                    },
+                )
+                if fallback_result:
+                    executed_tools.extend(
+                        name for name in fallback_result.keys()
+                        if name not in executed_tools
+                    )
+                    for tool_name, tool_payload in fallback_result.items():
+                        if isinstance(tool_payload, dict):
+                            if tool_payload.get("evidence"):
+                                evidence_parts.append(
+                                    f"{tool_name}: {tool_payload.get('evidence')}"
+                                )
+                            raw_sources.extend(
+                                tool_payload.get("sources")
+                                or tool_payload.get("results")
+                                or []
+                            )
+                    evidence = "\\n\\n".join(evidence_parts)
+                    for item in raw_sources:
+                        if not isinstance(item, dict) or not item.get("ok") or not item.get("url"):
+                            continue
+                        url = str(item.get("url")).strip()
+                        if not url or url in seen_source_urls:
+                            continue
+                        seen_source_urls.add(url)
+                        sources.append({
+                            "url": url,
+                            "title": item.get("title") or url,
+                            "verified": True,
+                            "quality": item.get("source_quality", 0.65),
+                            "evidence": str(
+                                item.get("page_evidence") or item.get("evidence") or ""
+                            )[:5000],
+                        })
+
             if sources:
                 emit(f"Encontradas {len(sources)} fuentes; verificando contenido…")
             else:
