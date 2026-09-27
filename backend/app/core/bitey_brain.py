@@ -87,8 +87,18 @@ class BiteyBrain:
             prior_tools = set(str(tool) for tool in (prior_execution or {}).get("executed_tools", []) if str(tool).strip())
             steps.append({"id": "retrieve", "action": "retrieve_evidence", "tools": list(tools), "status": "required"})
             steps.append({"id": "compare", "action": "compare_evidence", "status": "required" if domain == "research" or tools else "conditional"})
-            if prior_tools and set(tools).issubset(prior_tools) and bool((prior_execution or {}).get("evidence_count")):
-                steps[-2]["action"] = "refresh_or_reuse_evidence"
+            prior_has_evidence = bool((prior_execution or {}).get("evidence_count"))
+            # Fresh/current requests must refresh evidence; older evidence may only be
+            # reused as continuity context for stable requests.
+            if (
+                prior_tools
+                and set(tools).issubset(prior_tools)
+                and prior_has_evidence
+                and not freshness_required
+            ):
+                steps[-2]["action"] = "reuse_or_refresh_evidence"
+            elif prior_has_evidence and freshness_required:
+                steps[-2]["action"] = "refresh_current_evidence"
         if complexity >= 0.60:
             steps.append({"id": "decompose", "action": "decompose_multi_step_task", "status": "required"})
         steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
