@@ -59,13 +59,13 @@ def _duckduckgo_html(query: str, limit: int) -> list[dict[str, Any]]:
     # DDG changes markup periodically. Prefer semantic result containers and
     # fall back to result links instead of requiring one exact nested structure.
     blocks = re.findall(
-        r'<(?:div|article)[^>]+class=["'][^"']*result[^"']*["'][^>]*>.*?</(?:div|article)>',
+        r"<(?:div|article)[^>]+class=[\"'][^\"']*result[^\"']*[\"'][^>]*>.*?</(?:div|article)>",
         body,
         flags=re.I | re.S,
     )
     if not blocks:
         blocks = re.findall(
-            r'<a[^>]+class=["'][^"']*result__a[^"']*["'][^>]*>.*?</a>',
+            r"<a[^>]+class=[\"'][^\"']*result__a[^\"']*[\"'][^>]*>.*?</a>",
             body,
             flags=re.I | re.S,
         )
@@ -74,14 +74,14 @@ def _duckduckgo_html(query: str, limit: int) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for block in blocks:
         match = re.search(
-            r'class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>',
+            r"class=[\"'][^\"']*result__a[^\"']*[\"'][^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
             block,
             flags=re.I | re.S,
         )
         if not match:
             # Some DDG variants put href before class.
             match = re.search(
-                r'<a[^>]+href=["']([^"']+)["'][^>]+class=["'][^"']*result__a[^"']*["'][^>]*>(.*?)</a>',
+                r"<a[^>]+href=[\"']([^\"']+)[\"'][^>]+class=[\"'][^\"']*result__a[^\"']*[\"'][^>]*>(.*?)</a>",
                 block,
                 flags=re.I | re.S,
             )
@@ -96,7 +96,7 @@ def _duckduckgo_html(query: str, limit: int) -> list[dict[str, Any]]:
             continue
 
         snippet_match = re.search(
-            r'class=["'][^"']*result__snippet[^"']*["'][^>]*>(.*?)</(?:a|div|span)>',
+            r"class=[\"'][^\"']*result__snippet[^\"']*[\"'][^>]*>(.*?)</(?:a|div|span)>",
             block,
             flags=re.I | re.S,
         )
@@ -126,7 +126,7 @@ def _duckduckgo_lite(query: str, limit: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     seen: set[str] = set()
     for href, label in re.findall(
-        r'<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>',
+        r"<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
         body,
         flags=re.I | re.S,
     ):
