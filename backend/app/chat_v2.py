@@ -672,6 +672,11 @@ def create_chat_v2_router(
                 emit("Aplicando cálculo determinista…")
             else:
                 emit("Buscando información en la web…")
+            emit(
+                "Ejecutando herramientas: "
+                + ", ".join(str(name) for name in selected)
+                + "…"
+            )
             result = await tools.execute(
                 selected,
                 message=query,
