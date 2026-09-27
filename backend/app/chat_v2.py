@@ -1185,13 +1185,15 @@ def create_chat_v2_router(
         # Persist workflow metadata alongside the assistant turn so the next
         # Render process can resume the task from Supabase-backed history.
         if active_task.get("active"):
+            # Persist the reconciled workflow, not the stale pre-reconciliation plan.
+            persisted_plan = reconciled_plan
             completed_steps = [
                 str(step.get("id") or "")
-                for step in brain_state.plan_steps
+                for step in persisted_plan
                 if isinstance(step, dict) and str(step.get("status") or "") == "completed"
             ]
             total_steps = len([
-                step for step in brain_state.plan_steps
+                step for step in persisted_plan
                 if isinstance(step, dict) and step.get("id")
             ])
             active_task["completed_steps"] = completed_steps[-12:]
@@ -1206,7 +1208,7 @@ def create_chat_v2_router(
                     "action": str(step.get("action") or ""),
                     "status": str(step.get("status") or "pending"),
                 }
-                for step in brain_state.plan_steps
+                for step in persisted_plan
                 if isinstance(step, dict) and step.get("id")
             ]
         await memory.append(
