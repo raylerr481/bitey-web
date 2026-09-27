@@ -483,10 +483,30 @@ def create_chat_v2_router(
                 ),
                 None,
             )
+            # Carry completed phases forward into the fresh cognitive plan so
+            # continuation is both visible and semantically consistent.
+            for step in brain_state.plan_steps:
+                if (
+                    isinstance(step, dict)
+                    and str(step.get("id") or "") in previous_done
+                    and str(step.get("status") or "") in {"pending", "conditional", "required", "running"}
+                ):
+                    step["status"] = "completed"
+            pending = next(
+                (
+                    step for step in brain_state.plan_steps
+                    if isinstance(step, dict)
+                    and str(step.get("status", "pending")) in {"pending", "conditional", "required"}
+                ),
+                None,
+            )
             if pending:
                 emit(f"Retomando la tarea activa: {pending.get('action', 'siguiente paso')}…")
                 active_task["resumed_step"] = str(pending.get("id") or "")
                 active_task["resumed_action"] = str(pending.get("action") or "")
+            else:
+                active_task["resumed_step"] = None
+                active_task["resumed_action"] = None
         ctx["active_task"] = active_task
         trace_store.set_plan(trace, brain_state.plan_steps)
 
