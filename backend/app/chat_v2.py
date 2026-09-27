@@ -554,15 +554,6 @@ def create_chat_v2_router(
                 for step in previous
                 if isinstance(step, dict) and str(step.get("status") or "") == "completed"
             }
-            pending = next(
-                (
-                    step for step in brain_state.plan_steps
-                    if isinstance(step, dict)
-                    and str(step.get("status", "pending")) in {"pending", "conditional", "required"}
-                    and str(step.get("id") or "") not in previous_done
-                ),
-                None,
-            )
             # Carry completed phases forward into the fresh cognitive plan so
             # continuation is both visible and semantically consistent.
             for step in brain_state.plan_steps:
