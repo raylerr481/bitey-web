@@ -58,3 +58,14 @@ def test_stable_requests_can_reuse_prior_evidence_context():
     )
     retrieve = next(step for step in state.plan_steps if step["id"] == "retrieve")
     assert retrieve["action"] == "reuse_or_refresh_evidence"
+
+
+def test_research_plan_explicitly_contains_tool_execution_phase():
+    state = BiteyBrain().think(
+        "Investiga y compara las fuentes sobre inteligencia artificial",
+        {"cognition": {"intention": {"domain": "research"}, "perception": {"question": True}},
+         "requires_web_research": True},
+    )
+    execute = next(step for step in state.plan_steps if step["id"] == "tool_execute")
+    assert execute["status"] == "required"
+    assert "web_research" in execute["tools"]
