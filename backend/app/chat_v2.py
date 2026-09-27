@@ -327,6 +327,22 @@ def _execution_state(
             "partial_count": partial,
         },
         "confidence_state": confidence,
+        "execution_phase": (
+            str(next_step.get("id") or "complete")
+            if next_step else "complete"
+        ),
+        "last_tool": (list(dict.fromkeys(str(tool) for tool in executed_tools))[-1] if executed_tools else None),
+        "evidence_hosts": list(dict.fromkeys(
+            str(item.get("host") or item.get("domain") or "").strip()
+            for item in evidence
+            if isinstance(item, dict) and str(item.get("host") or item.get("domain") or "").strip()
+        ))[-8:],
+        "open_questions": [
+            str(item.get("question") or item.get("text") or "").strip()[:500]
+            for item in evidence
+            if isinstance(item, dict)
+            and str(item.get("question") or "").strip()
+        ][-5:],
         "next_step": (
             {
                 "id": str(next_step.get("id") or ""),
@@ -334,7 +350,7 @@ def _execution_state(
             }
             if next_step else None
         ),
-        "state_version": "1.0",
+        "state_version": "1.1",
     }
 
 
@@ -476,6 +492,12 @@ def create_chat_v2_router(
             active_task["previous_progress"] = persisted_task.get("progress") or {}
             active_task["previous_plan"] = persisted_task.get("plan_steps") or []
             active_task["previous_execution_state"] = persisted_task.get("execution_state") or {}
+            active_task["execution_phase"] = (
+                active_task["previous_execution_state"].get("execution_phase")
+                or active_task["previous_execution_state"].get("next_step", {}).get("id")
+                if isinstance(active_task["previous_execution_state"], dict)
+                else None
+            )
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
