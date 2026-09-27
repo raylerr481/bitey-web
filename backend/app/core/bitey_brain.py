@@ -101,6 +101,8 @@ class BiteyBrain:
                 steps[-2]["action"] = "refresh_current_evidence"
         if complexity >= 0.60:
             steps.append({"id": "decompose", "action": "decompose_multi_step_task", "status": "required"})
+        if tools and (evidence_required or freshness_required):
+            steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": list(tools), "status": "required"})
         steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
         if verification_required:
             steps.append({"id": "verify", "action": "verify_claims_and_risk", "status": "required"})
