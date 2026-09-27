@@ -69,3 +69,13 @@ def test_research_plan_explicitly_contains_tool_execution_phase():
     execute = next(step for step in state.plan_steps if step["id"] == "tool_execute")
     assert execute["status"] == "required"
     assert "web_research" in execute["tools"]
+
+
+def test_evidence_gate_follows_tool_execution():
+    state = BiteyBrain().think(
+        "Investiga las novedades de inteligencia artificial",
+        {"cognition": {"intention": {"domain": "research"}, "perception": {"question": True}},
+         "requires_web_research": True},
+    )
+    ids = [step["id"] for step in state.plan_steps]
+    assert ids.index("tool_execute") < ids.index("evidence_gate") < ids.index("synthesize")
