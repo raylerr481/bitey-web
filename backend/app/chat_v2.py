@@ -1219,6 +1219,12 @@ def create_chat_v2_router(
                 for step in brain_state.plan_steps:
                     if isinstance(step, dict) and str(step.get("id") or "") == "compare":
                         step["status"] = "completed"
+            # Evidence has been retrieved and compared; the synthesis gate may now
+            # advance, but only when evidence actually exists.
+            if evidence:
+                for step in brain_state.plan_steps:
+                    if isinstance(step, dict) and str(step.get("id") or "") == "evidence_gate":
+                        step["status"] = "completed"
             # A tool result can change the required capabilities. Recompute the
             # executive plan from the new evidence state without replacing the
             # user's current request or continuity context.
