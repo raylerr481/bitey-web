@@ -103,6 +103,9 @@ class BiteyBrain:
             steps.append({"id": "decompose", "action": "decompose_multi_step_task", "status": "required"})
         if tools and (evidence_required or freshness_required):
             steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": list(tools), "status": "required"})
+        # Synthesis should consume tool results, not run ahead of retrieval.
+        if tools and (evidence_required or freshness_required):
+            steps.append({"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
         steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
         if verification_required:
             steps.append({"id": "verify", "action": "verify_claims_and_risk", "status": "required"})
