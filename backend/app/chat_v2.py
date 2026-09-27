@@ -274,11 +274,18 @@ def _reconcile_task_plan(
 
 
 def _next_task_step(plan_steps: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Return the first genuinely actionable phase, never a stale placeholder."""
+    actionable = {"required", "pending", "conditional", "running"}
     for step in plan_steps:
         if not isinstance(step, dict):
             continue
-        if str(step.get("status") or "") in {"required", "pending", "conditional", "running"}:
-            return step
+        status = str(step.get("status") or "")
+        step_id = str(step.get("id") or "")
+        if status not in actionable:
+            continue
+        if step_id in {"understand", "respond"} and status != "running":
+            continue
+        return step
     return None
 
 
