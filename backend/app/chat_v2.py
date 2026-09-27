@@ -249,6 +249,8 @@ def _reconcile_task_plan(
         step_id = str(step.get("id") or "")
         if step_id == "understand":
             step["status"] = "completed"
+        elif step_id == "tool_execute" and tool_set:
+            step["status"] = "completed"
         elif step_id == "retrieve" and evidence_available:
             step["status"] = "completed"
         elif step_id == "compare" and evidence_available:
