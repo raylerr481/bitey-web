@@ -660,10 +660,13 @@ def create_chat_v2_router(
                 and prior_tools
                 and not brain_state.freshness_required
             ):
+                original_selected = list(selected)
                 selected = [
                     name for name in selected
                     if name not in prior_tools
                 ]
+                if selected != original_selected:
+                    emit("Reutilizando capacidades ya ejecutadas compatibles…")
                 if not selected and brain_state.evidence_required:
                     selected = ["web_research"]
                 elif prior_tools and not selected:
