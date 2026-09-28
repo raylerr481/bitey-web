@@ -24,7 +24,7 @@ class CognitiveModel:
     """Domain-neutral structured cognition used before model routing."""
 
     _DOMAIN_HINTS = {
-        "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao"),
+        "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao", "tiempo"),
         "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
         "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
         "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair"),
@@ -36,7 +36,7 @@ class CognitiveModel:
     _STRONG_INTENT = {
         "research": ("investiga", "investigar", "research", "compara", "fuentes", "evidencia"),
         "trading": ("eurusd", "gbpusd", "xauusd", "btc/usd", "btcusd", "forex", "mt5", "tradingview", "estrategia de trading", "bot de trading", "bot para trading", "señal de trading", "analiza btc", "analiza eth", "analiza eurusd", "backtest", "backtesting"),
-        "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather", "tiempo hoy", "el tiempo hoy", "tiempo en", "clima en", "como esta el tiempo", "cómo está el tiempo", "com esta el tiempo", "com esta el clima"),
+        "weather": ("qué temperatura", "que temperatura", "temperatura actual", "clima actual", "pronóstico", "pronostico", "weather", "tiempo hoy", "el tiempo hoy", "tiempo en", "qué tiempo es", "que tiempo es", "qué tiempo hace", "que tiempo hace", "clima en", "como esta el tiempo", "cómo está el tiempo", "com esta el tiempo", "com esta el clima"),
         "programming": ("escribe código", "escribe codigo", "programa", "implementa", "debug", "api rest", "crear un bot", "crea un bot", "puedes crear bot"),
         "finance": ("precio de", "precio ahora", "cotiza", "cotización", "cotizacion", "acciones de", "acción de", "dividendos", "valor de mercado"),
     }
@@ -73,7 +73,7 @@ class CognitiveModel:
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
-        "tienpo": "tiempo", "timepo": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
+        "tienpo": "tiempo", "timepo": "tiempo", "timepoe": "tiempo", "temppo": "tiempo", "tiemp": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
         "contiua": "continua", "contina": "continua", "continuaaa": "continua",
         "preico": "precio", "prceio": "precio", "cotizacon": "cotizacion", "accin": "accion",
     }
