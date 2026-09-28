@@ -158,7 +158,7 @@ class BiteyBrain:
     def _tool_policy(capabilities,domain,context):
         message = str(context.get("message") or context.get("query") or "").lower()
         math_cues = (
-            bool(re.fullmatch(r"[0-9.,\\s()+\\-*/%^]+", message))
+            bool(re.fullmatch(r"[0-9.,\s()+*/%^=-]+", message))
             or any(k in message for k in (
                 "cuánto es", "cuanto es", "calcula", "calcular", "porcentaje",
                 "promedio", "media", "mediana", "cagr", "probabilidad",
