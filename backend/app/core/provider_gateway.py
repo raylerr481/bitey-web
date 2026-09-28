@@ -175,6 +175,14 @@ class ProviderGateway:
         if not providers: return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
         conversation_id=str(context.get("conversation_id") or "").strip(); brain=context.get("bitey_brain") or {}; role=str(brain.get("model_role") or context.get("model_role") or "synthesis")
         ordered=self._order_for_role(providers,role)
+        # Validated historical outcomes are weak routing hints only. They can
+        # reorder equally eligible free providers, but never bypass availability,
+        # evidence requirements, verification, or the native safety fallback.
+        adaptive = context.get("adaptive_strategy_context") or []
+        preferred_names = [str(item.get("provider") or "") for item in adaptive if isinstance(item, dict)]
+        if preferred_names:
+            preference_rank = {name: index for index, name in enumerate(preferred_names)}
+            ordered = sorted(ordered, key=lambda p: (preference_rank.get(p.name, 999), self._order_for_role([p], role).index(p)))
         evidence_signal=str(context.get("evidence") or "")
         evidence_required=bool(context.get("evidence_available") or evidence_signal)
         domain=str(context.get("current_intent_domain") or context.get("domain") or "").lower().strip()
