@@ -23,6 +23,8 @@ class CognitiveState:
 class CognitiveModel:
     """Domain-neutral structured cognition used before model routing."""
 
+    _INTENT_FAMILIES = ("knowledge", "current_info", "weather", "time", "math", "programming", "file_analysis", "local_search", "comparison", "recommendation", "translation", "summarization", "planning", "creative", "research", "conversation")
+
     _DOMAIN_HINTS = {
         "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao", "tiempo"),
         "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
@@ -31,6 +33,15 @@ class CognitiveModel:
         "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar"),
         "marketing": ("marketing", "ventas", "campaña", "publicidad", "seo"),
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
+        "local_search": ("cerca de mí", "cerca de mi", "cercano", "cercana", "near me", "nearby", "en mi zona"),
+        "translation": ("traduce", "traducir", "traducción", "traduccion", "translate"),
+        "summarization": ("resume", "resumir", "resumen", "summarize", "summary"),
+        "planning": ("planifica", "planificar", "itinerario", "paso a paso", "organiza", "organizar"),
+        "comparison": ("compara", "comparar", "diferencia entre", "versus", " vs "),
+        "recommendation": ("recomienda", "recomiéndame", "recomendación", "recomendacion", "qué me conviene", "should i"),
+        "time": ("qué hora", "que hora", "hora actual", "what time", "current time"),
+        "math": ("calcula", "calcular", "cuánto es", "cuanto es", "porcentaje", "ecuación", "ecuacion", "probabilidad"),
+        "creative": ("escribe una historia", "poema", "poesía", "poesia", "cuento", "guion", "slogan"),
     }
 
     _STRONG_INTENT = {
@@ -135,6 +146,47 @@ class CognitiveModel:
             "complexity_signal": min(1.0, 0.20 + min(0.30, words / 180)),
         }
 
+    @classmethod
+    def _intent_family(cls, text: str, domain: str) -> tuple[str, float]:
+        low = text.casefold()
+        if cls._is_greeting(low) or cls._is_identity_request(low):
+            return "conversation", 0.98
+        if any(x in low for x in ("traduce", "traducir", "traducción", "traduceme", "translate")):
+            return "translation", 0.95
+        if any(x in low for x in ("resume", "resumir", "resumen", "summarize", "summary")):
+            return "summarization", 0.92
+        if any(x in low for x in ("qué hora", "que hora", "hora actual", "hora en ", "what time", "current time")):
+            return "time", 0.94
+        if bool(re.fullmatch(r"[0-9.,\s()+*/%^=-]+", low)) or any(x in low for x in ("cuánto es", "cuanto es", "calcula", "calcular", "porcentaje", "ecuación", "ecuacion", "probabilidad")):
+            return "math", 0.94
+        if domain == "weather":
+            return "weather", 0.98
+        if domain == "programming":
+            return "programming", 0.92
+        if domain == "local_search":
+            return "local_search", 0.90
+        if domain == "research":
+            return "research", 0.90
+        if any(x in low for x in ("compara", "comparar", "diferencia entre", " versus ", " vs ")):
+            return "comparison", 0.90
+        if any(x in low for x in ("recomienda", "recomiéndame", "recomendación", "recomendacion", "qué me conviene", "que me conviene", "should i")):
+            return "recommendation", 0.88
+        if any(x in low for x in ("planifica", "planificar", "itinerario", "paso a paso", "organiza", "organizar")):
+            return "planning", 0.88
+        if any(x in low for x in ("escribe una historia", "poema", "poesía", "poesia", "cuento", "guion", "slogan")):
+            return "creative", 0.90
+        if domain in {"finance", "trading"} and any(x in low for x in ("ahora", "hoy", "actual", "precio", "cotiza", "cotización")):
+            return "current_info", 0.88
+        if any(x in low for x in ("ahora", "hoy", "actualmente", "último", "ultimo", "reciente", "latest", "current", "en vivo", "tiempo real")):
+            return "current_info", 0.82
+        return "knowledge", 0.62
+
+    @staticmethod
+    def _extract_entities(text: str) -> dict[str, list[str]]:
+        locations = re.findall(r"\b(?:en|in|em|cerca de|near)\s+([A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]*(?:\s+[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]*){0,3})", text, flags=re.UNICODE)
+        urls = re.findall(r"https?://[^\s]+|www\.[^\s]+", text, flags=re.I)
+        return {"locations": [x.strip(" ,.!?") for x in locations[:8]], "urls": urls[:8]}
+
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
@@ -162,10 +214,10 @@ class CognitiveModel:
             strong_scores["trading"] = strong_scores.get("trading", 0) + 2
 
         if greeting:
-            return {"domain": "general", "intent": "greeting", "scores": {**scores, "general": 1}, "confidence": 0.98, "source": "structured_greeting_intent", "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation"}
+            return {"domain": "general", "intent": "greeting", "intent_family": "conversation", "entities": self._extract_entities(message), "scores": {**scores, "general": 1}, "confidence": 0.98, "source": "structured_greeting_intent", "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation"}
 
         if identity_request:
-            return {"domain": "general", "intent": "self_identity", "scores": {**scores, "general": 2}, "confidence": 0.98, "source": "structured_self_identity_intent", "response_guidance": "describe_bitey_identity_capabilities_and_scope_without_external_research"}
+            return {"domain": "general", "intent": "self_identity", "intent_family": "conversation", "entities": self._extract_entities(message), "scores": {**scores, "general": 2}, "confidence": 0.98, "source": "structured_self_identity_intent", "response_guidance": "describe_bitey_identity_capabilities_and_scope_without_external_research"}
 
         if conceptual:
             current_conceptual_weather = any(x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico", "forecast"))
@@ -197,11 +249,13 @@ class CognitiveModel:
         confidence = 0.55 if top_score else 0.35
         if top_score > second_score:
             confidence += min(0.25, (top_score - second_score) * 0.08)
-        return {"domain": top_domain, "intent": "answer_or_assist", "scores": scores, "confidence": min(1.0, confidence), "source": "structured_intent_inference"}
+        family, family_confidence = self._intent_family(message, top_domain)
+        return {"domain": top_domain, "intent": "answer_or_assist", "intent_family": family, "intent_confidence": family_confidence, "entities": self._extract_entities(message), "scores": scores, "confidence": min(1.0, max(confidence, family_confidence * 0.75)), "source": "structured_intent_inference"}
 
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
         domain = intention.get("domain", "general")
         intent = intention.get("intent", "answer_or_assist")
+        family = str(intention.get("intent_family") or "knowledge")
         if intent in {"greeting", "self_identity"}:
             return {
                 "objective": "acknowledge_greeting_and_continue_conversation" if intent == "greeting" else "answer_bitey_identity_and_capabilities",
@@ -233,7 +287,7 @@ class CognitiveModel:
             context.get("research")
             or context.get("requires_web_research")
             or context.get("needs_web")
-        ) or domain == "research"
+        ) or domain == "research" or family in {"current_info", "local_search", "comparison", "recommendation"}
 
         step_cues = (" y luego ", " después ", " despues ", " luego ", " después de ", " despues de ", "then ", "after that", "and then", "primero", "first")
         compound = any(cue in lower_message for cue in step_cues)
@@ -249,11 +303,13 @@ class CognitiveModel:
             steps.append("synthesize_answer")
 
         return {
-            "objective": "retrieve_current_data_and_answer" if freshness else "answer_or_assist",
+            "objective": "retrieve_current_data_and_answer" if freshness else ("research_compare_recommend" if family in {"comparison", "recommendation"} else "answer_or_assist"),
             "domain": domain,
+            "intent_family": family,
+            "entities": intention.get("entities", {}),
             "needs_evidence": evidence,
             "freshness_required": freshness,
-            "requires_specialized_module": domain not in {"general", "research", "weather"},
+            "requires_specialized_module": domain not in {"general", "research", "weather", "local_search", "translation", "summarization", "comparison", "recommendation", "planning", "creative", "time", "math"},
             "verification_required": evidence or domain == "research" or multi_step,
             "multi_step": multi_step,
             "steps": list(dict.fromkeys(steps)),
@@ -270,6 +326,8 @@ class CognitiveModel:
             "mode": "retrieve_then_respond" if state.plan.get("needs_evidence") else "respond",
             "domain": state.intention.get("domain", "general"),
             "intent": state.intention.get("intent", "answer_or_assist"),
+            "intent_family": state.intention.get("intent_family", "knowledge"),
+            "entities": state.intention.get("entities", {}),
             "confidence": state.confidence,
             "evidence_required": bool(state.plan.get("needs_evidence")),
             "freshness_required": bool(state.plan.get("freshness_required")),
