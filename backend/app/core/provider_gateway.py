@@ -157,8 +157,16 @@ class ProviderGateway:
     def available(self): return [p.name for p in sorted(self._providers.values(),key=lambda p:p.priority)]
     def _order_for_role(self,providers,role):
         preferred=self.ROLE_PREFERENCES.get(role,self.ROLE_PREFERENCES["synthesis"]); rank={name:i for i,name in enumerate(preferred)}
-        # The native model is a deterministic safety net, never the preferred generator.
-        return sorted(providers,key=lambda p:(10_000 if p.name=="bitey-native-cognitive-v1" else rank.get(p.name,100),p.priority))
+        # Stable free-first cascade: Groq -> any verified OpenRouter free model
+        # -> local Ollama -> Bitey's native deterministic model.
+        def tier(provider):
+            name=str(provider.name)
+            if name == "groq-free": return 0
+            if name == "deepseek-free" or name.startswith("openrouter-free-"): return 1
+            if name == "ollama-local": return 2
+            if name == "bitey-native-cognitive-v1": return 3
+            return 4
+        return sorted(providers,key=lambda p:(tier(p),rank.get(p.name,100),p.priority))
     async def generate(self, *, messages, context):
         await self._prepare_external_free_providers()
         context["provider_attempts"]=[]
