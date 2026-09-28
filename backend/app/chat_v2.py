@@ -39,6 +39,7 @@ class ChatV2Response(BaseModel):
     elapsed_ms: int
     answer_validation: dict[str, Any] = Field(default_factory=dict)
     evidence_analysis: dict[str, Any] = Field(default_factory=dict)
+    execution_state: dict[str, Any] = Field(default_factory=dict)
 
 
 def _compact_history(
@@ -1471,6 +1472,7 @@ def create_chat_v2_router(
                 "conflict_candidates": conflict_candidates[:12],
                 "conflict_detected": conflict_detected,
             },
+            execution_state=active_task.get("execution_state") or {},
         )
 
     return router
