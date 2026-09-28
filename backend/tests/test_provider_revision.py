@@ -20,6 +20,29 @@ class FakeProvider:
 
 
 class BoundedProviderRevisionTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_free_provider_cascade_is_groq_openrouter_local_native(self):
+        gateway = ProviderGateway.__new__(ProviderGateway)
+        gateway.ROLE_PREFERENCES = ProviderGateway.ROLE_PREFERENCES
+        providers = []
+        for name, priority in (
+            ("bitey-native-cognitive-v1", 2),
+            ("ollama-local", 1),
+            ("openrouter-free-test", 90),
+            ("groq-free", 50),
+            ("deepseek-free", 70),
+        ):
+            p = FakeProvider()
+            p.name = name
+            p.priority = priority
+            providers.append(p)
+
+        ordered = gateway._order_for_role(providers, "synthesis")
+        self.assertEqual(
+            [p.name for p in ordered],
+            ["groq-free", "deepseek-free", "openrouter-free-test", "ollama-local", "bitey-native-cognitive-v1"],
+        )
+
     async def test_revision_is_bounded_to_one_attempt(self):
         gateway = ProviderGateway.__new__(ProviderGateway)
         provider = FakeProvider()
