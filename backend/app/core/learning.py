@@ -100,6 +100,45 @@ class LearningEngine:
             )
             return candidate
 
+    async def recommend_strategy(self, memory_scope: str, task_class: str, limit: int = 3) -> list[dict[str, Any]]:
+        """Return bounded historical strategy signals; never supplies factual evidence."""
+        if not self.persistent:
+            return []
+        params = {
+            "candidate_type": "eq.validated_lesson",
+            "status": "eq.validated",
+            "order": "created_at.desc",
+            "limit": "100",
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"{self.url}/rest/v1/cognitive_learning_candidates", headers=self._headers(), params=params)
+            response.raise_for_status()
+            rows = response.json()
+        scores: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            payload = row.get("payload") if isinstance(row, dict) else None
+            if not isinstance(payload, dict) or payload.get("memory_scope") != memory_scope:
+                continue
+            strategy = str(payload.get("strategy") or "")[:240]
+            if not strategy:
+                continue
+            if str(payload.get("task_class") or "") not in ("", task_class):
+                continue
+            confidence = max(0.0, min(1.0, float(row.get("confidence") or 0.0)))
+            key = (strategy, str(payload.get("provider") or ""))
+            bucket = scores.setdefault(key, {"strategy": strategy, "provider": key[1], "samples": 0, "confidence_sum": 0.0})
+            bucket["samples"] += 1
+            bucket["confidence_sum"] += confidence
+        ranked = []
+        for bucket in scores.values():
+            samples = int(bucket["samples"])
+            avg = bucket["confidence_sum"] / max(1, samples)
+            # Require repeated validated observations before influencing routing.
+            if samples >= 2:
+                ranked.append({**bucket, "avg_confidence": round(avg, 4), "signal": round(avg * min(1.0, samples / 5), 4)})
+        ranked.sort(key=lambda x: x["signal"], reverse=True)
+        return ranked[:max(1, min(limit, 5))]
+
     async def retrieve_lessons(self, memory_scope: str, task: str, limit: int = 5) -> list[dict[str, Any]]:
         """Load bounded validated lessons from Supabase; current evidence remains authoritative."""
         if not self.persistent:
