@@ -138,9 +138,15 @@ class CognitiveModel:
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
-        weather_temporal = any(x in text for x in ("tiempo", "clima", "temperatura", "weather")) and any(x in text for x in ("hoy", "ahora", "actual", "actualmente", "ahora mismo"))
-        if weather_temporal:
+        weather_terms = ("tiempo", "clima", "temperatura", "weather")
+        weather_temporal = any(x in text for x in weather_terms) and any(x in text for x in ("hoy", "ahora", "actual", "actualmente", "ahora mismo"))
+        weather_location_question = bool(re.search(r"\b(?:tiempo|clima|temperatura|weather)\b.*\b(?:en|in|em)\b", text))
+        weather_state_question = bool(re.search(r"\b(?:como|cómo)\s+(?:esta|está)\s+(?:el\s+)?(?:tiempo|clima)\b", text))
+        if weather_temporal or weather_location_question or weather_state_question:
             scores["weather"] = max(scores.get("weather", 0), 2)
+            strong_scores_hint = True
+        else:
+            strong_scores_hint = False
         finance_current = any(x in text for x in ("precio", "cotización", "cotizacion", "cotiza", "acciones", "dividendos")) and any(x in text for x in ("ahora", "hoy", "actual", "actualmente", "último", "última", "cuánto", "cuanto", "vale"))
         if finance_current:
             scores["finance"] = max(scores.get("finance", 0), 2)
@@ -148,6 +154,8 @@ class CognitiveModel:
         greeting = self._is_greeting(text)
         identity_request = self._is_identity_request(text)
         strong_scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._STRONG_INTENT.items()}
+        if strong_scores_hint:
+            strong_scores["weather"] = max(strong_scores.get("weather", 0), 2)
         market_instrument = bool(self._MARKET_INSTRUMENT_RE.search(message))
         market_action = any(cue in text for cue in self._MARKET_ACTION_CUES)
         if market_instrument and market_action:
@@ -207,16 +215,18 @@ class CognitiveModel:
             }
 
         # Normalize once before any temporal or multi-step routing checks.
-        lower_message = message.lower()
+        lower_message = self._normalize_for_routing(message).lower()
         current_cues = (
             "ahora", "ahora mismo", "hoy", "actual", "actualmente",
             "último", "última", "ultimo", "ultima", "reciente", "latest",
             "current", "recent", "en vivo", "tiempo real", "cotiza"
         )
         explicit_current = any(cue in lower_message for cue in current_cues)
+        weather_location_request = domain == "weather" and bool(re.search(r"\b(?:tiempo|clima|temperatura|weather)\b.*\b(?:en|in|em)\b", lower_message))
+        weather_state_request = domain == "weather" and bool(re.search(r"\b(?:como|cómo)\s+(?:esta|está)\s+(?:el\s+)?(?:tiempo|clima)\b", lower_message))
         freshness = (
             bool(context.get("freshness_required"))
-            or (domain == "weather" and explicit_current)
+            or (domain == "weather" and (explicit_current or weather_location_request or weather_state_request))
             or (domain == "finance" and explicit_current)
         )
         evidence = freshness or bool(
