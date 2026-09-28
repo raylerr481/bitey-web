@@ -43,7 +43,7 @@ class BiteyBrain:
     RESEARCH_WORDS = ("investiga", "investigar", "investigación", "investigacion", "fuentes", "compara", "comparar", "verifica", "verificar", "evidencia", "research")
 
     def _fingerprint(self, message: str, context: dict[str, Any], evidence_available: bool) -> str:
-        cognition = context.get("cognition") or {}; intention = cognition.get("intention") or {}; plan = cognition.get("plan") or {}
+        cognition = context.get("cognition") or {}; intention = cognition.get("intention") or {}; plan = cognition.get("plan") or {}; intent_family = str(intention.get("intent_family") or "knowledge")
         material = {"message": message.strip(), "domain": intention.get("domain") or context.get("domain") or "general", "evidence": evidence_available, "freshness": context.get("freshness_required"), "research": context.get("research"), "needs_web": context.get("needs_web"), "capabilities": sorted(map(str, context.get("required_capabilities") or [])), "intent_family": intent_family, "plan_evidence": plan.get("needs_evidence")}
         return hashlib.sha256(repr(sorted(material.items())).encode("utf-8")).hexdigest()[:16]
 
