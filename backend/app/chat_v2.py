@@ -510,17 +510,6 @@ def create_chat_v2_router(
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
-        adaptive_strategy_context: list[dict[str, Any]] = []
-        if learning is not None:
-            try:
-                scope = server_execution_context(cid).memory_scope
-                adaptive_strategy_context = await learning.recommend_strategy(
-                    scope,
-                    str((initial_cognitive.intention or {}).get("task_class") or ctx.get("current_intent_domain") or "general"),
-                    limit=3,
-                )
-            except Exception:
-                adaptive_strategy_context = []
         if learning is not None:
             try:
                 scope = server_execution_context(cid).memory_scope
@@ -536,6 +525,18 @@ def create_chat_v2_router(
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
         ctx["cognition"] = initial_cognitive.as_dict()
         ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
+        adaptive_strategy_context: list[dict[str, Any]] = []
+        if learning is not None:
+            try:
+                scope = server_execution_context(cid).memory_scope
+                adaptive_strategy_context = await learning.recommend_strategy(
+                    scope,
+                    str((initial_cognitive.intention or {}).get("task_class") or ctx.get("current_intent_domain") or "general"),
+                    limit=3,
+                )
+            except Exception:
+                adaptive_strategy_context = []
+        ctx["adaptive_strategy_context"] = adaptive_strategy_context
         emit(f"Intención cognitiva: {ctx['current_intent_domain']}…")
         brain_state = brain.think(query, ctx)
 
