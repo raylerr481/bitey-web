@@ -510,6 +510,17 @@ def create_chat_v2_router(
         if history:
             emit("Recuperando contexto relevante de la conversación…")
         learning_context: list[dict[str, Any]] = []
+        adaptive_strategy_context: list[dict[str, Any]] = []
+        if learning is not None:
+            try:
+                scope = server_execution_context(cid).memory_scope
+                adaptive_strategy_context = await learning.recommend_strategy(
+                    scope,
+                    str((initial_cognitive.intention or {}).get("task_class") or ctx.get("current_intent_domain") or "general"),
+                    limit=3,
+                )
+            except Exception:
+                adaptive_strategy_context = []
         if learning is not None:
             try:
                 scope = server_execution_context(cid).memory_scope
@@ -1051,6 +1062,11 @@ def create_chat_v2_router(
                     "label inferences as inferences rather than facts; and present opinions as perspectives or criteria, not objective facts. "
                     "Do not use an opinion or inference to fill an evidence gap."
                 )
+            if adaptive_strategy_context:
+                system += "\\nADAPTIVE STRATEGY SIGNALS (advisory routing hints only):\\n"
+                for index, signal in enumerate(adaptive_strategy_context, 1):
+                    system += f"A{index}: strategy={signal.get('strategy','')}; provider={signal.get('provider','')}; signal={signal.get('signal',0)}; samples={signal.get('samples',0)}\\n"
+                system += "Use these only as weak routing hints; never skip tools, verification, or evidence requirements.\\n"
             if learning_context:
                 system += "\\nPRIOR VALIDATED LEARNING (advisory only; never treat as current evidence):\\n"
                 for index, lesson in enumerate(learning_context, 1):
