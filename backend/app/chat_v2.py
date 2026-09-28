@@ -1210,14 +1210,19 @@ def create_chat_v2_router(
             "tools_selected": list(selected),
             "tools_executed": list(dict.fromkeys(executed_tools)),
         }
+        # Evidence-backed answers are not complete merely because sources
+        # exist: the synthesized claims must also pass the verification gate.
+        evidence_gate_ready = (
+            not final_contract["evidence_required"]
+            or (
+                final_contract["evidence_available"]
+                and bool(answer_verification.get("valid"))
+            )
+        )
         final_contract["ready"] = (
             final_contract["answer_present"]
             and final_contract["question_present"]
-            and (
-                not final_contract["evidence_required"]
-                or final_contract["evidence_available"]
-                or bool(answer_verification.get("valid"))
-            )
+            and evidence_gate_ready
         )
         ctx["final_contract"] = final_contract
         trace.decision["final_contract"] = final_contract
