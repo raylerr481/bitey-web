@@ -98,12 +98,12 @@ class CloudflareAIProvider:
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
-        "strong_reasoning_synthesis":("ollama-local","groq-free","deepseek-free","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("ollama-local","groq-free","deepseek-free","bitey-native-cognitive-v1"),
-        "code_reasoning":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
-        "guarded_analysis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
-        "fast_synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
-        "synthesis":("ollama-local","groq-free","deepseek-free","qwen-free","bitey-native-cognitive-v1"),
+        "strong_reasoning_synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "code_reasoning":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "guarded_analysis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "fast_synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
     }
     def __init__(self) -> None:
         self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0; self._conversation_provider={}; self._register_from_environment()
@@ -112,7 +112,7 @@ class ProviderGateway:
         self._providers[provider.name]=provider
     async def _register_external_free_providers(self):
         if not cloud_allowed() or not free_only_mode(): return
-        if env_true("GROQ_ENABLED",False) and os.getenv("GROQ_API_KEY"):
+        if env_true("GROQ_ENABLED",True) and os.getenv("GROQ_API_KEY"):
             model=os.getenv("GROQ_MODEL","openai/gpt-oss-120b")
             if can_use_external_free_provider("groq",model=model): self.register(OpenAICompatibleProvider("groq-free","https://api.groq.com/openai/v1",model,os.getenv("GROQ_API_KEY",""),int(os.getenv("GROQ_PRIORITY","50")),True))
         if env_true("OPENROUTER_ENABLED",True) and os.getenv("OPENROUTER_API_KEY"):
