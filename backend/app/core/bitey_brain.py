@@ -71,7 +71,8 @@ class BiteyBrain:
         elif any(x in low for x in self.ACTION_WORDS): risk = "medium"
         capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx)
         if intent_family not in {"knowledge", "conversation"} and intent_family not in capabilities:
-            capabilities.append(intent_family) ctx["intent_family"] = intent_family
+            capabilities.append(intent_family)
+        ctx["intent_family"] = intent_family
         tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
