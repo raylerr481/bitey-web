@@ -1085,7 +1085,7 @@ def create_chat_v2_router(
             elif research_required:
                 system += "\nRESEARCH FAILURE: no usable evidence was verified. State that limitation and do not invent current facts."
             messages.insert(0, {"role": "system", "content": system})
-            emit("Generando respuesta con el proveedor disponible…")
+            emit("Generando respuesta con el LLM gratuito disponible…")
             trace_store.set_stage(trace, "GENERATING")
             provider_context = {
                 **ctx,
@@ -1094,6 +1094,12 @@ def create_chat_v2_router(
                 "evidence_source_count": evidence_source_count,
             }
             answer = await providers.generate(messages=messages, context=provider_context)
+            selected_provider = str(provider_context.get("provider_selected") or "").strip()
+            if selected_provider:
+                provider_labels = {"groq-free": "Groq gratuito", "openrouter-free-router": "OpenRouter Free", "deepseek-free": "DeepSeek Free", "ollama-local": "Ollama local", "bitey-native-cognitive-v1": "motor nativo de Bitey"}
+                emit(f"Respuesta generada con {provider_labels.get(selected_provider, selected_provider)}.")
+            else:
+                emit("No se pudo confirmar un LLM externo; aplicando el respaldo seguro de Bitey.")
             trace.provider = {
                 "available": providers.available(),
                 "selected": provider_context.get("provider_selected"),
