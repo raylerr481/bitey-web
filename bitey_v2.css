@@ -24,3 +24,4 @@
   .composer .composer-tool svg,.composer .send-button svg{width:17px!important;height:17px!important}
   .composer textarea{min-height:68px!important}
 }
+.execution-state-event{border-top:1px solid rgba(255,255,255,.05)!important;margin-top:4px!important;padding-top:5px!important}.execution-state-event strong{font-weight:500!important}.execution-state-event small{display:block!important;margin-left:0!important;opacity:.62!important;font-size:9px!important;margin-top:1px!important}
