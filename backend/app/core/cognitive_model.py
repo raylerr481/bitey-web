@@ -181,6 +181,41 @@ class CognitiveModel:
             return "current_info", 0.82
         return "knowledge", 0.62
 
+    @classmethod
+    def build_execution_policy(cls, intention: dict[str, Any], message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Translate intent into a capability plan without hard-coding every question."""
+        ctx = context or {}
+        family = str(intention.get("intent_family") or "knowledge")
+        confidence = float(intention.get("intent_confidence") or intention.get("confidence") or 0.0)
+        freshness = bool(ctx.get("freshness_required"))
+        explicit_research = bool(ctx.get("requires_web_research") or ctx.get("research"))
+        direct_tools = {
+            "weather": ["weather"],
+            "time": ["time"],
+            "math": ["calculator"],
+            "programming": ["code_reasoning"],
+            "file_analysis": ["file_context"],
+            "local_search": ["local_search"],
+        }
+        tool_chain = list(direct_tools.get(family, []))
+        if family in {"current_info", "research"} or explicit_research or freshness:
+            tool_chain.append("web_research")
+        if family in {"comparison", "recommendation"}:
+            tool_chain.extend(["web_research", "reasoning"])
+        if family in {"knowledge", "translation", "summarization", "planning", "creative", "conversation"}:
+            tool_chain.append("llm")
+        if "reasoning" not in tool_chain and family not in {"conversation", "math", "time", "weather"}:
+            tool_chain.append("reasoning")
+        deduped = list(dict.fromkeys(tool_chain)) or ["llm"]
+        return {
+            "intent_family": family,
+            "confidence": round(max(0.0, min(1.0, confidence)), 3),
+            "capabilities": deduped,
+            "requires_evidence": bool("web_research" in deduped or family in {"weather", "time", "local_search"}),
+            "fallback_order": ["llm", "web_research", "reasoning"],
+            "answer_strategy": "direct" if family in {"conversation", "math", "time", "translation"} else "synthesize",
+        }
+
     @staticmethod
     def _extract_entities(text: str) -> dict[str, list[str]]:
         locations = re.findall(r"\b(?:en|in|em|cerca de|near)\s+([A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]*(?:\s+[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]*){0,3})", text, flags=re.UNICODE)
