@@ -880,6 +880,11 @@ def create_chat_v2_router(
                 emit("No se pudo verificar evidencia suficiente; no se presentará como confirmada.")
 
         evidence_source_count = len(sources)
+        # These metrics must exist even for ordinary chat that never enters research.
+        # Keeping them initialized prevents a research-only variable from turning
+        # a simple greeting into an HTTP 500 during response assembly.
+        max_source_relevance = 0.0
+        relevant_source_count = 0
         source_qualities = [
             float(source.get("quality", 0.0) or 0.0)
             for source in sources
