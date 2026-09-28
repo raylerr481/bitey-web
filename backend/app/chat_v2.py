@@ -1274,6 +1274,11 @@ def create_chat_v2_router(
                         "validated_answer": answer,
                         "evidence_refs": evidence_refs,
                         "tools": selected,
+                        "provider": str(provider_context.get("provider_selected") or trace.provider.get("selected") or ""),
+                        "provider_attempts": list(provider_context.get("provider_attempts", []) or [])[:6],
+                        "evaluation_decision": evaluation.decision,
+                        "evaluation_confidence": float(evaluation.confidence or 0.0),
+                        "evidence_required": bool(brain_state.evidence_required),
                     },
                 )
                 emit("Aprendizaje validado guardado en la memoria cognitiva…")
