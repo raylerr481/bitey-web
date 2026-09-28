@@ -173,14 +173,17 @@ class BiteyBrain:
         elif domain == "trading":
             t.append("sbt_market")
 
-        # Evidence can be combined with reasoning instead of replacing it.
+        # Evidence, reasoning, and deterministic tools may be composed.
+        # The planner keeps specialized current-data tools first, then adds
+        # research/reasoning/calculation capabilities required by the request.
         if "external_evidence" in capabilities and domain not in {"weather", "trading"}:
             t.append("web_research")
         if "code_reasoning" in capabilities:
             t.append("code_reasoning")
-        if math_cues and "calculator" not in t:
+        if math_cues:
             t.append("calculator")
 
+        # Preserve deterministic priority while removing duplicates.
         return list(dict.fromkeys(t))
 
     @staticmethod
