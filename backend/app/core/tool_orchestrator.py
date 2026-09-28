@@ -200,6 +200,30 @@ class ToolOrchestrator:
         result["evidence"] = f"SBT verified market analysis for {symbol} {timeframe}. Source: {source}. Candles: {len(candles)}. Last price: {result.get('last_price')}. Bias: {result.get('bias')}. Confidence: {result.get('confidence')}. SBT remains research-only and execution is disabled."
         return {"ok": True, "available": True, "verified": True, "execution_enabled": False, "symbol": symbol, "timeframe": timeframe, "source": source, "analysis": result, "evidence": result["evidence"]}
 
+    @staticmethod
+    def _source_relevance(message: str, item: dict[str, Any]) -> float:
+        """Score whether a retrieved source actually addresses the user's request."""
+        stop = {
+            "para","como","cual","cuál","que","qué","donde","dónde","cuando","cuándo",
+            "este","esta","esto","sobre","desde","hace","hoy","ahora","with","from",
+            "what","where","when","this","that","about","latest","current","please",
+        }
+        def tokens(value: str) -> set[str]:
+            return {
+                token for token in re.findall(r"[a-záéíóúüñ0-9]{3,}", value.casefold())
+                if token not in stop
+            }
+        query_terms = tokens(message)
+        if not query_terms:
+            return 0.0
+        title_url = tokens(f"{item.get('title','')} {item.get('url','')}")
+        evidence = tokens(str(item.get("page_evidence") or item.get("evidence") or "")[:12000])
+        title_overlap = len(query_terms & title_url) / len(query_terms)
+        evidence_overlap = len(query_terms & evidence) / len(query_terms)
+        score = (title_overlap * 0.70) + (evidence_overlap * 0.30)
+        return round(min(1.0, score), 4)
+
+
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         import asyncio
         from urllib.parse import urlparse
@@ -238,11 +262,31 @@ class ToolOrchestrator:
         for item in await asyncio.gather(*(enrich(item) for item in raw_results[:6])):
             enriched.append(item)
 
-        enriched.sort(key=lambda item: (bool(item.get("evidence_verified")), float(item.get("source_quality", 0.0))), reverse=True)
-        result["results"] = enriched
-        verified = [item for item in enriched if item.get("evidence_verified") and item.get("page_evidence")]
+        # Relevance is a hard evidence boundary: a verified page is not useful
+        # merely because it contains one lexical match. Rank by request overlap
+        # and suppress clearly unrelated pages before they reach the LLM or UI.
+        verified = []
+        for item in enriched:
+            if not item.get("evidence_verified") or not item.get("page_evidence"):
+                continue
+            relevance = self._source_relevance(message, item)
+            item["relevance"] = relevance
+            verified.append(item)
+        verified.sort(
+            key=lambda item: (
+                float(item.get("relevance", 0.0)),
+                float(item.get("source_quality", 0.0)),
+            ),
+            reverse=True,
+        )
+        relevant_verified = [item for item in verified if float(item.get("relevance", 0.0)) >= 0.08]
+        verified = relevant_verified[:6]
+        result["results"] = [
+            item for item in enriched
+            if float(item.get("relevance", 0.0) or 0.0) >= 0.08
+        ][:8]
         evidence_blocks = []
-        for i, item in enumerate(verified[:6], 1):
+        for i, item in enumerate(verified, 1):
             evidence_blocks.append(
                 f"SOURCE {i}: {item.get('url')}\n"
                 f"TITLE: {item.get('title', '')}\n"
@@ -359,6 +403,7 @@ class ToolOrchestrator:
             **result,
             "evidence": evidence,
             "verified_evidence_count": len(verified),
+            "relevance_filtered": len(enriched) - len(result["results"]),
             "discovery_result_count": len(enriched),
             "conflict_detected": bool(conflicts),
             "conflict_candidates": conflicts,
@@ -399,7 +444,29 @@ class ToolOrchestrator:
             f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\nRELATIVE HUMIDITY: {current.get('relative_humidity_2m', 'unknown')}%\n"
             f"WIND SPEED: {current.get('wind_speed_10m', 'unknown')} km/h\nCONDITION: {condition or 'no disponible'}"
         )
-        return {"ok": True, "available": True, "source": "open-meteo", "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "evidence": evidence}
+        return {
+            "ok": True,
+            "available": True,
+            "source": "open-meteo",
+            "sources": [{
+                "ok": True,
+                "url": "https://open-meteo.com/",
+                "title": "Open-Meteo — datos meteorológicos",
+                "source_quality": 0.85,
+                "page_evidence": evidence,
+                "evidence_verified": True,
+                "relevance": 1.0,
+            }],
+            "location": {
+                "name": location.get("name"),
+                "country": location.get("country"),
+                "admin1": location.get("admin1"),
+                "latitude": lat,
+                "longitude": lon,
+            },
+            "current": current,
+            "evidence": evidence,
+        }
 
 
 def normalize_natural_math(text: str) -> str:
