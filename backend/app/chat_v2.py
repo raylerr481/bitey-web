@@ -569,7 +569,9 @@ def create_chat_v2_router(
 
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
         ctx["cognition"] = initial_cognitive.as_dict()
+        ctx["execution_policy"] = cognition.build_execution_policy(initial_cognitive.intention, query, ctx)
         ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
+        ctx["intent_family"] = initial_cognitive.intention.get("intent_family", "knowledge")
         adaptive_strategy_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
