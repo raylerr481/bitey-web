@@ -98,12 +98,12 @@ class CloudflareAIProvider:
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
-        "strong_reasoning_synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "code_reasoning":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "guarded_analysis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "fast_synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "synthesis":("groq-free","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "strong_reasoning_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "code_reasoning":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "guarded_analysis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "fast_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
     }
     def __init__(self) -> None:
         self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0; self._conversation_provider={}; self._register_from_environment()
@@ -117,6 +117,7 @@ class ProviderGateway:
             if can_use_external_free_provider("groq",model=model): self.register(OpenAICompatibleProvider("groq-free","https://api.groq.com/openai/v1",model,os.getenv("GROQ_API_KEY",""),int(os.getenv("GROQ_PRIORITY","50")),True))
         if env_true("OPENROUTER_ENABLED",True) and os.getenv("OPENROUTER_API_KEY"):
             deepseek=os.getenv("OPENROUTER_DEEPSEEK_MODEL","deepseek/deepseek-chat-v3-0324:free")
+            if env_true("OPENROUTER_FREE_ROUTER_ENABLED",True): self.register(OpenAICompatibleProvider("openrouter-free-router","https://openrouter.ai/api/v1","openrouter/free",os.getenv("OPENROUTER_API_KEY",""),65,True))
             if env_true("DEEPSEEK_ENABLED",True) and can_use_external_free_provider("openrouter",model=deepseek): self.register(OpenAICompatibleProvider("deepseek-free","https://openrouter.ai/api/v1",deepseek,os.getenv("OPENROUTER_API_KEY",""),70,True))
     def _register_from_environment(self):
         if env_true("OLLAMA_ENABLED",True): self.register(OllamaProvider())
@@ -162,6 +163,7 @@ class ProviderGateway:
         def tier(provider):
             name=str(provider.name)
             if name == "groq-free": return 0
+            if name == "openrouter-free-router": return 1
             if name == "deepseek-free" or name.startswith("openrouter-free-"): return 1
             if name == "ollama-local": return 2
             if name == "bitey-native-cognitive-v1": return 3
@@ -182,7 +184,8 @@ class ProviderGateway:
         preferred_names = [str(item.get("provider") or "") for item in adaptive if isinstance(item, dict)]
         if preferred_names:
             preference_rank = {name: index for index, name in enumerate(preferred_names)}
-            ordered = sorted(ordered, key=lambda p: (preference_rank.get(p.name, 999), self._order_for_role([p], role).index(p)))
+            base_order = {p.name: i for i, p in enumerate(ordered)}
+            ordered = sorted(ordered, key=lambda p: (preference_rank.get(p.name, 999), base_order.get(p.name, 999)))
         evidence_signal=str(context.get("evidence") or "")
         evidence_required=bool(context.get("evidence_available") or evidence_signal)
         domain=str(context.get("current_intent_domain") or context.get("domain") or "").lower().strip()
@@ -195,7 +198,7 @@ class ProviderGateway:
         sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
         if sticky and sticky.name != "bitey-native-cognitive-v1":
             ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
-        max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","3")))
+        max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","4")))
         selected_providers=ordered[:max_providers]
         if native and native not in selected_providers:
             selected_providers.append(native)
