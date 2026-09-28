@@ -44,12 +44,13 @@ class BiteyBrain:
 
     def _fingerprint(self, message: str, context: dict[str, Any], evidence_available: bool) -> str:
         cognition = context.get("cognition") or {}; intention = cognition.get("intention") or {}; plan = cognition.get("plan") or {}
-        material = {"message": message.strip(), "domain": intention.get("domain") or context.get("domain") or "general", "evidence": evidence_available, "freshness": context.get("freshness_required"), "research": context.get("research"), "needs_web": context.get("needs_web"), "capabilities": sorted(map(str, context.get("required_capabilities") or [])), "plan_evidence": plan.get("needs_evidence")}
+        material = {"message": message.strip(), "domain": intention.get("domain") or context.get("domain") or "general", "evidence": evidence_available, "freshness": context.get("freshness_required"), "research": context.get("research"), "needs_web": context.get("needs_web"), "capabilities": sorted(map(str, context.get("required_capabilities") or [])), "intent_family": intent_family, "plan_evidence": plan.get("needs_evidence")}
         return hashlib.sha256(repr(sorted(material.items())).encode("utf-8")).hexdigest()[:16]
 
     def think(self, message: str, context: dict[str, Any] | None = None) -> BrainState:
         ctx = context if context is not None else {}; text = message.strip(); low = text.lower()
         cognition = ctx.get("cognition") or {}; intention = cognition.get("intention") or {}; perception = cognition.get("perception") or {}; domain = str(intention.get("domain") or ctx.get("domain") or "general")
+        intent_family = str(intention.get("intent_family") or "knowledge")
         evidence_available = bool(ctx.get("evidence_available")); fingerprint = self._fingerprint(message, ctx, evidence_available)
         cached = ctx.get("_bitey_brain_state")
         if isinstance(cached, BrainState) and cached.decision_fingerprint == fingerprint: return cached
@@ -68,7 +69,10 @@ class BiteyBrain:
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
         elif any(x in low for x in self.ACTION_WORDS): risk = "medium"
-        capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx); tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
+        capabilities = self._capabilities(domain, evidence, freshness, complexity, ctx)
+        if intent_family not in {"knowledge", "conversation"} and intent_family not in capabilities:
+            capabilities.append(intent_family) ctx["intent_family"] = intent_family
+        tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         prior_execution = ctx.get("active_task", {}).get("previous_execution_state") if isinstance(ctx.get("active_task"), dict) else {}
@@ -211,4 +215,4 @@ class BiteyBrain:
         return directive
 
     def status(self):
-        return {"name":"Bitey Brain","version":"2.4.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"],"status_boundary":"general_domain_blocks_specialized_module_drift"}
+        return {"name":"Bitey Brain","version":"2.5.0","type":"executive_cognitive_decision_layer","provider_independent":True,"generates_language":False,"decides_before_model_selection":True,"decision_fingerprint":True,"owns":["objective","capabilities","tool_policy","evidence_policy","reasoning_policy","verification_policy","model_role_policy","risk_policy"],"status_boundary":"general_domain_blocks_specialized_module_drift"}
