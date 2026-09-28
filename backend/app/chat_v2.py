@@ -363,6 +363,51 @@ def _execution_state(
     }
 
 
+def _filter_relevant_sources(
+    query: str,
+    sources: list[dict[str, Any]],
+    *,
+    minimum: float = 0.08,
+) -> tuple[list[dict[str, Any]], float, int]:
+    """Keep only sources that materially match the request before synthesis/UI."""
+    stop = {
+        "para","como","cual","cuál","que","qué","donde","dónde","cuando","cuándo",
+        "este","esta","esto","sobre","desde","hace","hoy","ahora","with","from",
+        "what","where","when","this","that","about","latest","current","please",
+    }
+    def tokens(value: str) -> set[str]:
+        return {
+            token for token in re.findall(r"[a-záéíóúüñ0-9]{3,}", value.casefold())
+            if token not in stop
+        }
+    query_terms = tokens(query)
+    if not query_terms:
+        return sources, 0.0, len(sources)
+    kept: list[dict[str, Any]] = []
+    scores: list[float] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        explicit = source.get("relevance")
+        if explicit is not None:
+            try:
+                score = float(explicit)
+            except (TypeError, ValueError):
+                score = 0.0
+        else:
+            title_url = tokens(f"{source.get('title','')} {source.get('url','')}")
+            evidence = tokens(str(source.get("evidence") or source.get("page_evidence") or "")[:12000])
+            title_overlap = len(query_terms & title_url) / len(query_terms)
+            evidence_overlap = len(query_terms & evidence) / len(query_terms)
+            score = (title_overlap * 0.70) + (evidence_overlap * 0.30)
+        source["relevance"] = round(min(1.0, max(0.0, score)), 4)
+        scores.append(source["relevance"])
+        if source["relevance"] >= minimum:
+            kept.append(source)
+    kept.sort(key=lambda item: (float(item.get("relevance", 0.0)), float(item.get("quality", 0.0))), reverse=True)
+    return kept, max(scores, default=0.0), len(kept)
+
+
 def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Recover the latest workflow state persisted in assistant-message metadata."""
     for item in reversed(history):
@@ -706,11 +751,7 @@ def create_chat_v2_router(
                 emit("Aplicando cálculo determinista…")
             else:
                 emit("Buscando información en la web…")
-            emit(
-                "Ejecutando herramientas: "
-                + ", ".join(str(name) for name in selected)
-                + "…"
-            )
+            emit("Recopilando información relevante…")
             result = await tools.execute(
                 selected,
                 message=query,
@@ -891,6 +932,14 @@ def create_chat_v2_router(
             else:
                 emit("No se pudo verificar evidencia suficiente; no se presentará como confirmada.")
 
+        # Final relevance gate: deep-research results must satisfy the same
+        # relevance boundary as the first search pass before synthesis/UI.
+        sources, max_source_relevance, relevant_source_count = _filter_relevant_sources(
+            query,
+            sources,
+            minimum=0.08,
+        )
+
         evidence_source_count = len(sources)
         # These metrics must exist even for ordinary chat that never enters research.
         # Keeping them initialized prevents a research-only variable from turning
@@ -929,7 +978,7 @@ def create_chat_v2_router(
         ]
         if follow_up_tools:
             emit("Reevaluando capacidades necesarias…")
-            emit("Ejecutando herramientas complementarias: " + ", ".join(follow_up_tools) + "…")
+            emit("Completando la investigación con información adicional…")
             follow_up_context = {
                 **ctx,
                 "evidence": evidence,
