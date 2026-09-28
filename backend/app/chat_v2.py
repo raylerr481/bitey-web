@@ -939,13 +939,25 @@ def create_chat_v2_router(
             sources,
             minimum=0.08,
         )
+        # Rebuild the evidence context from the final source set so an unrelated
+        # discovery result can never reach the answer composer after filtering.
+        filtered_evidence = []
+        for index, source in enumerate(sources, 1):
+            source_evidence = str(source.get("evidence") or "").strip()
+            if not source_evidence:
+                continue
+            filtered_evidence.append(
+                f"SOURCE {index}: {source.get('url','')}\\n"
+                f"TITLE: {source.get('title','')}\\n"
+                f"EVIDENCE VERIFIED: true\\n"
+                f"CONTENT: {source_evidence[:5000]}"
+            )
+        evidence = "\\n\\n".join(filtered_evidence)
 
         evidence_source_count = len(sources)
         # These metrics must exist even for ordinary chat that never enters research.
         # Keeping them initialized prevents a research-only variable from turning
         # a simple greeting into an HTTP 500 during response assembly.
-        max_source_relevance = 0.0
-        relevant_source_count = 0
         source_qualities = [
             float(source.get("quality", 0.0) or 0.0)
             for source in sources
