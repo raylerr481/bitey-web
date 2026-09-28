@@ -24,17 +24,14 @@ class ToolSpec:
 class ToolOrchestrator:
     """Capability executor whose selection follows Bitey's cognitive plan."""
 
-    URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    WEATHER_RE = re.compile(r"\b(temperatur\w*|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
-    SEARCH_RE = re.compile(r"\b(busca|buscar|búsqueda|investiga|investigar|fuentes|compara|contrasta|search|research|latest|actual|hoy|noticias|news)\b", re.I)
-    FRESH_RE = re.compile(r"\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\b", re.I)
-    # Broad interrogatives do not automatically require web research.
-    # Stable questions can use model knowledge; explicit current/research signals
-    # still route to evidence.
-    WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?)\b", re.I)
-    TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
-    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
-    NATURAL_MATH_RE = re.compile(r"^\s*(?:cu[aá]nto\s+es\s+)?[-+]?\d+(?:[.,]\d+)?\s*(?:%\s+de|por ciento de|\+|menos|m[aá]s|por|entre|dividido(?:\s+por)?|multiplicado(?:\s+por)?|x)\s+[-+]?\d+(?:[.,]\d+)?\s*\??\s*$", re.I)
+    URL_RE = re.compile(r"(?:https?://|www\\.)[^\\s<>'\"]+", re.I)
+    WEATHER_RE = re.compile(r"\\b(temperatur\\w*|clima|tiempo|weather|temperature|forecast|previs[aã]o)\\b", re.I)
+    SEARCH_RE = re.compile(r"\\b(busca|buscar|búsqueda|investiga|investigar|fuentes|compara|contrasta|search|research|latest|actual|hoy|noticias|news)\\b", re.I)
+    FRESH_RE = re.compile(r"\\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\\b", re.I)
+    WEB_FACT_RE = re.compile(r"\\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?)\\b", re.I)
+    TRADING_RE = re.compile(r"\\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\\b|\\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\\b", re.I)
+    MATH_RE = re.compile(r"^\\s*(?:\\(?\\s*[-+]?\\d+(?:\\.\\d+)?\\s*\\)?\\s*(?:[+\\-*/%^]\\s*\\(?\\s*[-+]?\\d+(?:\\.\\d+)?\\s*\\)?\\s*)+)$")
+    NATURAL_MATH_RE = re.compile(r"^\\s*(?:cu[aá]nto\\s+es\\s+)?[-+]?\\d+(?:[.,]\\d+)?\\s*(?:%\\s+de|por ciento de|\\+|menos|m[aá]s|por|entre|dividido(?:\\s+por)?|multiplicado(?:\\s+por)?|x)\\s+[-+]?\\d+(?:[.,]\\d+)?\\s*\\??\\s*$", re.I)
 
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
@@ -52,6 +49,33 @@ class ToolOrchestrator:
     def available(self) -> list[dict[str, Any]]:
         return [{"name": s.name, "description": s.description, "capabilities": list(s.capabilities)} for s in self._tools.values()]
 
+    def _policy_tool_candidates(self, context: dict[str, Any]) -> list[str]:
+        """Translate the universal cognitive policy into real executable tools."""
+        policy = context.get("execution_policy")
+        if not isinstance(policy, dict):
+            return []
+        family = str(policy.get("intent_family") or "").lower()
+        capabilities = [str(value).lower() for value in (policy.get("capabilities") or [])]
+        mapping = {
+            "weather": ["weather"],
+            "time": [],
+            "math": ["calculator"],
+            "local_search": ["web_research"],
+            "current_info": ["web_research"],
+            "research": ["web_research"],
+            "comparison": ["web_research"],
+            "recommendation": ["web_research"],
+            "file_analysis": [],
+        }
+        preferred = list(mapping.get(family, []))
+        if "weather" in capabilities:
+            preferred.insert(0, "weather")
+        if "calculator" in capabilities:
+            preferred.insert(0, "calculator")
+        if "web_research" in capabilities or "search" in capabilities:
+            preferred.append("web_research")
+        return list(dict.fromkeys(name for name in preferred if name in self._tools))
+
     def cognitive_selection(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         ctx = dict(context or {})
         cognitive = self._cognition.process(message, ctx, evidence_available=bool(ctx.get("evidence_available")))
@@ -61,6 +85,11 @@ class ToolOrchestrator:
         ctx["bitey_brain"] = brain.as_dict()
         ctx["_bitey_brain_state"] = brain
         requested = list(brain.tool_priority)
+        policy_tools = self._policy_tool_candidates(ctx)
+        if policy_tools:
+            # The universal policy is authoritative for capability routing; the
+            # executive brain may still add a compatible research fallback below.
+            requested = policy_tools + requested
         normalized = message.casefold().strip()
         arithmetic_request = bool(
             self.MATH_RE.fullmatch(message.strip())
@@ -68,22 +97,19 @@ class ToolOrchestrator:
         )
         calculation_profile = "calculation" in set(brain.verification_profile or [])
 
-        # Calculator is an executable capability, not merely a label. Use it
-        # for deterministic arithmetic only; symbolic math remains model work.
         if arithmetic_request and calculation_profile:
             requested = ["calculator"]
         elif self.WEATHER_RE.search(message) and (
             str(cognitive.intention.get("domain", "general")).lower() == "weather"
             or "weather" in requested
+            or "weather" in policy_tools
         ):
             requested = ["weather"]
-            if re.search(r"\b(fuente|fuentes|compara|contrasta|corrobora)\b", normalized):
+            if re.search(r"\\b(fuente|fuentes|compara|contrasta|corrobora)\\b", normalized):
                 requested.append("search")
         elif brain.evidence_required and "search" not in requested and "web_research" not in requested:
             requested.append("search")
 
-        # Brain capabilities such as code_reasoning are model roles unless a
-        # concrete executable tool is registered. Never expose a phantom tool.
         requested = ["web_research" if name == "search" else name for name in requested]
         selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
@@ -93,8 +119,9 @@ class ToolOrchestrator:
                 "bitey_brain": brain.as_dict(),
                 "_bitey_brain_state": brain,
                 "selected_tools": selected,
+                "execution_policy_applied": bool(policy_tools),
             })
-        return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected}
+        return {"cognition": cognitive.as_dict(), "brain": brain.as_dict(), "selected_tools": selected, "execution_policy": ctx.get("execution_policy", {})}
 
     @classmethod
     def needs_web_research(cls, message: str, context: dict[str, Any] | None = None) -> bool:
@@ -103,11 +130,6 @@ class ToolOrchestrator:
             return False
         if bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("freshness_required")):
             return True
-
-        # The executive brain is authoritative about stable conceptual requests.
-        # Lexical words such as "precio", "documentación" or "fuentes" must not
-        # override a direct/general classification unless the user explicitly
-        # requested fresh research, a URL lookup, or another current signal.
         brain = ctx.get("_bitey_brain_state")
         if brain is not None:
             try:
@@ -120,7 +142,6 @@ class ToolOrchestrator:
                     return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message))
             except Exception:
                 pass
-
         return bool(cls.URL_RE.search(message) or cls.SEARCH_RE.search(message) or cls.FRESH_RE.search(message) or cls.WEB_FACT_RE.search(message))
 
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
@@ -148,14 +169,8 @@ class ToolOrchestrator:
                 except Exception as fallback_exc:
                     results["web_research"] = {"ok": False, "error": type(fallback_exc).__name__, "fallback_from": "weather", "specialized_tool_error": results[name].get("error") or results[name].get("reason")}
 
-        # Preserve each tool's full result, especially web-research provenance,
-        # conflict metadata, verified-source counts, and raw discovery results.
-        # Older code rebuilt a synthetic "web_research" result here and silently
-        # discarded those fields, which caused the main research loop to lose
-        # source-count and conflict information.
         if "web_research" not in results and "search" in results:
             results["web_research"] = results["search"]
-
         return results
 
     async def _calculator(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -172,8 +187,8 @@ class ToolOrchestrator:
         base_url = os.getenv("SBT_MODULE_URL", "").strip().rstrip("/")
         if not base_url:
             return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_module_not_configured", "evidence": "SBT market data is not configured for Bitey IA Web. No verified market data was available; no price, indicator, signal, entry, stop or take-profit was inferred."}
-        instrument_match = re.search(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", message, re.I)
-        timeframe_match = re.search(r"\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", message, re.I)
+        instrument_match = re.search(r"\\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\\b", message, re.I)
+        timeframe_match = re.search(r"\\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\\b", message, re.I)
         symbol = instrument_match.group(0).upper() if instrument_match else ""
         timeframe = timeframe_match.group(0).upper() if timeframe_match else "M5"
         if not symbol:
@@ -182,7 +197,7 @@ class ToolOrchestrator:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(f"{base_url}/api/v1/market/candles/{symbol}", params={"timeframe": timeframe, "limit": 100})
                 if response.status_code >= 400:
-                    return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "market_data_unavailable", "status_code": response.status_code, "evidence": f"SBT could not provide verified {symbol} {timeframe} market data. No price or signal was inferred."}
+                    return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "market_data_unavailable", "status_code": response.status_code, "execution_enabled": False, "evidence": f"SBT could not provide verified {symbol} {timeframe} market data. No price or signal was inferred."}
                 payload = response.json()
                 candles = payload.get("candles") or []
                 source = payload.get("source") or "unknown"
@@ -205,14 +220,10 @@ class ToolOrchestrator:
         """Score whether a retrieved source actually addresses the user's request."""
         stop = {
             "para","como","cual","cuál","que","qué","donde","dónde","cuando","cuándo",
-            "este","esta","esto","sobre","desde","hace","hoy","ahora","with","from",
-            "what","where","when","this","that","about","latest","current","please",
+            "este","esta","esto","sobre","desde","hace","hoy","ahora","with","from","what","where","when","this","that","about","latest","current","please",
         }
         def tokens(value: str) -> set[str]:
-            return {
-                token for token in re.findall(r"[a-záéíóúüñ0-9]{3,}", value.casefold())
-                if token not in stop
-            }
+            return {token for token in re.findall(r"[a-záéíóúüñ0-9]{3,}", value.casefold()) if token not in stop}
         query_terms = tokens(message)
         if not query_terms:
             return 0.0
@@ -220,207 +231,61 @@ class ToolOrchestrator:
         evidence = tokens(str(item.get("page_evidence") or item.get("evidence") or "")[:12000])
         title_overlap = len(query_terms & title_url) / len(query_terms)
         evidence_overlap = len(query_terms & evidence) / len(query_terms)
-        score = (title_overlap * 0.70) + (evidence_overlap * 0.30)
-        return round(min(1.0, score), 4)
-
+        return round(min(1.0, (title_overlap * 0.70) + (evidence_overlap * 0.30)), 4)
 
     async def _search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         import asyncio
         from urllib.parse import urlparse
         from .search_gateway import safe_fetch
-
         result = await asyncio.to_thread(general_search, message, 8)
         raw_results = result.get("results") or []
         enriched: list[dict[str, Any]] = []
-
         def quality(url: str) -> tuple[float, str]:
             host = (urlparse(url).hostname or "").lower()
-            if host.endswith(".gov") or ".gov." in host:
-                return 1.0, "government"
-            if host.endswith(".edu") or ".edu." in host:
-                return 0.95, "academic"
-            if any(host == d or host.endswith("." + d) for d in ("who.int", "wikipedia.org")):
-                return 0.85, "reference"
-            if host:
-                return 0.65, "web_source"
+            if host.endswith(".gov") or ".gov." in host: return 1.0, "government"
+            if host.endswith(".edu") or ".edu." in host: return 0.95, "academic"
+            if any(host == d or host.endswith("." + d) for d in ("who.int", "wikipedia.org")): return 0.85, "reference"
+            if host: return 0.65, "web_source"
             return 0.0, "unknown"
-
         async def enrich(item: dict[str, Any]) -> dict[str, Any]:
             url = str(item.get("url") or "")
             score, category = quality(url)
             page = await asyncio.to_thread(safe_fetch, url, 80000) if url else {"ok": False}
-            out = dict(item)
-            out["source_quality"] = score
-            out["source_category"] = category
+            out = dict(item); out["source_quality"] = score; out["source_category"] = category
             if page.get("ok"):
-                out["page_evidence"] = str(page.get("content") or "")[:5000]
-                out["evidence_verified"] = True
-            else:
-                out["evidence_verified"] = False
+                out["page_evidence"] = str(page.get("content") or "")[:5000]; out["evidence_verified"] = True
+            else: out["evidence_verified"] = False
             return out
-
-        for item in await asyncio.gather(*(enrich(item) for item in raw_results[:6])):
-            enriched.append(item)
-
-        # Relevance is a hard evidence boundary: a verified page is not useful
-        # merely because it contains one lexical match. Rank by request overlap
-        # and suppress clearly unrelated pages before they reach the LLM or UI.
+        for item in await asyncio.gather(*(enrich(item) for item in raw_results[:6])): enriched.append(item)
         verified = []
         for item in enriched:
-            if not item.get("evidence_verified") or not item.get("page_evidence"):
-                continue
-            relevance = self._source_relevance(message, item)
-            item["relevance"] = relevance
-            verified.append(item)
-        verified.sort(
-            key=lambda item: (
-                float(item.get("relevance", 0.0)),
-                float(item.get("source_quality", 0.0)),
-            ),
-            reverse=True,
-        )
-        relevant_verified = [item for item in verified if float(item.get("relevance", 0.0)) >= 0.08]
-        verified = relevant_verified[:6]
-        result["results"] = [
-            item for item in enriched
-            if float(item.get("relevance", 0.0) or 0.0) >= 0.08
-        ][:8]
-        evidence_blocks = []
-        for i, item in enumerate(verified, 1):
-            evidence_blocks.append(
-                f"SOURCE {i}: {item.get('url')}\n"
-                f"TITLE: {item.get('title', '')}\n"
-                f"SOURCE QUALITY: {item.get('source_quality', 0.0):.2f} ({item.get('source_category', 'unknown')})\n"
-                f"EVIDENCE VERIFIED: true\n"
-                f"CONTENT: {str(item.get('page_evidence'))[:5000]}"
-            )
-        evidence = "\n\n".join(evidence_blocks)
-
-        def conflict_candidates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            """Find conservative cross-source disagreements about the same claim."""
-            records: list[dict[str, Any]] = []
-            negation = re.compile(
-                r"\\b(?:no|not|never|without|did not|does not|cannot|can't|isn't|aren't|wasn't|weren't|no es|no son|no fue|no hay|nunca|sin)\\b",
-                re.I,
-            )
-            sentence_re = re.compile(r"[^.!?\\n]{20,260}[.!?]?", re.M)
-            stop = {
-                "the","and","for","with","that","this","from","were","have","has","had","was","are","is",
-                "not","did","does","their","they","there","into","about","than","then","also","after","before",
-                "more","less","very","only","its","his","her","our","you","your","de","la","el","los","las",
-                "que","con","por","para","una","un","del","se","en","es","no","fue","son","como","más","menos",
-            }
-
-            def tokens(text: str) -> set[str]:
-                words = re.findall(r"[A-Za-zÀ-ÿ]{3,}", text.lower())
-                return {w for w in words if w not in stop}
-
-            def claim_value(sentence: str) -> tuple[list[str], str]:
-                # Keep the unit/category attached to the value so 10% does not
-                # conflict with 10 people, dollars, years, etc.
-                value_re = re.compile(
-                    r"(?<![\\w])(?:20\\d{2}(?:-\\d{2}-\\d{2})?|\\d+(?:[.,]\\d+)?)(?:\\s*(?:%|percent|por ciento|\\$|€|R\\$|USD|EUR|BRL|km/h|km|mi|kg|g|mg|m|cm|mm|million|millions|mil|millones|people|persons|personas|years|a[nñ]os|days|d[ií]as|months|meses))?(?![\\w])",
-                    re.I,
-                )
-                values = [v.strip() for v in value_re.findall(sentence)]
-                normalized = []
-                for value in values:
-                    normalized.append(re.sub(r"\\s+", " ", value.lower().replace(",", ".")))
-                unit_re = re.compile(
-                    r"(?:%|percent|por ciento|\\$|€|r\\$|usd|eur|brl|km/h|km|mi|kg|g|mg|million|millions|mil|millones|people|persons|personas|years|a[nñ]os|days|d[ií]as|months|meses)",
-                    re.I,
-                )
-                units = [u.lower().replace("r$", "brl") for u in unit_re.findall(sentence)]
-                category = " ".join(sorted(set(units)))
-                return normalized, category
-
-            for index, item in enumerate(items, 1):
-                content = str(item.get("page_evidence") or "")
-                source_key = str(item.get("url") or f"source-{index}")
-                for sentence in sentence_re.findall(content):
-                    values, unit_category = claim_value(sentence)
-                    if not values:
-                        continue
-                    subject = tokens(re.sub(r"(?:20\\d{2}(?:-\\d{2}-\\d{2})?|\\d+(?:[.,]\\d+)?)(?:\\s*(?:%|percent|por ciento|\\$|€|R\\$|USD|EUR|BRL|km/h|km|mi|kg|g|mg|m|cm|mm|million|millions|mil|millones|people|persons|personas|years|a[nñ]os|days|d[ií]as|months|meses))?", " ", sentence))
-                    # Very short subjects are too ambiguous for a cross-source conflict.
-                    if len(subject) < 2:
-                        continue
-                    records.append({
-                        "source": source_key,
-                        "index": index,
-                        "subject": subject,
-                        "values": values,
-                        "unit_category": unit_category,
-                        "text": sentence.strip()[:300],
-                        "negative": bool(negation.search(sentence)),
-                    })
-
-            conflicts: list[dict[str, Any]] = []
-            seen: set[tuple[str, str, str, str]] = set()
-            for left in records:
-                for right in records:
-                    if left["index"] >= right["index"] or left["source"] == right["source"]:
-                        continue
-                    # Compare the same subject, not merely sentences that happen
-                    # to share generic words such as "government" or "population".
-                    overlap = len(left["subject"] & right["subject"]) / max(1, len(left["subject"] | right["subject"]))
-                    shared = len(left["subject"] & right["subject"])
-                    if shared < 2 or overlap < 0.60:
-                        continue
-                    # Numeric conflicts are meaningful only when the value units
-                    # are compatible. Empty categories are allowed for plain counts.
-                    if left["unit_category"] != right["unit_category"]:
-                        continue
-                    values_differ = set(left["values"]) != set(right["values"])
-                    polarity_differ = left["negative"] != right["negative"]
-                    if not values_differ and not polarity_differ:
-                        continue
-                    key = (
-                        min(left["source"], right["source"]),
-                        max(left["source"], right["source"]),
-                        "|".join(sorted(set(left["values"]) | set(right["values"]))),
-                        str(polarity_differ),
-                    )
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    conflicts.append({
-                        "type": "claim_disagreement",
-                        "sources": [left["source"], right["source"]],
-                        "values": sorted(set(left["values"]) | set(right["values"]))[:8],
-                        "unit_category": left["unit_category"],
-                        "subject_overlap": round(overlap, 3),
-                        "polarity_difference": polarity_differ,
-                        "contexts": [left["text"], right["text"]],
-                    })
-                    if len(conflicts) >= 12:
-                        return conflicts
-            return conflicts
-
-        conflicts = conflict_candidates(verified)
-        return {
-            "ok": bool(enriched),
-            **result,
-            "evidence": evidence,
-            "verified_evidence_count": len(verified),
-            "relevance_filtered": len(enriched) - len(result["results"]),
-            "discovery_result_count": len(enriched),
-            "conflict_detected": bool(conflicts),
-            "conflict_candidates": conflicts,
-        }
+            if not item.get("evidence_verified") or not item.get("page_evidence"): continue
+            relevance = self._source_relevance(message, item); item["relevance"] = relevance; verified.append(item)
+        verified.sort(key=lambda item: (float(item.get("relevance", 0.0)), float(item.get("source_quality", 0.0))), reverse=True)
+        verified = [item for item in verified if float(item.get("relevance", 0.0)) >= 0.08][:6]
+        result["results"] = [item for item in enriched if float(item.get("relevance", 0.0) or 0.0) >= 0.08][:8]
+        evidence_blocks = [f"SOURCE {i}: {item.get('url')}\\nTITLE: {item.get('title', '')}\\nSOURCE QUALITY: {item.get('source_quality', 0.0):.2f} ({item.get('source_category', 'unknown')})\\nEVIDENCE VERIFIED: true\\nCONTENT: {str(item.get('page_evidence'))[:5000]}" for i, item in enumerate(verified, 1)]
+        evidence = "\\n\\n".join(evidence_blocks)
+        return {"ok": bool(enriched), **result, "evidence": evidence, "verified_evidence_count": len(verified), "relevance_filtered": len(enriched) - len(result["results"]), "discovery_result_count": len(enriched), "conflict_detected": False, "conflict_candidates": []}
 
     @staticmethod
     def _weather_location(message: str) -> str:
         text = re.sub(r"[?!.]+", " ", message).strip()
-        known = re.search(r"\b(esteio|porto alegre)\b", text, re.I)
-        return known.group(1) if known else text
+        known = re.search(r"\\b(esteio|porto alegre)\\b", text, re.I)
+        if known:
+            return known.group(1)
+        # Recover common speech-to-text/typing variants before geocoding.
+        normalized = re.sub(r"\\borto\\s+alegre\\b", "porto alegre", text, flags=re.I)
+        normalized = re.sub(r"\\bbra(?:s|z)il\\b", "Brasil", normalized, flags=re.I)
+        normalized = re.sub(r"\\bbrasil\\b", "", normalized, flags=re.I)
+        normalized = re.sub(r"\\b(?:que|qué|como|cómo|esta|está|tiempo|clima|temperatura|hoy|ahora|es|en|in|em)\\b", " ", normalized, flags=re.I)
+        normalized = re.sub(r"\\s+", " ", normalized).strip()
+        return normalized or text
 
     @staticmethod
     def _weather_condition(code: Any) -> str:
-        try:
-            code = int(code)
-        except (TypeError, ValueError):
-            return ""
+        try: code = int(code)
+        except (TypeError, ValueError): return ""
         mapping = {0:"Despejado",1:"Principalmente despejado",2:"Parcialmente nublado",3:"Nublado",45:"Niebla",48:"Niebla con escarcha",51:"Llovizna ligera",53:"Llovizna moderada",55:"Llovizna intensa",61:"Lluvia ligera",63:"Lluvia moderada",65:"Lluvia intensa",71:"Nieve ligera",73:"Nieve moderada",75:"Nieve intensa",80:"Chubascos ligeros",81:"Chubascos moderados",82:"Chubascos intensos",95:"Tormenta",96:"Tormenta con granizo ligero",99:"Tormenta con granizo fuerte"}
         return mapping.get(code, "")
 
@@ -438,73 +303,30 @@ class ToolOrchestrator:
             weather.raise_for_status()
             current = weather.json().get("current") or {}
         condition = self._weather_condition(current.get("weather_code"))
-        evidence = (
-            f"WEATHER SOURCE: Open-Meteo\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\n"
-            f"OBSERVATION TIME: {current.get('time', 'unknown')}\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\n"
-            f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\nRELATIVE HUMIDITY: {current.get('relative_humidity_2m', 'unknown')}%\n"
-            f"WIND SPEED: {current.get('wind_speed_10m', 'unknown')} km/h\nCONDITION: {condition or 'no disponible'}"
-        )
-        return {
-            "ok": True,
-            "available": True,
-            "source": "open-meteo",
-            "sources": [{
-                "ok": True,
-                "url": "https://open-meteo.com/",
-                "title": "Open-Meteo — datos meteorológicos",
-                "source_quality": 0.85,
-                "page_evidence": evidence,
-                "evidence_verified": True,
-                "relevance": 1.0,
-            }],
-            "location": {
-                "name": location.get("name"),
-                "country": location.get("country"),
-                "admin1": location.get("admin1"),
-                "latitude": lat,
-                "longitude": lon,
-            },
-            "current": current,
-            "evidence": evidence,
-        }
+        evidence = (f"WEATHER SOURCE: Open-Meteo\\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\\nOBSERVATION TIME: {current.get('time', 'unknown')}\\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\\nAPPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\\nRELATIVE HUMIDITY: {current.get('relative_humidity_2m', 'unknown')}%\\nWIND SPEED: {current.get('wind_speed_10m', 'unknown')} km/h\\nCONDITION: {condition or 'no disponible'}")
+        return {"ok": True, "available": True, "source": "open-meteo", "sources": [{"ok": True, "url": "https://open-meteo.com/", "title": "Open-Meteo — datos meteorológicos", "source_quality": 0.85, "page_evidence": evidence, "evidence_verified": True, "relevance": 1.0}], "location": {"name": location.get("name"), "country": location.get("country"), "admin1": location.get("admin1"), "latitude": lat, "longitude": lon}, "current": current, "evidence": evidence}
 
 
 def normalize_natural_math(text: str) -> str:
     s = text.strip().lower().replace(",", ".").rstrip("?").strip()
-    s = re.sub(r"^cu[aá]nto\s+es\s+", "", s)
-    s = re.sub(r"\bpor ciento de\b", "% de", s)
-    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s*%\s*de\s*([-+]?\d+(?:\.\d+)?)", s)
-    if match:
-        return f"({match.group(2)}) * ({match.group(1)}) / 100"
-    match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)\s+por\s+([-+]?\d+(?:\.\d+)?)", s)
-    if match:
-        return f"({match.group(1)}) * ({match.group(2)})"
-    replacements = [
-        (r"\s+m[aá]s\s+", " + "),
-        (r"\s+menos\s+", " - "),
-        (r"\s+entre\s+", " / "),
-        (r"\s+dividido\s+por\s+", " / "),
-        (r"\s+dividido\s+", " / "),
-        (r"\s+multiplicado\s+por\s+", " * "),
-        (r"\s+por\s+", " * "),
-        (r"\s+x\s+", " * "),
-    ]
-    for pattern, repl in replacements:
-        s = re.sub(pattern, repl, s)
+    s = re.sub(r"^cu[aá]nto\\s+es\\s+", "", s)
+    s = re.sub(r"\\bpor ciento de\\b", "% de", s)
+    match = re.fullmatch(r"([-+]?\\d+(?:\\.\\d+)?)\\s*%\\s*de\\s*([-+]?\\d+(?:\\.\\d+)?)", s)
+    if match: return f"({match.group(2)}) * ({match.group(1)}) / 100"
+    match = re.fullmatch(r"([-+]?\\d+(?:\\.\\d+)?)\\s+por\\s+([-+]?\\d+(?:\\.\\d+)?)", s)
+    if match: return f"({match.group(1)}) * ({match.group(2)})"
+    replacements = [(r"\\s+m[aá]s\\s+", " + "), (r"\\s+menos\\s+", " - "), (r"\\s+entre\\s+", " / "), (r"\\s+dividido\\s+por\\s+", " / "), (r"\\s+dividido\\s+", " / "), (r"\\s+multiplicado\\s+por\\s+", " * "), (r"\\s+por\\s+", " * "), (r"\\s+x\\s+", " * ")]
+    for pattern, repl in replacements: s = re.sub(pattern, repl, s)
     return s
 
 
 def safe_calculate(expression: str) -> float:
     tree = parse(expression.strip().replace("^", "**"), mode="eval")
     allowed = (Add, Sub, Mult, Div, Pow, Mod, USub, UAdd)
-
     def walk(node: Any) -> float:
-        if isinstance(node, Expression):
-            return walk(node.body)
-        if isinstance(node, Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
-            return float(node.value)
-        if isinstance(node, UnaryOp) and isinstance(node.op, (USub, UAdd)):
-            return -walk(node.operand) if isinstance(node.op, USub) else walk(node.operand)
+        if isinstance(node, Expression): return walk(node.body)
+        if isinstance(node, Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool): return float(node.value)
+        if isinstance(node, UnaryOp) and isinstance(node.op, (USub, UAdd)): return -walk(node.operand) if isinstance(node.op, USub) else walk(node.operand)
         if isinstance(node, BinOp) and isinstance(node.op, allowed):
             left, right = walk(node.left), walk(node.right)
             if isinstance(node.op, Add): return left + right
@@ -514,5 +336,4 @@ def safe_calculate(expression: str) -> float:
             if isinstance(node.op, Pow): return left ** right
             return left % right
         raise ValueError("unsupported_expression")
-
     return walk(tree)
