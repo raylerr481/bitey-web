@@ -408,6 +408,83 @@ class CognitiveModel:
                     entities["selected_prior_result"] = selected
         return {"domain": top_domain, "intent": "answer_or_assist", "intent_family": family, "intent_confidence": family_confidence, "entities": entities, "scores": scores, "confidence": min(1.0, max(confidence, family_confidence * 0.75)), "source": "structured_intent_inference"}
 
+    @classmethod
+    def _ambiguity_profile(cls, text: str, intention: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        """Estimate whether the request is underspecified before choosing tools."""
+        low = text.casefold()
+        entities = intention.get("entities") if isinstance(intention.get("entities"), dict) else {}
+        signals = []
+        score = 0.0
+
+        reference_words = ("eso", "esto", "ello", "esa", "ese", "aquello", "allí", "alli", "ahí", "ahi",
+                           "la otra", "el otro", "anterior", "siguiente", "lo mismo", "eso último", "esa opción")
+        if any(token in low for token in reference_words) and not context.get("last_user_request"):
+            score += 0.38
+            signals.append("unresolved_reference")
+
+        comparative = any(token in low for token in (
+            "mejor", "peor", "más barato", "mas barato", "más rápido", "mas rapido",
+            "conviene", "alternativa", "opción", "opcion", "compara", "versus", "vs"
+        ))
+        if comparative and len(entities.get("prior_options", [])) < 2 and len(entities.get("prior_results", [])) < 2:
+            score += 0.18
+            signals.append("comparison_target_may_be_missing")
+
+        vague_request = any(token in low for token in (
+            "ayúdame", "ayudame", "hazlo", "revísalo", "revisalo", "analízalo", "analizalo",
+            "me puedes ayudar", "puedes hacerlo", "qué hago", "que hago"
+        ))
+        if vague_request and len(low.split()) <= 8 and not entities.get("urls") and not entities.get("locations"):
+            score += 0.22
+            signals.append("underspecified_action")
+
+        if intention.get("intent_family") == "knowledge" and len(low.split()) <= 3 and not any(
+            cue in low for cue in cls._CONCEPTUAL_CUES
+        ):
+            score += 0.10
+            signals.append("low_context")
+
+        return {
+            "score": round(min(1.0, score), 3),
+            "signals": signals,
+            "requires_clarification": score >= 0.55,
+        }
+
+    @classmethod
+    def _capability_profile(cls, text: str, intention: dict[str, Any], *,
+                            evidence: bool, freshness: bool, reasoning: bool) -> dict[str, Any]:
+        """Map the semantic task to capabilities, independently of provider/model names."""
+        low = text.casefold()
+        family = str(intention.get("intent_family") or "knowledge")
+        capabilities = []
+
+        if freshness:
+            capabilities.append("fresh_data")
+        if evidence:
+            capabilities.append("evidence_retrieval")
+        if family == "weather":
+            capabilities.append("weather")
+        elif family == "time":
+            capabilities.append("time")
+        elif family == "local_search":
+            capabilities.append("local_search")
+        elif family == "math" or bool(re.search(r"\d\\s*[+\\-*/%^=]\\s*\d", low)):
+            capabilities.append("calculator")
+        elif family == "programming":
+            capabilities.append("code_reasoning")
+        elif family == "file_analysis":
+            capabilities.append("file_context")
+
+        if family in {"comparison", "recommendation"}:
+            capabilities.extend(["comparison_analysis", "decision_support"])
+        if family in {"research", "current_info"} or evidence:
+            capabilities.append("source_synthesis")
+        if reasoning:
+            capabilities.append("reasoning")
+        capabilities.append("response_synthesis")
+
+        return {"required": list(dict.fromkeys(capabilities)), "primary": capabilities[0] if capabilities else "response_synthesis"}
+
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
         domain = intention.get("domain", "general")
         intent = intention.get("intent", "answer_or_assist")
@@ -472,8 +549,17 @@ class CognitiveModel:
         programming_task = family == "programming" or any(
             cue in lower_message for cue in ("código", "codigo", "debug", "error", "exception", "api", "endpoint", "backend", "frontend")
         )
+        ambiguity_profile = self._ambiguity_profile(lower_message, intention, context)
+        ambiguity = max(ambiguity, float(ambiguity_profile.get("score", 0.0)))
+
         reasoning_required = bool(
-            multi_step or comparison_task or programming_task or family in {"research", "planning", "recommendation"}
+            multi_step or comparison_task or programming_task
+            or family in {"research", "planning", "recommendation"}
+            or any(cue in lower_message for cue in (
+                "por qué", "porque", "cómo funciona", "como funciona", "explica por qué",
+                "analiza", "evalúa", "evalua", "estima", "calcula", "estrategia",
+                "qué debería", "que deberia", "should", "why", "how does"
+            ))
             or (not conceptual and confidence < 0.70)
             or ambiguity >= 0.35
         )
@@ -501,6 +587,14 @@ class CognitiveModel:
             steps.append("verify")
         if not steps and not conceptual and family not in {"conversation", "creative"}:
             steps.append("reason_about_request")
+
+        capability_profile = self._capability_profile(
+            lower_message,
+            intention,
+            evidence=evidence,
+            freshness=freshness,
+            reasoning=reasoning_required,
+        )
 
         tool_strategy: list[str] = []
         if freshness:
@@ -533,12 +627,16 @@ class CognitiveModel:
             "freshness_required": freshness,
             "reasoning_required": reasoning_required,
             "ambiguity": round(max(0.0, min(1.0, ambiguity)), 3),
+            "ambiguity_profile": ambiguity_profile,
             "intent_confidence": round(max(0.0, min(1.0, confidence)), 3),
             "has_reference_context": has_reference,
+            "capabilities": capability_profile["required"],
+            "primary_capability": capability_profile["primary"],
             "tool_strategy": list(dict.fromkeys(tool_strategy)),
             "requires_specialized_module": domain not in {"general", "research", "weather", "local_search", "translation", "summarization", "comparison", "recommendation", "planning", "creative", "time", "math"},
             "verification_required": evidence or domain == "research" or multi_step or reasoning_required,
-            "replan_if_insufficient": bool(evidence or reasoning_required),
+            "replan_if_insufficient": bool(evidence or reasoning_required or ambiguity >= 0.35),
+            "clarification_allowed": bool(ambiguity_profile.get("requires_clarification")),
             "multi_step": multi_step,
             "steps": list(dict.fromkeys(steps)),
             "stop_condition": "all_planned_steps_completed_and_verified" if multi_step or reasoning_required else ("fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence"),
