@@ -73,7 +73,24 @@ class BiteyBrain:
         if intent_family not in {"knowledge", "conversation"} and intent_family not in capabilities:
             capabilities.append(intent_family)
         ctx["intent_family"] = intent_family
-        tools = self._tool_policy(capabilities, domain, ctx); verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
+        tools = self._tool_policy(capabilities, domain, ctx)
+        # Respect the Cognitive Model's explicit capability decision when present.
+        cognitive_plan = cognition.get("plan") if isinstance(cognition, dict) else {}
+        cognitive_strategy = cognitive_plan.get("tool_strategy") if isinstance(cognitive_plan, dict) else []
+        if isinstance(cognitive_strategy, list) and cognitive_strategy:
+            strategy_map = {
+                "web_research": "web_research",
+                "calculator": "calculator",
+                "code_reasoning": "code_reasoning",
+                "weather": "weather",
+                "time": "time",
+                "local_search": "local_search",
+                "file_context": "file_context",
+            }
+            cognitive_tools = [strategy_map[item] for item in cognitive_strategy if item in strategy_map]
+            if cognitive_tools:
+                tools = list(dict.fromkeys(cognitive_tools + tools))
+        verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         prior_execution = ctx.get("active_task", {}).get("previous_execution_state") if isinstance(ctx.get("active_task"), dict) else {}
