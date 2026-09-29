@@ -366,10 +366,46 @@ class CognitiveModel:
                 "allí": "location", "alli": "location", "ahí": "location", "ahi": "location",
                 "ese": "prior_entity", "esa": "prior_entity", "eso": "prior_entity",
                 "anterior": "prior_result", "siguiente": "prior_result",
+                "arriba": "prior_result", "abajo": "prior_result",
+                "primera": "ordinal_result", "primero": "ordinal_result",
+                "segunda": "ordinal_result", "segundo": "ordinal_result",
+                "tercera": "ordinal_result", "tercero": "ordinal_result",
+                "cuarta": "ordinal_result", "cuarto": "ordinal_result",
             }
             references = [kind for token, kind in reference_map.items() if re.search(r"(?<![\wÀ-ÿ])" + re.escape(token) + r"(?![\wÀ-ÿ])", text, re.I)]
             if references:
                 entities["references"] = list(dict.fromkeys(references))[:6]
+
+            ordinal_map = {
+                "primera": 1, "primero": 1, "segunda": 2, "segundo": 2,
+                "tercera": 3, "tercero": 3, "cuarta": 4, "cuarto": 4,
+            }
+            ordinal_match = next(
+                (number for token, number in ordinal_map.items()
+                 if re.search(r"(?<![\wÀ-ÿ])" + re.escape(token) + r"(?![\wÀ-ÿ])", text, re.I)),
+                None,
+            )
+            if ordinal_match is None:
+                digit_match = re.search(r"\b(?:opción|opcion|fuente|resultado|número|numero)\s*(?:n[°º.]?\s*)?(\d+)\b", text, re.I)
+                ordinal_match = int(digit_match.group(1)) if digit_match else None
+            if ordinal_match is not None:
+                stored = context.get("previous_result_context") or {}
+                prior_results = stored.get("sources") if isinstance(stored, dict) else []
+                prior_options = stored.get("options") if isinstance(stored, dict) else []
+                selected = None
+                if isinstance(prior_options, list) and ordinal_match <= len(prior_options):
+                    selected = {"type": "option", "index": ordinal_match, "text": str(prior_options[ordinal_match - 1])[:180]}
+                elif isinstance(prior_results, list) and ordinal_match <= len(prior_results):
+                    item = prior_results[ordinal_match - 1]
+                    if isinstance(item, dict):
+                        selected = {
+                            "type": "source",
+                            "index": ordinal_match,
+                            "title": str(item.get("title") or "")[:180],
+                            "url": str(item.get("url") or "")[:500],
+                        }
+                if selected:
+                    entities["selected_prior_result"] = selected
         return {"domain": top_domain, "intent": "answer_or_assist", "intent_family": family, "intent_confidence": family_confidence, "entities": entities, "scores": scores, "confidence": min(1.0, max(confidence, family_confidence * 0.75)), "source": "structured_intent_inference"}
 
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
