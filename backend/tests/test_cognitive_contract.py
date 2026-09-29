@@ -28,6 +28,18 @@ class CognitiveContractTests(unittest.TestCase):
         self.assertNotEqual(first.decision_fingerprint, second.decision_fingerprint)
         self.assertNotEqual(first.task_class, second.task_class)
 
+    def test_cognitive_reasoning_requirement_promotes_brain_depth(self):
+        state = decision("¿Por qué una API REST usa HTTP?")
+        self.assertTrue(state.complexity >= 0.62)
+        self.assertIn("reasoning", state.reasoning_mode)
+
+    def test_cognitive_clarification_blocks_tool_execution(self):
+        cognition = CognitiveModel().process("hazlo", {}, evidence_available=False)
+        ctx = {"cognition": cognition.as_dict()}
+        state = BiteyBrain().think("hazlo", ctx)
+        self.assertEqual(state.tool_priority, [])
+        self.assertEqual(state.stop_condition, "clarification_needed_before_execution")
+
     def test_weather_requires_specialized_tool_and_freshness(self):
         state = decision("¿Qué temperatura hace ahora en Esteio?")
         self.assertEqual(state.task_class, "weather")
