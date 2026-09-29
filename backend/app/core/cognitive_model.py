@@ -289,9 +289,19 @@ class CognitiveModel:
             if len(strong_domains) == 1:
                 scores[strong_domains[0]] += 2
 
+        # Follow-up turns inherit only the relevant semantic signal from the previous user request.
+        prior_request = str(context.get("last_user_request") or "").strip()
+        is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
+        prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
+        if is_followup and prior_normalized and max(scores.values(), default=0) == 0:
+            prior_scores = {domain: sum(1 for hint in hints if hint in prior_normalized) for domain, hints in self._DOMAIN_HINTS.items()}
+            for domain, score in prior_scores.items():
+                if score:
+                    scores[domain] = max(scores.get(domain, 0), min(2, score))
+            if any(term in prior_normalized for term in weather_terms):
+                scores["weather"] = max(scores.get("weather", 0), 2)
         explicit_domain = str(context.get("domain") or "").strip().lower()
         current_signal = max(scores.values(), default=0)
-        is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
         if explicit_domain in scores and current_signal == 0 and is_followup:
             scores[explicit_domain] += 1
 
@@ -305,7 +315,12 @@ class CognitiveModel:
         if top_score > second_score:
             confidence += min(0.25, (top_score - second_score) * 0.08)
         family, family_confidence = self._intent_family(message, top_domain)
-        return {"domain": top_domain, "intent": "answer_or_assist", "intent_family": family, "intent_confidence": family_confidence, "entities": self._extract_entities(message), "scores": scores, "confidence": min(1.0, max(confidence, family_confidence * 0.75)), "source": "structured_intent_inference"}
+        entities = self._extract_entities(message)
+        if is_followup and not entities.get("locations") and prior_request:
+            prior_entities = self._extract_entities(prior_request)
+            if prior_entities.get("locations"):
+                entities["locations"] = prior_entities["locations"][:8]
+        return {"domain": top_domain, "intent": "answer_or_assist", "intent_family": family, "intent_confidence": family_confidence, "entities": entities, "scores": scores, "confidence": min(1.0, max(confidence, family_confidence * 0.75)), "source": "structured_intent_inference"}
 
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
         domain = intention.get("domain", "general")
