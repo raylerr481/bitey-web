@@ -5,6 +5,9 @@ from dataclasses import dataclass
 import os
 import re
 from typing import Any, Awaitable, Callable
+from datetime import datetime
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -45,6 +48,11 @@ class ToolOrchestrator:
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
         self.register(ToolSpec("sbt_market", "Consulta el mercado SBT y ejecuta inteligencia técnica únicamente con datos verificables; no ejecuta órdenes.", ("trading", "market_intelligence", "market_data", "risk"), self._sbt_market))
         self.register(ToolSpec("calculator", "Calculadora local determinista para expresiones aritméticas simples; no requiere proveedor externo.", ("math", "calculation"), self._calculator))
+        self.register(ToolSpec("time", "Hora actual para una ubicación explícita usando zonas horarias IANA.", ("time", "current"), self._time))
+        self.register(ToolSpec("local_search", "Búsqueda localizada mediante el motor web de Bitey.", ("local_search", "web", "search"), self._local_search))
+        self.register(ToolSpec("url_fetch", "Recuperación segura del contenido de una URL proporcionada por el usuario.", ("url", "web", "evidence"), self._url_fetch))
+        self.register(ToolSpec("file_context", "Usa contenido de archivos ya adjuntado al contexto de la conversación.", ("files", "documents", "context"), self._file_context))
+        self.register(ToolSpec("code_reasoning", "Análisis estructural local y seguro de código proporcionado en el contexto.", ("code", "programming", "analysis"), self._code_reasoning))
 
     def register(self, spec: ToolSpec) -> None:
         self._tools[spec.name] = spec
@@ -230,6 +238,81 @@ class ToolOrchestrator:
                         }
 
         return results
+
+
+    async def _time(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Return deterministic current time for an explicitly named/common location."""
+        text = str(message or "").casefold()
+        aliases = {
+            "são paulo": "America/Sao_Paulo", "sao paulo": "America/Sao_Paulo",
+            "porto alegre": "America/Sao_Paulo", "esteio": "America/Sao_Paulo",
+            "brasília": "America/Sao_Paulo", "brasilia": "America/Sao_Paulo",
+            "new york": "America/New_York", "london": "Europe/London",
+            "lisbon": "Europe/Lisbon", "lisboa": "Europe/Lisbon",
+            "madrid": "Europe/Madrid", "tokyo": "Asia/Tokyo", "tóquio": "Asia/Tokyo",
+        }
+        zone = next((tz for name, tz in aliases.items() if name in text), None)
+        if not zone:
+            return {"ok": False, "error": "location_timezone_not_identified", "evidence": "No se pudo identificar una ubicación explícita para determinar la hora."}
+        now = datetime.now(ZoneInfo(zone))
+        return {"ok": True, "timezone": zone, "local_time": now.isoformat(), "formatted": now.strftime("%Y-%m-%d %H:%M:%S"), "evidence": f"TIME SOURCE: system timezone database\\nLOCATION TIMEZONE: {zone}\\nLOCAL TIME: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}"}
+
+    async def _local_search(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Reuse the verified web retrieval pipeline for location-aware searches."""
+        context = dict(context or {})
+        context["local_search"] = True
+        result = await self._search(message, context)
+        if isinstance(result, dict):
+            result["tool"] = "local_search"
+        return result
+
+    async def _url_fetch(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Fetch a user-supplied URL through the same safe fetch boundary as research."""
+        from .search_gateway import safe_fetch
+        match = self.URL_RE.search(str(message or ""))
+        url = match.group(0).rstrip(".,);]") if match else ""
+        if not url:
+            return {"ok": False, "error": "url_not_found"}
+        parsed = urlparse(url if url.startswith(("http://", "https://")) else "https://" + url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return {"ok": False, "error": "invalid_url"}
+        target = url if parsed.scheme in {"http", "https"} else f"https://{url}"
+        page = await __import__("asyncio").to_thread(safe_fetch, target, 80000)
+        if not page.get("ok"):
+            return {"ok": False, "error": "url_fetch_failed", "url": target}
+        content = str(page.get("content") or "")[:12000]
+        return {"ok": True, "url": target, "title": target, "verified": True, "source_quality": 0.70, "page_evidence": content, "evidence": f"URL SOURCE: {target}\\nEVIDENCE VERIFIED: true\\nCONTENT: {content[:5000]}"}
+
+    async def _file_context(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Consume file text that an upstream attachment/parser already placed in context."""
+        context = context or {}
+        files = context.get("files") or context.get("file_context") or []
+        if isinstance(files, dict): files = [files]
+        blocks = []
+        for item in files if isinstance(files, list) else []:
+            if isinstance(item, dict):
+                name = str(item.get("name") or item.get("filename") or "file")
+                content = str(item.get("content") or item.get("text") or "").strip()
+            else:
+                name, content = "file", str(item).strip()
+            if content: blocks.append(f"FILE: {name}\\nCONTENT: {content[:12000]}")
+        if not blocks:
+            return {"ok": False, "error": "file_context_unavailable"}
+        evidence = "\\n\\n".join(blocks)
+        return {"ok": True, "files": len(blocks), "evidence": evidence, "source": "conversation-file-context"}
+
+    async def _code_reasoning(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Perform bounded deterministic code inspection; synthesis remains model work."""
+        context = context or {}
+        code = str(context.get("code") or context.get("file_code") or "").strip()
+        if not code:
+            return {"ok": True, "available": True, "evidence": "CODE ANALYSIS: no code payload was supplied; use the selected code-reasoning model role to analyze the request."}
+        findings = []
+        if "Traceback (most recent call last)" in code: findings.append("Python traceback detected")
+        if re.search(r"\\b(?:TODO|FIXME)\\b", code, re.I): findings.append("TODO/FIXME markers detected")
+        if re.search(r"\\b(?:password|api[_-]?key|secret|token)\\s*=", code, re.I): findings.append("possible hard-coded credential assignment")
+        if "except Exception:" in code: findings.append("broad exception handler detected")
+        return {"ok": True, "available": True, "findings": findings, "evidence": "CODE ANALYSIS: " + ("; ".join(findings) if findings else "no deterministic structural issue detected; deeper reasoning delegated to the code model role.")}
 
     async def _calculator(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
