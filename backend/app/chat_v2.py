@@ -540,6 +540,71 @@ def _research_relevance(
     return round(min(1.0, title_score + evidence_score + authority_bonus), 4)
 
 
+def _evidence_quality_profile(
+    query: str,
+    sources: list[dict[str, Any]],
+    *,
+    conflict_detected: bool = False,
+) -> dict[str, Any]:
+    """Classify evidence quality before synthesis so weak retrieval can trigger recovery."""
+    if not sources:
+        return {
+            "state": "no_evidence",
+            "usable": False,
+            "source_count": 0,
+            "relevant_count": 0,
+            "max_relevance": 0.0,
+            "max_quality": 0.0,
+            "evidence_coverage": 0.0,
+            "reason": "no_sources",
+        }
+
+    relevance_scores = [
+        float(source.get("relevance", 0.0) or 0.0)
+        for source in sources
+        if isinstance(source, dict)
+    ]
+    quality_scores = [
+        float(source.get("quality", source.get("source_quality", 0.0)) or 0.0)
+        for source in sources
+        if isinstance(source, dict)
+    ]
+    evidence_lengths = [
+        len(str(source.get("evidence") or source.get("page_evidence") or "").strip())
+        for source in sources
+        if isinstance(source, dict)
+    ]
+    relevant_count = sum(score >= 0.12 for score in relevance_scores)
+    max_relevance = max(relevance_scores, default=0.0)
+    max_quality = max(quality_scores, default=0.0)
+    evidence_coverage = sum(1 for size in evidence_lengths if size >= 80) / max(1, len(evidence_lengths))
+
+    if conflict_detected:
+        state = "conflicting_evidence"
+    elif relevant_count == 0 or max_relevance < 0.08:
+        state = "irrelevant_evidence"
+    elif max_quality < 0.50 or evidence_coverage < 0.50:
+        state = "weak_evidence"
+    else:
+        state = "sufficient_evidence"
+
+    return {
+        "state": state,
+        "usable": state == "sufficient_evidence",
+        "source_count": len(sources),
+        "relevant_count": relevant_count,
+        "max_relevance": round(max_relevance, 4),
+        "max_quality": round(max_quality, 4),
+        "evidence_coverage": round(evidence_coverage, 4),
+        "reason": {
+            "conflicting_evidence": "source_conflict",
+            "irrelevant_evidence": "relevance_below_threshold",
+            "weak_evidence": "quality_or_content_below_threshold",
+            "sufficient_evidence": "quality_gate_passed",
+        }.get(state, "no_sources"),
+    }
+
+
 def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Recover the latest workflow state persisted in assistant-message metadata."""
     for item in reversed(history):
@@ -932,6 +997,8 @@ def create_chat_v2_router(
         )
         if mode == "chat":
             research_required = False
+        evidence_quality = {"state": "not_required", "usable": True}
+        quality_replan_attempted = False
 
         if research_required and calculations is None:
             plan_step("retrieve", "running")
@@ -1216,6 +1283,130 @@ def create_chat_v2_router(
                 sources,
                 minimum=0.08,
             )
+        # Operational evidence-quality gate. URLs alone do not qualify as evidence:
+        # if retrieval is irrelevant, weak, or conflicting, replan once before synthesis.
+        if research_required and brain_state.evidence_required and not quality_replan_attempted:
+            evidence_quality = _evidence_quality_profile(
+                query,
+                sources,
+                conflict_detected=conflict_detected,
+            )
+            if evidence_quality["state"] != "sufficient_evidence":
+                quality_replan_attempted = True
+                state = str(evidence_quality.get("state") or "weak_evidence")
+                labels = {
+                    "no_evidence": "No obtuve evidencia utilizable; replanteando la búsqueda…",
+                    "irrelevant_evidence": "La evidencia encontrada no responde bien a tu pregunta; replanteando la búsqueda…",
+                    "weak_evidence": "La evidencia encontrada es débil; buscando fuentes más sólidas…",
+                    "conflicting_evidence": "Las fuentes presentan una discrepancia; buscando una verificación adicional…",
+                }
+                emit(labels.get(state, "Replanteando la búsqueda para mejorar la evidencia…"))
+                available_tools = set(tools.available())
+                capability_tools = {
+                    "weather": "weather",
+                    "time": "time",
+                    "local_search": "local_search",
+                    "calculator": "calculator",
+                    "code_reasoning": "code_reasoning",
+                    "evidence_retrieval": "web_research",
+                    "research_synthesis": "web_research",
+                    "source_synthesis": "web_research",
+                }
+                recovery_tool = next(
+                    (
+                        capability_tools.get(str(capability))
+                        for capability in brain_state.required_capabilities
+                        if capability_tools.get(str(capability)) in available_tools
+                    ),
+                    None,
+                )
+                if recovery_tool is None:
+                    recovery_tool = next(
+                        (str(tool) for tool in brain_state.tool_priority if str(tool) in available_tools),
+                        None,
+                    )
+                if recovery_tool is None and "web_research" in available_tools:
+                    recovery_tool = "web_research"
+
+                if recovery_tool:
+                    recovery_query = query
+                    if state == "irrelevant_evidence":
+                        recovery_query = f"{query} fuentes oficiales relevantes"
+                    elif state == "weak_evidence":
+                        recovery_query = f"{query} fuente primaria documentación oficial evidencia"
+                    elif state == "conflicting_evidence":
+                        recovery_query = f"{query} verificar discrepancia fuentes primarias"
+                    recovery_result = await tools.execute(
+                        [recovery_tool],
+                        message=recovery_query,
+                        context={
+                            **ctx,
+                            "current_intent_domain": brain_state.task_class,
+                            "evidence_required": True,
+                            "requires_web_research": recovery_tool == "web_research",
+                            "replan_trigger": "evidence_quality_insufficient",
+                            "evidence_quality_state": state,
+                        },
+                    )
+                    executed_tools.extend(
+                        name for name in recovery_result.keys()
+                        if name not in executed_tools
+                    )
+                    recovery_sources = []
+                    recovery_evidence_parts = []
+                    for tool_name, tool_payload in recovery_result.items():
+                        if not isinstance(tool_payload, dict):
+                            continue
+                        if tool_payload.get("evidence"):
+                            recovery_evidence_parts.append(f"{tool_name}: {tool_payload.get('evidence')}")
+                        recovery_sources.extend(
+                            tool_payload.get("sources") or tool_payload.get("results") or []
+                        )
+                        if tool_payload.get("conflict_detected"):
+                            conflict_detected = True
+                    seen_recovery_urls = {str(source.get("url")) for source in sources if source.get("url")}
+                    for item in recovery_sources:
+                        if not isinstance(item, dict) or not item.get("ok") or not item.get("url"):
+                            continue
+                        url = str(item.get("url")).strip()
+                        if not url or url in seen_recovery_urls:
+                            continue
+                        seen_recovery_urls.add(url)
+                        sources.append({
+                            "url": url,
+                            "title": item.get("title") or url,
+                            "verified": True,
+                            "quality": item.get("source_quality", 0.65),
+                            "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
+                        })
+                    if recovery_evidence_parts:
+                        recovery_evidence = "\n\n".join(recovery_evidence_parts)
+                        evidence = f"{evidence}\n\n{recovery_evidence}".strip()
+                    for source in sources:
+                        source["relevance"] = _research_relevance(query, source)
+                    if ctx.get("intent_family") == "weather":
+                        sources = _filter_weather_sources(
+                            sources,
+                            locations=list(ctx.get("status_locations") or []),
+                        )
+                    else:
+                        sources, _, _ = _filter_relevant_sources(query, sources, minimum=0.08)
+                    evidence_quality = _evidence_quality_profile(
+                        query,
+                        sources,
+                        conflict_detected=conflict_detected,
+                    )
+                    if evidence_quality["usable"]:
+                        emit("✓ La nueva evidencia supera el control de calidad; continuando…")
+                    else:
+                        emit("◉ La evidencia sigue siendo limitada; responderé con el nivel de certeza correspondiente…")
+                else:
+                    evidence_quality = _evidence_quality_profile(
+                        query,
+                        sources,
+                        conflict_detected=conflict_detected,
+                    )
+
         # Rebuild the evidence context from the final source set so an unrelated
         # discovery result can never reach the answer composer after filtering.
         filtered_evidence = []
@@ -1232,6 +1423,7 @@ def create_chat_v2_router(
         evidence = "\\n\\n".join(filtered_evidence)
 
         evidence_source_count = len(sources)
+        evidence_quality = _evidence_quality_profile(query, sources, conflict_detected=conflict_detected)
         # These metrics must exist even for ordinary chat that never enters research.
         # Keeping them initialized prevents a research-only variable from turning
         # a simple greeting into an HTTP 500 during response assembly.
@@ -1960,6 +2152,10 @@ def create_chat_v2_router(
             },
             evidence_analysis={
                 "source_count": len(sources),
+                "quality_state": evidence_quality.get("state"),
+                "quality_gate_passed": bool(evidence_quality.get("usable")),
+                "quality_replan_attempted": quality_replan_attempted,
+                "quality_metrics": evidence_quality,
                 "contradiction_count": len(conflict_candidates),
                 "conflict_candidates": conflict_candidates[:12],
                 "conflict_detected": conflict_detected,
