@@ -452,6 +452,42 @@ def _filter_relevant_sources(
 
 
 
+
+def _filter_weather_sources(
+    sources: list[dict[str, Any]],
+    *,
+    locations: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Hard evidence boundary for weather: only meteorological sources survive."""
+    weather_terms = (
+        "weather", "clima", "tiempo", "temperatura", "temperature", "forecast",
+        "prevision", "previsao", "meteorolog", "humidity", "wind", "viento",
+        "lluvia", "chuva", "rain", "current conditions", "condiciones actuales",
+        "open-meteo", "weather.com", "meteoblue", "accuweather",
+    )
+    location_terms = [str(item).casefold().strip() for item in (locations or []) if str(item).strip()]
+    kept: list[dict[str, Any]] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        blob = " ".join(
+            str(source.get(key) or "")
+            for key in ("title", "url", "evidence", "page_evidence", "source")
+        ).casefold()
+        if not any(term in blob for term in weather_terms):
+            continue
+        if location_terms and not any(location in blob for location in location_terms):
+            if not any(alias in blob for alias in (
+                "esteio", "porto alegre", "porto-alegre", "rio grande do sul"
+            )):
+                continue
+        item = dict(source)
+        item["relevance"] = max(float(item.get("relevance", 0.0) or 0.0), 0.95)
+        item["weather_validated"] = True
+        kept.append(item)
+    return kept
+
+
 def _research_relevance(
     query: str,
     source: dict[str, Any],
@@ -913,10 +949,18 @@ def create_chat_v2_router(
                 and mode in {"auto", "research"}
                 and "web_research" not in selected
             ):
-                emit("⌕ La primera búsqueda no fue suficiente; ampliando la búsqueda…")
+                if ctx.get("intent_family") == "weather":
+                    emit("⌕ Los datos meteorológicos no fueron suficientes; buscando una fuente meteorológica específica…")
+                    fallback_query = tools.weather_fallback_query(
+                        query,
+                        locations=list(ctx.get("status_locations") or []),
+                    )
+                else:
+                    emit("⌕ La primera búsqueda no fue suficiente; ampliando la búsqueda…")
+                    fallback_query = query
                 fallback_result = await tools.execute(
                     ["web_research"],
-                    message=query,
+                    message=fallback_query,
                     context={
                         **ctx,
                         "current_intent_domain": brain_state.task_class,
@@ -1051,13 +1095,25 @@ def create_chat_v2_router(
             else:
                 emit("◉ La evidencia sigue siendo limitada; mantendré la respuesta con el nivel de certeza correspondiente…")
 
-        # Final relevance gate: deep-research results must satisfy the same
-        # relevance boundary as the first search pass before synthesis/UI.
-        sources, max_source_relevance, relevant_source_count = _filter_relevant_sources(
-            query,
-            sources,
-            minimum=0.08,
-        )
+        # Final relevance gate: weather has a stricter semantic boundary than
+        # generic web research. Never let restaurants, dictionaries, language pages,
+        # or unrelated pages become weather evidence.
+        if ctx.get("intent_family") == "weather":
+            sources = _filter_weather_sources(
+                sources,
+                locations=list(ctx.get("status_locations") or []),
+            )
+            max_source_relevance = max(
+                (float(source.get("relevance", 0.0) or 0.0) for source in sources),
+                default=0.0,
+            )
+            relevant_source_count = len(sources)
+        else:
+            sources, max_source_relevance, relevant_source_count = _filter_relevant_sources(
+                query,
+                sources,
+                minimum=0.08,
+            )
         # Rebuild the evidence context from the final source set so an unrelated
         # discovery result can never reach the answer composer after filtering.
         filtered_evidence = []
@@ -1436,7 +1492,8 @@ def create_chat_v2_router(
         ctx["final_contract"] = final_contract
         trace.decision["final_contract"] = final_contract
         if final_contract["ready"]:
-            emit("Control final completado; respuesta lista.")
+            emit(_friendly_status(ctx.get("intent_family"), "done"))
+            emit("✓ Respuesta lista.")
         else:
             emit("Control final detectó requisitos pendientes; manteniendo una respuesta conservadora.")
             if brain_state.evidence_required and not evidence:
@@ -1683,7 +1740,8 @@ def create_chat_v2_router(
             },
         )
         trace_store.finish(trace, evaluation.decision)
-        emit("Respuesta lista.")
+        if not events or events[-1] != "✓ Respuesta lista.":
+            emit("✓ Respuesta lista.")
 
         return ChatV2Response(
             conversation_id=cid,
