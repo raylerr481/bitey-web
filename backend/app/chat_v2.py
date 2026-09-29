@@ -408,6 +408,59 @@ def _filter_relevant_sources(
     return kept, max(scores, default=0.0), len(kept)
 
 
+
+def _research_relevance(
+    query: str,
+    source: dict[str, Any],
+) -> float:
+    """Score source relevance using title, URL, and fetched evidence, not exact title words alone."""
+    stop = {
+        "para","como","cual","cuál","que","qué","donde","dónde","cuando","cuándo",
+        "este","esta","esto","sobre","desde","hace","hoy","ahora","with","from",
+        "what","where","when","this","that","about","latest","current","please",
+    }
+
+    def normalize(value: str) -> str:
+        value = value.casefold()
+        value = re.sub(r"[áàäâ]", "a", value)
+        value = re.sub(r"[éèëê]", "e", value)
+        value = re.sub(r"[íìïî]", "i", value)
+        value = re.sub(r"[óòöô]", "o", value)
+        value = re.sub(r"[úùüû]", "u", value)
+        value = value.replace("ñ", "n")
+        return value
+
+    def tokens(value: str) -> set[str]:
+        normalized = normalize(value)
+        return {
+            token for token in re.findall(r"[a-z0-9]{3,}", normalized)
+            if token not in stop
+        }
+
+    query_terms = tokens(query)
+    if not query_terms:
+        return 0.0
+
+    title_terms = tokens(f"{source.get('title','')} {source.get('url','')}")
+    evidence_terms = tokens(
+        str(source.get("evidence") or source.get("page_evidence") or "")[:16000]
+    )
+
+    # Match full terms and stable prefixes so inflections/typos do not destroy
+    # otherwise useful evidence matching.
+    def overlap(terms: set[str], weight: float) -> float:
+        matched = 0
+        for q in query_terms:
+            if q in terms or any(len(q) >= 5 and (q.startswith(t[:5]) or t.startswith(q[:5])) for t in terms):
+                matched += 1
+        return (matched / len(query_terms)) * weight
+
+    title_score = overlap(title_terms, 0.60)
+    evidence_score = overlap(evidence_terms, 0.40)
+    authority_bonus = min(0.10, float(source.get("quality", 0.0) or 0.0) * 0.10)
+    return round(min(1.0, title_score + evidence_score + authority_bonus), 4)
+
+
 def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Recover the latest workflow state persisted in assistant-message metadata."""
     for item in reversed(history):
@@ -875,18 +928,11 @@ def create_chat_v2_router(
                 if isinstance(source, dict)
             ]
             has_strong_source = any(score >= 0.85 for score in source_qualities)
-            query_terms = {
-                token for token in re.findall(r"[A-Za-zÀ-ÿ0-9]{4,}", query.casefold())
-                if token not in {"para", "como", "cual", "cuál", "what", "where", "when", "that", "this"}
-            }
             source_relevance_scores = []
             for source in sources:
-                source_text = f"{source.get('title', '')} {source.get('url', '')}".casefold()
-                source_terms = set(re.findall(r"[A-Za-zÀ-ÿ0-9]{4,}", source_text))
-                if query_terms:
-                    source_relevance_scores.append(
-                        len(query_terms & source_terms) / len(query_terms)
-                    )
+                score = _research_relevance(query, source)
+                source["relevance"] = score
+                source_relevance_scores.append(score)
             max_source_relevance = max(source_relevance_scores, default=0.0)
             relevant_source_count = sum(score >= 0.12 for score in source_relevance_scores)
             # Do not force a second web pass merely because a general question
@@ -911,7 +957,26 @@ def create_chat_v2_router(
             if needs_second_pass:
                 plan_step("compare", "running")
                 emit("Contrastando evidencia con una segunda pasada…")
-                plan = research.plan(query, {"research_required": True, "current_intent_domain": brain_state.task_class})
+                # Reformulate the second pass around the detected capability instead
+                # of repeating the exact failed query.
+                research_query = query
+                intent_family = str(
+                    (brain_state.as_dict().get("intention") or {}).get("intent_family")
+                    or ctx.get("intent_family")
+                    or ""
+                ).lower()
+                if intent_family in {"comparison", "recommendation", "research", "current_info", "local_search"}:
+                    research_query = f"{query} fuentes confiables evidencia actual"
+                elif intent_family == "knowledge":
+                    research_query = f"{query} explicación definición fuentes confiables"
+                plan = research.plan(
+                    research_query,
+                    {
+                        "research_required": True,
+                        "current_intent_domain": brain_state.task_class,
+                        "intent_family": intent_family,
+                    },
+                )
                 plan = await research.fetch(plan)
                 deep_evidence = research.evidence_context(plan)
                 if deep_evidence:
