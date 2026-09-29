@@ -468,7 +468,7 @@ class CognitiveModel:
             capabilities.append("time")
         elif family == "local_search":
             capabilities.append("local_search")
-        elif family == "math" or bool(re.search(r"\d\\s*[+\\-*/%^=]\\s*\d", low)):
+        elif family == "math" or bool(re.search(r"\d\s*[+\-*/%^=]\s*\d", low)):
             capabilities.append("calculator")
         elif family == "programming":
             capabilities.append("code_reasoning")
@@ -615,6 +615,8 @@ class CognitiveModel:
             tool_strategy.insert(0, "file_context")
         if reasoning_required:
             tool_strategy.append("reasoning")
+        if ambiguity_profile.get("requires_clarification"):
+            tool_strategy = ["clarify"]
         if not tool_strategy and family not in {"conversation", "creative", "translation", "summarization"}:
             tool_strategy.append("llm_synthesis")
 
@@ -639,7 +641,15 @@ class CognitiveModel:
             "clarification_allowed": bool(ambiguity_profile.get("requires_clarification")),
             "multi_step": multi_step,
             "steps": list(dict.fromkeys(steps)),
-            "stop_condition": "all_planned_steps_completed_and_verified" if multi_step or reasoning_required else ("fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence"),
+            "stop_condition": (
+                "clarification_needed_before_execution"
+                if ambiguity_profile.get("requires_clarification")
+                else "all_planned_steps_completed_and_verified"
+                if multi_step or reasoning_required
+                else "fresh_source_retrieved_and_validated"
+                if freshness
+                else "sufficient_confidence"
+            ),
         }
 
     def evaluate(self, state: CognitiveState, *, evidence_available: bool = False) -> CognitiveState:
