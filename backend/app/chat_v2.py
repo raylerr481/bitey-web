@@ -184,6 +184,14 @@ def _active_conversation_state(
         for item in history
         if item.get("role") == "assistant" and str(item.get("content", "")).strip()
     ]
+    previous_result_context: dict[str, Any] = {}
+    for item in reversed(history):
+        if item.get("role") != "assistant":
+            continue
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict) and isinstance(metadata.get("reference_context"), dict):
+            previous_result_context = metadata["reference_context"]
+            break
 
     return {
         "current_request": " ".join(current_query.split())[:1000],
@@ -193,6 +201,7 @@ def _active_conversation_state(
         "latest_decisions": active("decisions"),
         "last_user_request": (recent_user[-1][:1000] if recent_user else ""),
         "last_assistant_answer": (recent_assistant[-1][:1800] if recent_assistant else ""),
+        "previous_result_context": previous_result_context,
         "override_detected": bool((memory_updates or {}).get("current_overrides")),
         "superseded_count": len((memory_updates or {}).get("supersedes", [])),
         "priority": "current_request_then_explicit_active_state",
@@ -627,6 +636,7 @@ def create_chat_v2_router(
             # Explicit continuity input for follow-up routing; current request wins.
             "last_user_request": active_state.get("last_user_request", ""),
             "last_assistant_answer": active_state.get("last_assistant_answer", ""),
+            "previous_result_context": active_state.get("previous_result_context", {}),
         }
 
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
@@ -1591,12 +1601,33 @@ def create_chat_v2_router(
                 for step in persisted_plan
                 if isinstance(step, dict) and step.get("id")
             ]
+        reference_context = {
+            "query": " ".join(query.split())[:1000],
+            "sources": [
+                {
+                    "index": index,
+                    "title": str(source.get("title") or "")[:180],
+                    "url": str(source.get("url") or "")[:500],
+                }
+                for index, source in enumerate(sources[:8], 1)
+                if isinstance(source, dict) and (source.get("title") or source.get("url"))
+            ],
+            "options": [
+                str(item).strip()[:180]
+                for item in re.findall(r"(?:^|\n)\s*(?:\[?\d+\]?|[-•])\s+([^\n]{3,180})", answer)
+            ][:8],
+            "trust": "continuity_only_not_current_evidence",
+        }
+        assistant_metadata = {
+            "reference_context": reference_context,
+            **({"active_task_state": active_task} if active_task.get("active") else {}),
+        }
         await memory.append(
             cid,
             {
                 "role": "assistant",
                 "content": answer,
-                "metadata": {"active_task_state": active_task} if active_task.get("active") else {},
+                "metadata": assistant_metadata,
             },
         )
         trace_store.finish(trace, evaluation.decision)
