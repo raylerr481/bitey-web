@@ -1363,7 +1363,7 @@ def create_chat_v2_router(
                 if recovery_tool:
                     # Keep the replan visible to the execution trace and let the
                     # freshly selected capability determine the recovery query.
-                    selected = list(dict.fromKeys(selected + [recovery_tool]))
+                    selected = list(dict.fromkeys(selected + [recovery_tool]))
                     ctx["selected_tools"] = selected
                     recovery_query = query
                     if state == "irrelevant_evidence":
