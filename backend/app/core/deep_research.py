@@ -72,10 +72,35 @@ class DeepResearchEngine:
         "who.int", "paho.org", "cdc.gov", "nih.gov", "gov.br", "fiocruz.br", "unaids.org"
     )
 
-    def _build_query_variants(self, query: str, reasons: list[str]) -> list[str]:
-        """Create search-ready reformulations when the user's wording is incomplete."""
+    def _build_query_variants(
+        self,
+        query: str,
+        reasons: list[str],
+        context: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Create search-ready reformulations from intent, freshness and entities."""
+        context = context or {}
         base = re.sub(r"\s+", " ", query).strip()
+        # Correct high-confidence speech/typing variants before web retrieval.
+        base = re.sub(r"\borto\s+alegre\b", "porto alegre", base, flags=re.I)
+        base = re.sub(r"\btimepoe?\b", "tiempo", base, flags=re.I)
+        base = re.sub(r"\btienpo\b", "tiempo", base, flags=re.I)
         variants: list[str] = [base]
+        family = str(context.get("intent_family") or "").lower()
+        entities = context.get("entities") if isinstance(context.get("entities"), dict) else {}
+        location = str(entities.get("location") or entities.get("city") or "").strip()
+        if location and location.casefold() not in base.casefold():
+            variants.append(f"{base} {location}")
+        if family == "comparison":
+            variants.append(f"{base} comparación diferencias fuentes")
+        elif family == "recommendation":
+            variants.append(f"{base} opciones criterios fuentes actuales")
+        elif family in {"current_info", "research"}:
+            variants.append(f"{base} información actual fuentes confiables")
+        elif family == "local_search":
+            variants.append(f"{base} ubicación horario fuentes locales")
+        elif family == "knowledge":
+            variants.append(f"{base} explicación definición fuentes confiables")
         if self.AMBIGUOUS_RE.match(base) or len(base.split()) <= 2:
             variants.extend([f"{base} meaning", f"{base} explanation", f"{base} definition"])
         elif "knowledge_request" in reasons:
@@ -118,7 +143,7 @@ class DeepResearchEngine:
         verification_required = bool(reasons and any(r in reasons for r in (
             "freshness", "knowledge_request", "research_intent", "medical_domain", "year_specific", "required_research"
         )))
-        variants = self._build_query_variants(query, reasons)
+        variants = self._build_query_variants(query, reasons, context)
         clarification_needed = bool(self.AMBIGUOUS_RE.match(query.strip()))
 
         # Adapt research depth to the evidence burden instead of always using
