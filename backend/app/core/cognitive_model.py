@@ -343,8 +343,23 @@ class CognitiveModel:
                 entities["urls"] = prior_entities["urls"][:8]
             if prior_answer and any(token in text for token in ("otra", "otro", "anterior", "siguiente", "esa", "ese", "eso")):
                 option_refs = re.findall(r"(?:^|\n)\s*(?:\[?\d+\]?|[-•])\s+([^\n]{3,180})", prior_answer)
+                stored = context.get("previous_result_context") or {}
+                stored_options = stored.get("options") if isinstance(stored, dict) else []
+                stored_sources = stored.get("sources") if isinstance(stored, dict) else []
                 if option_refs:
                     entities["prior_options"] = [item.strip() for item in option_refs[:8]]
+                elif isinstance(stored_options, list) and stored_options:
+                    entities["prior_options"] = [str(item).strip()[:180] for item in stored_options[:8] if str(item).strip()]
+                if isinstance(stored_sources, list) and stored_sources:
+                    entities["prior_results"] = [
+                        {
+                            "index": item.get("index"),
+                            "title": str(item.get("title") or "")[:180],
+                            "url": str(item.get("url") or "")[:500],
+                        }
+                        for item in stored_sources[:8]
+                        if isinstance(item, dict) and (item.get("title") or item.get("url"))
+                    ]
             if not entities.get("instruments") and prior_entities.get("instruments"):
                 entities["instruments"] = prior_entities["instruments"][:8]
             reference_map = {
