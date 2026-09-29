@@ -25,3 +25,24 @@
   .composer textarea{min-height:68px!important}
 }
 .execution-state-event{border-top:1px solid rgba(255,255,255,.05)!important;margin-top:4px!important;padding-top:5px!important}.execution-state-event strong{font-weight:500!important}.execution-state-event small{display:block!important;margin-left:0!important;opacity:.62!important;font-size:9px!important;margin-top:1px!important}
+/* 2026-09-29: answer-first viewport and compact research telemetry. */
+.message{scroll-margin-top:18px!important}
+.message.assistant{display:block!important;max-width:900px!important;width:min(900px,calc(100% - 32px))!important;margin:0 auto 32px!important}
+.message.assistant .message-content{font-size:15px!important;line-height:1.72!important;color:var(--ink,#243449)!important;overflow-wrap:anywhere!important}
+.message.assistant .message-content>*:first-child{margin-top:0!important}
+.message.assistant .message-content p{margin:0 0 10px!important}
+.message.assistant .message-content h1,.message.assistant .message-content h2,.message.assistant .message-content h3{color:var(--navy,#10243b)!important}
+.message.assistant .answer-validation-wrap,.message.assistant .research-summary,.message.assistant .answer-actions,.message.assistant .bitey-sources{position:relative!important;z-index:1!important}
+.message.assistant .answer-validation-wrap{margin:14px 0 0!important}
+.message.assistant .research-summary{margin:10px 0 0!important;padding:9px 11px!important;border:1px solid rgba(100,130,145,.18)!important;border-radius:10px!important;background:rgba(245,249,251,.72)!important;font-size:10px!important}
+.message.assistant .bitey-sources{margin:10px 0 0!important;padding-top:9px!important;border-top:1px solid rgba(100,130,145,.16)!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))!important;gap:5px!important}
+.message.assistant .bitey-sources-title{grid-column:1/-1!important}
+.message.assistant .bitey-sources a{min-width:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+.activity{height:24px!important;min-height:24px!important;margin:2px auto 2px!important;justify-content:flex-start!important}
+.activity-events,.activity-events[hidden]{display:none!important;height:0!important;max-height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}
+.activity-event,.cognitive-plan-event{display:none!important}
+@media(max-width:760px){
+  .message.assistant{width:calc(100% - 20px)!important;margin-bottom:26px!important}
+  .message.assistant .message-content{font-size:15px!important;line-height:1.68!important}
+  .message.assistant .bitey-sources{grid-template-columns:1fr!important}
+}
