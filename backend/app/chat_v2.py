@@ -179,6 +179,11 @@ def _active_conversation_state(
         for item in history
         if item.get("role") == "user" and str(item.get("content", "")).strip()
     ]
+    recent_assistant = [
+        " ".join(str(item.get("content", "")).split())
+        for item in history
+        if item.get("role") == "assistant" and str(item.get("content", "")).strip()
+    ]
 
     return {
         "current_request": " ".join(current_query.split())[:1000],
@@ -187,6 +192,7 @@ def _active_conversation_state(
         "active_preferences": active("preferences"),
         "latest_decisions": active("decisions"),
         "last_user_request": (recent_user[-1][:1000] if recent_user else ""),
+        "last_assistant_answer": (recent_assistant[-1][:1800] if recent_assistant else ""),
         "override_detected": bool((memory_updates or {}).get("current_overrides")),
         "superseded_count": len((memory_updates or {}).get("supersedes", [])),
         "priority": "current_request_then_explicit_active_state",
@@ -620,6 +626,7 @@ def create_chat_v2_router(
             "request_id": request_id,
             # Explicit continuity input for follow-up routing; current request wins.
             "last_user_request": active_state.get("last_user_request", ""),
+            "last_assistant_answer": active_state.get("last_assistant_answer", ""),
         }
 
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
