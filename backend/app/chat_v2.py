@@ -894,7 +894,6 @@ def create_chat_v2_router(
                 emit("◉ Calculando y comprobando el resultado…")
             else:
                 emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
-            emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
             result = await tools.execute(
                 selected,
                 message=query,
@@ -928,7 +927,16 @@ def create_chat_v2_router(
                 if not isinstance(item, dict) or not item.get("ok") or not item.get("url"):
                     continue
                 url = str(item.get("url")).strip()
-                if not url or url in seen_source_urls:
+                if not url:
+                    continue
+                item_evidence = str(item.get("page_evidence") or item.get("evidence") or "")[:5000]
+                if url in seen_source_urls:
+                    # Specialized tools may legitimately return one provider URL
+                    # for several independently observed locations. Merge the
+                    # evidence instead of silently dropping the second location.
+                    existing = next((source for source in sources if source.get("url") == url), None)
+                    if existing and item_evidence and item_evidence not in str(existing.get("evidence") or ""):
+                        existing["evidence"] = (str(existing.get("evidence") or "") + "\n\n" + item_evidence)[:10000]
                     continue
                 seen_source_urls.add(url)
                 sources.append({
@@ -936,7 +944,7 @@ def create_chat_v2_router(
                     "title": item.get("title") or url,
                     "verified": True,
                     "quality": item.get("source_quality", 0.65),
-                    "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
+                    "evidence": item_evidence,
                 })
 
             plan_step("retrieve", "completed" if sources else "failed")
