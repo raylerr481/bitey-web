@@ -64,3 +64,20 @@
 .message.assistant .bitey-sources-list{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))!important;gap:5px!important;padding-top:6px!important}
 .message.assistant .bitey-sources-list a{min-width:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
 @media(max-width:760px){.message.assistant .bitey-sources-list{grid-template-columns:1fr!important}}
+
+/* 2026-09-29: composer controls integrated into the writing surface. */
+.composer{padding:10px 12px 11px!important;border-radius:22px!important}
+.composer-main{min-height:76px!important;align-items:flex-end!important}
+.composer textarea{min-height:76px!important;max-height:220px!important;padding:10px 5px 7px!important}
+.composer .composer-tool,.composer .send-button{width:38px!important;height:38px!important;flex:0 0 38px!important;border-radius:11px!important}
+.composer .send-button{margin-bottom:1px!important}
+#bitey-mode{position:absolute!important;left:14px!important;bottom:9px!important;width:auto!important;max-width:118px!important;height:25px!important;padding:3px 25px 3px 9px!important;border:1px solid #dbe5ec!important;border-radius:8px!important;background:#f7fafc!important;color:#536579!important;font-size:11px!important;appearance:auto!important}
+.composer textarea{padding-bottom:38px!important}
+.composer-hint{display:none!important}
+@media(max-width:760px){
+  .composer{width:calc(100% - 20px)!important;padding:8px 9px 9px!important}
+  .composer-main{min-height:70px!important;gap:6px!important}
+  .composer textarea{min-height:70px!important;padding-bottom:36px!important}
+  #bitey-mode{left:11px!important;bottom:8px!important;max-width:105px!important;font-size:10px!important}
+  .composer .composer-tool,.composer .send-button{width:36px!important;height:36px!important;flex-basis:36px!important}
+}
