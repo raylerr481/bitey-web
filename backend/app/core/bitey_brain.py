@@ -55,6 +55,13 @@ class BiteyBrain:
         cached = ctx.get("_bitey_brain_state")
         if isinstance(cached, BrainState) and cached.decision_fingerprint == fingerprint: return cached
         complexity = self._complexity(text, cognition); ambiguity = float(cognition.get("ambiguity", 0.0) or 0.0)
+        cognitive_plan = cognition.get("plan") if isinstance(cognition, dict) else {}
+        cognitive_reasoning_required = bool(cognitive_plan.get("reasoning_required")) if isinstance(cognitive_plan, dict) else False
+        cognitive_strategy = cognitive_plan.get("tool_strategy") if isinstance(cognitive_plan, dict) else []
+        if cognitive_reasoning_required:
+            # The cognitive model can require deeper reasoning even when lexical
+            # complexity is low. Promote depth before provider/model selection.
+            complexity = max(complexity, 0.62)
         if (bool(perception.get("question")) or "?" in text) and len(text.split()) < 8: ambiguity = max(ambiguity, 0.12)
         if not text: ambiguity = 1.0
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
@@ -75,8 +82,6 @@ class BiteyBrain:
         ctx["intent_family"] = intent_family
         tools = self._tool_policy(capabilities, domain, ctx)
         # Respect the Cognitive Model's explicit capability decision when present.
-        cognitive_plan = cognition.get("plan") if isinstance(cognition, dict) else {}
-        cognitive_strategy = cognitive_plan.get("tool_strategy") if isinstance(cognitive_plan, dict) else []
         if isinstance(cognitive_strategy, list) and cognitive_strategy:
             strategy_map = {
                 "web_research": "web_research",
@@ -90,12 +95,17 @@ class BiteyBrain:
             cognitive_tools = [strategy_map[item] for item in cognitive_strategy if item in strategy_map]
             if cognitive_tools:
                 tools = list(dict.fromkeys(cognitive_tools + tools))
+        # "clarify" is a cognitive stop decision, not a tool. Never execute
+        # fallback tools when the request is explicitly underspecified.
+        if isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy:
+            tools = []
         verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         prior_execution = ctx.get("active_task", {}).get("previous_execution_state") if isinstance(ctx.get("active_task"), dict) else {}
         plan_steps = self._build_plan(domain=domain, evidence_required=evidence, freshness_required=freshness, complexity=complexity, verification_required=verification, tools=tools, risk=risk, prior_execution=prior_execution)
-        state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, verification_profile=verification_profile, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
+        cognitive_clarification = isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy
+        state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, verification_profile=verification_profile, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="clarification_needed_before_execution" if cognitive_clarification else "verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
         if evidence: state.goals.insert(3,"ground_claims_in_evidence")
         if verification: state.goals.append("verify_before_presenting_high_impact_claims")
         if risk == "critical": state.constraints += ["never_bypass_domain_risk_gate","no_live_execution"]
