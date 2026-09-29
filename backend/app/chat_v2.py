@@ -652,7 +652,6 @@ def create_chat_v2_router(
             events.append(label)
             trace_store.emit(trace, label)
 
-        emit(_friendly_status(ctx.get("intent_family", "knowledge"), "understand"))
         trace_store.set_stage(trace, "ANALYZING")
         calculations: dict[str, Any] | None = None
         sources: list[dict[str, Any]] = []
@@ -703,6 +702,7 @@ def create_chat_v2_router(
             "previous_result_context": active_state.get("previous_result_context", {}),
         }
 
+        # The context must exist before any dynamic status is rendered.
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
         ctx["cognition"] = initial_cognitive.as_dict()
         ctx["execution_policy"] = cognition.build_execution_policy(initial_cognitive.intention, query, ctx)
