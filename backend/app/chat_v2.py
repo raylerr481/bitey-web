@@ -709,6 +709,52 @@ def create_chat_v2_router(
         ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
         ctx["intent_family"] = initial_cognitive.intention.get("intent_family", "knowledge")
         ctx["status_locations"] = list((initial_cognitive.intention.get("entities") or {}).get("locations") or [])
+
+        # Greetings and identity questions are conversational primitives. They
+        # must never depend on web research, provider availability, or evidence
+        # gates; a temporary external-model failure must not break "hola".
+        if ctx.get("intent_family") == "conversation":
+            normalized_query = " ".join(query.casefold().strip().split())
+            if cognition._is_greeting(normalized_query):
+                if any(token in normalized_query for token in ("hello", "hi", "hey")):
+                    answer = "Hello 👋. I'm Bitey IA. How can I help you?"
+                elif any(token in normalized_query for token in ("buenos dias", "buenos días")):
+                    answer = "¡Buenos días! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+                elif "buenas tardes" in normalized_query:
+                    answer = "¡Buenas tardes! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+                elif "buenas noches" in normalized_query:
+                    answer = "¡Buenas noches! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+                elif "boa tarde" in normalized_query:
+                    answer = "Boa tarde! 👋 Sou o Bitey IA. Como posso ajudar?"
+                elif "boa noite" in normalized_query:
+                    answer = "Boa noite! 👋 Sou o Bitey IA. Como posso ajudar?"
+                else:
+                    answer = "¡Hola! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+                emit("✓ Entendí tu mensaje.")
+                emit("✓ Listo.")
+                await memory.append(cid, {"role": "user", "content": query})
+                await memory.append(cid, {
+                    "role": "assistant",
+                    "content": answer,
+                    "metadata": {"reference_context": {"query": query, "trust": "conversation"}},
+                })
+                trace_store.finish(trace, "accept")
+                return ChatV2Response(
+                    conversation_id=cid,
+                    answer=answer,
+                    mode="chat",
+                    tools_used=[],
+                    sources=[],
+                    activity_events=events,
+                    calculations=None,
+                    cognitive_plan=[],
+                    trace_id=trace.trace_id,
+                    elapsed_ms=int((time.perf_counter() - started) * 1000),
+                    answer_validation={"valid": True, "decision": "accept", "confidence": 0.99},
+                    evidence_analysis={"source_count": 0, "contradiction_count": 0, "conflict_detected": False},
+                    execution_state={},
+                )
+
         adaptive_strategy_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
