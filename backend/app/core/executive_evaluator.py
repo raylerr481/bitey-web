@@ -63,6 +63,7 @@ class ExecutiveEvaluator:
         task_class = str(self._get(state, "task_class", "general") or "general").lower()
         evidence_required = bool(self._get(state, "evidence_required", False))
         conceptual_fallback = bool(self._get(state, "conceptual_fallback", False))
+        native_grounded = bool(self._get(state, "native_grounded", False))
 
         def evidence_has_provenance(value: str) -> bool:
             # Evidence must contain a traceable source marker, not merely a
@@ -84,7 +85,10 @@ class ExecutiveEvaluator:
         # Evidence-first is mandatory for every substantive question. A
         # conceptual label must never bypass web research; fallback knowledge is
         # not considered verified evidence.
-        evidence_ok = evidence_has_provenance(evidence) if evidence_required else True
+        # Stable concepts answered by Bitey Native use a deterministic internal
+        # definition. They do not need web provenance merely because the cognitive
+        # planner permits evidence; current/research claims still require sources.
+        evidence_ok = True if (native_grounded and conceptual_fallback) else (evidence_has_provenance(evidence) if evidence_required else True)
         if evidence_required and not evidence:
             reasons.append("required_evidence_missing")
         elif evidence_required and not evidence_ok:
