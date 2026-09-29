@@ -700,6 +700,10 @@ def create_chat_v2_router(
             ctx["requested_capability"] = "calculator"
 
         emit(_friendly_status(ctx.get("intent_family"), "route"))
+        if ctx.get("intent_family") == "weather":
+            locations = list((initial_cognitive.intention.get("entities") or {}).get("locations") or [])
+            if locations:
+                emit(_friendly_status("weather", "locate", locations=locations))
         ctx["bitey_brain"] = brain_state.as_dict()
         ctx["requires_web_research"] = bool(ctx.get("requires_web_research", brain_state.evidence_required))
         ctx["evidence_required"] = bool(ctx.get("evidence_required", brain_state.evidence_required))
