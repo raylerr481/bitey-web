@@ -29,7 +29,8 @@ from .core.workspace import WorkspaceStore
 from .notifications import send_trainer_test_email
 from .schemas import ConversationCreate, MessageCreate, MessageResponse
 from .workspace_api import router as workspace_router
-from .chat_v2 import create_chat_v2_router\nfrom .trading_api import create_trading_router
+from .chat_v2 import create_chat_v2_router
+from .trading_api import create_trading_router
 
 async def _background_loop(stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
