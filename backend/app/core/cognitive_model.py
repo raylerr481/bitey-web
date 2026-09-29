@@ -79,7 +79,7 @@ class CognitiveModel:
         "how does", "qual é", "o que é", "o que são", "como funciona",
     )
 
-    _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
+    _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "allí", "alli", "ahí", "ahi", "mañana", "manana", "ayer", "antes", "después", "despues", "otra", "otro", "anterior", "siguiente", "precio", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
     _MARKET_INSTRUMENT_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", re.I)
     _MARKET_ACTION_CUES = ("precio", "cotización", "cotizacion", "valor", "cuánto vale", "cuanto vale", "cómo está", "como esta", "ahora", "ahora mismo", "cotiza")
 
@@ -293,11 +293,13 @@ class CognitiveModel:
         prior_request = str(context.get("last_user_request") or "").strip()
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
         prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
-        if is_followup and prior_normalized and max(scores.values(), default=0) == 0:
+        if is_followup and prior_normalized:
             prior_scores = {domain: sum(1 for hint in hints if hint in prior_normalized) for domain, hints in self._DOMAIN_HINTS.items()}
-            for domain, score in prior_scores.items():
-                if score:
-                    scores[domain] = max(scores.get(domain, 0), min(2, score))
+            prior_top = max(prior_scores.values(), default=0)
+            if max(scores.values(), default=0) == 0 or prior_top >= 2:
+                for domain, score in prior_scores.items():
+                    if score:
+                        scores[domain] = max(scores.get(domain, 0), min(2, score))
             if any(term in prior_normalized for term in weather_terms):
                 scores["weather"] = max(scores.get("weather", 0), 2)
         explicit_domain = str(context.get("domain") or "").strip().lower()
