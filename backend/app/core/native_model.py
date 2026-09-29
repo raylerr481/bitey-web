@@ -45,7 +45,12 @@ class NativeReasoningModel:
 
     @staticmethod
     def _direct_general_answer(question: str, frame: dict[str, Any]) -> str:
-        q = question.strip().lower(); language = frame.get("language") or "es"; intent = str(frame.get("intent") or "")
+        q = question.strip().lower()
+        # Recover a frequent omitted-accent/letter typo in conceptual questions
+        # before deterministic fallback matching. This is intentionally narrow.
+        q = re.sub(r"\bqu\s+(?=(?:es|son|significa|funciona)\b)", "qué ", q, flags=re.I)
+        language = frame.get("language") or "es"
+        intent = str(frame.get("intent") or "")
         if intent == "greeting":
             if language == "pt": return "Olá! Sou Bitey IA. Como posso ajudar você hoje?"
             if language == "en": return "Hello! I'm Bitey IA. How can I help you today?"
@@ -81,6 +86,16 @@ class NativeReasoningModel:
                     "es": "Blockchain es una estructura de registro distribuido en la que los datos se agrupan en bloques enlazados y se mantienen mediante una red de participantes. Se usa para registrar transacciones y otros datos de forma verificable.",
                     "pt": "Blockchain é uma estrutura de registro distribuído na qual os dados são agrupados em blocos encadeados e mantidos por uma rede de participantes. É usada para registrar transações e outros dados de forma verificável.",
                     "en": "A blockchain is a distributed ledger in which data is grouped into linked blocks and maintained by a network of participants. It can record transactions and other data in a verifiable way.",
+                },
+                "nasa": {
+                    "es": "La NASA (Administración Nacional de Aeronáutica y del Espacio) es la agencia civil de Estados Unidos responsable de programas de exploración espacial, investigación aeronáutica y ciencias de la Tierra y del universo.",
+                    "pt": "A NASA (Administração Nacional da Aeronáutica e do Espaço) é a agência civil dos Estados Unidos responsável por programas de exploração espacial, pesquisa aeronáutica e estudos da Terra e do universo.",
+                    "en": "NASA (the National Aeronautics and Space Administration) is the U.S. civilian agency responsible for space exploration, aeronautics research, and Earth and space science.",
+                },
+                "docker": {
+                    "es": "Docker es una plataforma para crear, ejecutar y distribuir aplicaciones dentro de contenedores, que empaquetan la aplicación junto con sus dependencias.",
+                    "pt": "Docker é uma plataforma para criar, executar e distribuir aplicações em contêineres, que empacotam a aplicação junto com suas dependências.",
+                    "en": "Docker is a platform for building, running, and distributing applications in containers that package the application with its dependencies.",
                 },
             }
             answer_set = definitions.get(subject.casefold())
