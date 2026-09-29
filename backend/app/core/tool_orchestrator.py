@@ -75,6 +75,9 @@ class ToolOrchestrator:
             "research": ["web_research"],
             "comparison": ["web_research"],
             "recommendation": ["web_research"],
+            "time": ["time"],
+            "programming": ["code_reasoning"],
+            "file_analysis": ["file_context"],
         }
         preferred = list(mapping.get(family, []))
         if "weather" in capabilities:
@@ -83,6 +86,14 @@ class ToolOrchestrator:
             preferred.insert(0, "calculator")
         if "web_research" in capabilities or "search" in capabilities:
             preferred.append("web_research")
+        if "local_search" in capabilities:
+            preferred.append("local_search")
+        if "time" in capabilities:
+            preferred.append("time")
+        if "file_context" in capabilities or "file_analysis" in capabilities:
+            preferred.append("file_context")
+        if "code_reasoning" in capabilities:
+            preferred.append("code_reasoning")
         return list(dict.fromkeys(name for name in preferred if name in self._tools))
 
     def cognitive_selection(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
