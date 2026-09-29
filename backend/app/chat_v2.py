@@ -1601,8 +1601,27 @@ def create_chat_v2_router(
                 for step in persisted_plan
                 if isinstance(step, dict) and step.get("id")
             ]
+        # Persist a compact evidence bridge for the next turn. This is continuity metadata,
+        # not proof: current/fresh facts must always be researched again.
+        evidence_bridge = [
+            {
+                "index": index,
+                "title": str(source.get("title") or "")[:180],
+                "url": str(source.get("url") or "")[:500],
+                "authority": str(source.get("authority") or source.get("source_category") or "")[:80],
+                "quality": float(source.get("quality", source.get("source_quality", 0.0)) or 0.0),
+                "evidence_excerpt": str(source.get("evidence") or source.get("page_evidence") or "")[:700],
+            }
+            for index, source in enumerate(sources[:6], 1)
+            if isinstance(source, dict) and (source.get("title") or source.get("url"))
+        ]
         reference_context = {
             "query": " ".join(query.split())[:1000],
+            "evidence_bridge": evidence_bridge,
+            "execution_state": {
+                "completed_phases": active_task.get("execution_state", {}).get("completed_phases", [])[-12:] if isinstance(active_task.get("execution_state"), dict) else [],
+                "next_step": active_task.get("execution_state", {}).get("next_step") if isinstance(active_task.get("execution_state"), dict) else None,
+            },
             "sources": [
                 {
                     "index": index,
