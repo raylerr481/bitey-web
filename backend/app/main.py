@@ -191,6 +191,42 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
     started=time.perf_counter(); activity_events=["Analizando tu solicitud…"]
     try: UUID(conversation_id)
     except ValueError: return MessageResponse(conversation_id=conversation_id,answer="La conversación indicada no tiene un identificador válido.",research_required=False,research_reasons=[],providers=providers.available(),elapsed_ms=int((time.perf_counter()-started)*1000),activity_events=["Validando la conversación…"])
+    # Keep the legacy endpoint conversationally available as well. Some deployed
+    # clients may still target /api/v1/conversations/.../messages; a greeting
+    # must never depend on memory, tools, web research, or external providers.
+    normalized_message = " ".join(payload.message.casefold().strip().split())
+    if cognition._is_greeting(normalized_message) or cognition._is_identity_request(normalized_message):
+        if cognition._is_identity_request(normalized_message):
+            answer = (
+                "Soy Bitey IA 👋, un asistente de inteligencia artificial. "
+                "Puedo conversar, investigar en la web cuando hace falta, "
+                "analizar información, trabajar con código y matemáticas, "
+                "y mantener el contexto de esta conversación."
+            )
+        elif any(token in normalized_message for token in ("hello", "hi", "hey")):
+            answer = "Hello 👋. I'm Bitey IA. How can I help you?"
+        elif any(token in normalized_message for token in ("buenos dias", "buenos días")):
+            answer = "¡Buenos días! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+        elif "buenas tardes" in normalized_message:
+            answer = "¡Buenas tardes! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+        elif "buenas noches" in normalized_message:
+            answer = "¡Buenas noches! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+        elif "boa tarde" in normalized_message:
+            answer = "Boa tarde! 👋 Sou o Bitey IA. Como posso ajudar?"
+        elif "boa noite" in normalized_message:
+            answer = "Boa noite! 👋 Sou o Bitey IA. Como posso ajudar?"
+        else:
+            answer = "¡Hola! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+        return MessageResponse(
+            conversation_id=conversation_id,
+            answer=answer,
+            research_required=False,
+            research_reasons=[],
+            providers=providers.available(),
+            elapsed_ms=int((time.perf_counter()-started)*1000),
+            activity_events=["✓ Entendí tu mensaje.", "✓ Listo."],
+        )
+
     trace=cognitive_trace.start(payload.message,conversation_id,request_id=str(payload.metadata.get("request_id") or "") or None)
     cognitive_trace.emit(trace, activity_events[0])
     def emit_activity(label: str) -> None:
