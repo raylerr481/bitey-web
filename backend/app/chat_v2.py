@@ -1301,6 +1301,38 @@ def create_chat_v2_router(
                     "conflicting_evidence": "Las fuentes presentan una discrepancia; buscando una verificación adicional…",
                 }
                 emit(labels.get(state, "Replanteando la búsqueda para mejorar la evidencia…"))
+
+                # Evidence quality is a change in world-state, so it must flow
+                # back through the executive brain before choosing recovery tools.
+                # This makes quality replanning a real cognitive replan rather
+                # than a search-only retry.
+                quality_replan_context = {
+                    **ctx,
+                    "evidence_available": bool(evidence),
+                    "evidence": evidence,
+                    "research_required": True,
+                    "replan_trigger": "evidence_quality_insufficient",
+                    "evidence_quality_state": state,
+                    "evidence_quality_metrics": evidence_quality,
+                    "selected_tools": selected,
+                    "executed_tools": executed_tools,
+                }
+                quality_replanned_state = brain.think(query, quality_replan_context)
+                brain_state = quality_replanned_state
+                ctx["bitey_brain"] = brain_state.as_dict()
+                ctx["cognitive_plan"] = brain_state.plan_steps
+                ctx["replan_reason"] = "evidence_quality_insufficient"
+                ctx["replan_attempted"] = True
+                ctx["quality_replan"] = {
+                    "attempted": True,
+                    "reason": state,
+                    "tool_priority": list(brain_state.tool_priority),
+                    "required_capabilities": list(brain_state.required_capabilities),
+                    "decision_fingerprint": brain_state.decision_fingerprint,
+                    "stop_condition": brain_state.stop_condition,
+                }
+                trace.decision["quality_replan"] = ctx["quality_replan"]
+
                 available_tools = set(tools.available())
                 capability_tools = {
                     "weather": "weather",
@@ -1329,6 +1361,10 @@ def create_chat_v2_router(
                     recovery_tool = "web_research"
 
                 if recovery_tool:
+                    # Keep the replan visible to the execution trace and let the
+                    # freshly selected capability determine the recovery query.
+                    selected = list(dict.fromKeys(selected + [recovery_tool]))
+                    ctx["selected_tools"] = selected
                     recovery_query = query
                     if state == "irrelevant_evidence":
                         recovery_query = f"{query} fuentes oficiales relevantes"
@@ -1432,7 +1468,7 @@ def create_chat_v2_router(
             for source in sources
             if isinstance(source, dict)
         ]
-        evidence_quality = (
+        evidence_quality_score = (
             sum(source_qualities) / len(source_qualities)
             if source_qualities else 0.0
         )
@@ -1494,7 +1530,7 @@ def create_chat_v2_router(
             "evidence_available": bool(evidence),
             "evidence_conflicts": conflict_candidates[:12],
             "evidence_source_count": evidence_source_count,
-            "evidence_quality": round(evidence_quality, 3),
+            "evidence_quality": round(evidence_quality_score, 3),
             "strong_source_count": strong_source_count,
             "max_source_relevance": round(max_source_relevance, 3),
             "relevant_source_count": relevant_source_count,
