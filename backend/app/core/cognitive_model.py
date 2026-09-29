@@ -292,6 +292,7 @@ class CognitiveModel:
 
         # Follow-up turns inherit only the relevant semantic signal from the previous user request.
         prior_request = str(context.get("last_user_request") or "").strip()
+        prior_answer = str(context.get("last_assistant_answer") or "").strip()
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
         prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
         if is_followup and prior_normalized:
@@ -325,6 +326,10 @@ class CognitiveModel:
                 entities["locations"] = prior_entities["locations"][:8]
             if not entities.get("urls") and prior_entities.get("urls"):
                 entities["urls"] = prior_entities["urls"][:8]
+            if prior_answer and any(token in text for token in ("otra", "otro", "anterior", "siguiente", "esa", "ese", "eso")):
+                option_refs = re.findall(r"(?:^|\n)\s*(?:\[?\d+\]?|[-•])\s+([^\n]{3,180})", prior_answer)
+                if option_refs:
+                    entities["prior_options"] = [item.strip() for item in option_refs[:8]]
             if not entities.get("instruments") and prior_entities.get("instruments"):
                 entities["instruments"] = prior_entities["instruments"][:8]
             reference_map = {
