@@ -25,10 +25,12 @@ class TradingSnapshot(BaseModel):
     ema_macro: float | None = None
     close: float | None = None
     previous_close: float | None = None
-    macro_slope: str | None = None
+    macro_slope: float | None = None
     htf_direction: str | None = None
     regime: str | None = None
     entry_score: float | None = None
+    score_gap: float | None = None
+    spread_atr_ratio: float | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
