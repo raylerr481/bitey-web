@@ -297,6 +297,21 @@ class CognitiveModel:
         prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
         if is_followup and prior_normalized:
             prior_scores = {domain: sum(1 for hint in hints if hint in prior_normalized) for domain, hints in self._DOMAIN_HINTS.items()}
+            # A reference such as "the other option" may carry little lexical
+            # signal itself, so use the immediately previous answer as a
+            # bounded semantic bridge. It is continuity context, never evidence.
+            reference_followup = bool(prior_answer) and any(
+                token in text for token in ("otra", "otro", "anterior", "siguiente", "esa", "ese", "eso")
+            )
+            if reference_followup:
+                prior_answer_normalized = self._normalize_for_routing(prior_answer).lower()
+                answer_scores = {
+                    domain: sum(1 for hint in hints if hint in prior_answer_normalized)
+                    for domain, hints in self._DOMAIN_HINTS.items()
+                }
+                for domain, score in answer_scores.items():
+                    if score:
+                        prior_scores[domain] = max(prior_scores.get(domain, 0), min(2, score))
             prior_top = max(prior_scores.values(), default=0)
             if max(scores.values(), default=0) == 0 or prior_top >= 2:
                 for domain, score in prior_scores.items():
