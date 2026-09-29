@@ -1324,8 +1324,87 @@ def create_chat_v2_router(
             "conflict_analysis": conflict_analysis,
         }
 
+        # Operational evidence gate: if the cognitive brain required evidence but the
+        # executed tools produced none, replan exactly once before synthesis. This makes
+        # the cognitive model an active controller rather than a declarative annotation.
+        replan_attempted = False
+        if research_required and brain_state.evidence_required and not evidence:
+            replan_attempted = True
+            emit("◉ La evidencia no fue suficiente; Bitey está replanteando la estrategia…")
+            replan_context = {
+                **ctx,
+                "evidence_available": False,
+                "evidence": "",
+                "research_required": True,
+                "replan_trigger": "insufficient_evidence",
+                "selected_tools": selected,
+                "executed_tools": executed_tools,
+            }
+            replanned_state = brain.think(query, replan_context)
+            brain_state = replanned_state
+            ctx["bitey_brain"] = brain_state.as_dict()
+            ctx["cognitive_plan"] = brain_state.plan_steps
+            ctx["replan_reason"] = "insufficient_evidence"
+            ctx["replan_attempted"] = True
+            trace.decision["replan"] = {
+                "attempted": True,
+                "reason": "insufficient_evidence",
+                "tool_priority": list(brain_state.tool_priority),
+                "stop_condition": brain_state.stop_condition,
+            }
+            recovery_tools = [
+                name for name in brain_state.tool_priority
+                if name not in selected
+                and name in {"web_research", "weather", "sbt_market"}
+            ]
+            if not recovery_tools:
+                recovery_tools = ["web_research"]
+            emit("⌕ Ejecutando una búsqueda de recuperación…")
+            recovery = await tools.execute(
+                recovery_tools[:1],
+                message=query,
+                context={
+                    **ctx,
+                    "evidence_required": True,
+                    "requires_web_research": True,
+                    "replan_recovery": True,
+                },
+            )
+            for tool_name, tool_payload in recovery.items():
+                if tool_name not in selected:
+                    selected.append(tool_name)
+                if isinstance(tool_payload, dict):
+                    extra = str(tool_payload.get("evidence") or "").strip()
+                    if extra:
+                        evidence = f"{evidence}\\n\\n{extra}".strip() if evidence else extra
+                    for item in tool_payload.get("sources") or tool_payload.get("results") or []:
+                        if not isinstance(item, dict) or not item.get("ok") or not item.get("url"):
+                            continue
+                        url = str(item.get("url")).strip()
+                        if not url or any(str(source.get("url")) == url for source in sources):
+                            continue
+                        sources.append({
+                            "url": url,
+                            "title": item.get("title") or url,
+                            "verified": True,
+                            "quality": item.get("source_quality", 0.65),
+                            "evidence": str(item.get("page_evidence") or item.get("evidence") or "")[:5000],
+                        })
+            executed_tools.extend(name for name in recovery.keys() if name not in executed_tools)
+            evidence_source_count = len(sources)
+            ctx["evidence"] = evidence
+            ctx["evidence_available"] = bool(evidence)
+            ctx["selected_tools"] = selected
+            ctx["evidence_source_count"] = evidence_source_count
+            ctx["research_failure"] = research_required and not evidence
+            if evidence:
+                emit("✓ La estrategia replanteada encontró evidencia utilizable.")
+            else:
+                emit("✓ La estrategia replanteada no encontró evidencia verificable suficiente.")
+
         plan_step("synthesize", "running")
         # Pure mathematical requests never pass through an LLM. This keeps
+        # deterministic numeric results authoritative. This keeps
         # deterministic numeric results authoritative.
         if calculations is not None and (
             mode == "math" or bool(re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query))
