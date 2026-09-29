@@ -31,7 +31,8 @@ class CognitiveContractTests(unittest.TestCase):
     def test_cognitive_reasoning_requirement_promotes_brain_depth(self):
         state = decision("¿Por qué una API REST usa HTTP?")
         self.assertTrue(state.complexity >= 0.62)
-        self.assertIn("reasoning", state.reasoning_mode)
+        self.assertTrue(state.verification_required)
+        self.assertEqual(state.model_role, "evidence_grounded_synthesis")
 
     def test_cognitive_clarification_blocks_tool_execution(self):
         cognition = CognitiveModel().process("hazlo", {}, evidence_available=False)
