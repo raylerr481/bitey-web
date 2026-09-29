@@ -161,19 +161,39 @@ class ProviderGateway:
     async def _prepare_external_free_providers(self):
         if cloud_allowed() and free_only_mode(): await self._discover_openrouter_free_models(); await self._register_external_free_providers()
     def available(self): return [p.name for p in sorted(self._providers.values(),key=lambda p:p.priority)]
-    def _order_for_role(self,providers,role):
-        preferred=self.ROLE_PREFERENCES.get(role,self.ROLE_PREFERENCES["synthesis"]); rank={name:i for i,name in enumerate(preferred)}
-        # Stable free-first cascade: Groq -> any verified OpenRouter free model
-        # -> local Ollama -> Bitey's native deterministic model.
+    def _order_for_role(self, providers, role):
+        preferred = self.ROLE_PREFERENCES.get(role, self.ROLE_PREFERENCES["synthesis"])
+        rank = {name: i for i, name in enumerate(preferred)}
+
+        # Role-aware tiers make the Brain's model decision real rather than
+        # decorative. The free policy remains absolute; this only changes the
+        # order among already-eligible providers.
+        role_priority = {
+            "strong_reasoning_synthesis": {"deepseek-free": 0, "openrouter-free-router": 0, "groq-free": 1},
+            "evidence_grounded_synthesis": {"openrouter-free-router": 0, "deepseek-free": 0, "groq-free": 1},
+            "guarded_analysis": {"deepseek-free": 0, "openrouter-free-router": 0, "groq-free": 1},
+            "code_reasoning": {"groq-free": 0, "deepseek-free": 1, "openrouter-free-router": 1},
+            "fast_synthesis": {"groq-free": 0, "openrouter-free-router": 1, "deepseek-free": 1},
+            "synthesis": {"groq-free": 0, "openrouter-free-router": 1, "deepseek-free": 1},
+        }.get(role, {})
+
         def tier(provider):
-            name=str(provider.name)
-            if name == "groq-free": return 0
-            if name == "openrouter-free-router": return 1
-            if name == "deepseek-free" or name.startswith("openrouter-free-"): return 1
-            if name == "ollama-local": return 2
-            if name == "bitey-native-cognitive-v1": return 3
-            return 4
-        return sorted(providers,key=lambda p:(tier(p),rank.get(p.name,100),p.priority))
+            name = str(provider.name)
+            if name in role_priority:
+                return role_priority[name]
+            if name.startswith("openrouter-free-") or name == "deepseek-free":
+                return 2
+            if name == "ollama-local":
+                return 3
+            if name == "bitey-native-cognitive-v1":
+                return 4
+            return 5
+
+        return sorted(
+            providers,
+            key=lambda p: (tier(p), rank.get(p.name, 100), p.priority),
+        )
+
     async def generate(self, *, messages, context):
         await self._prepare_external_free_providers()
         context["provider_attempts"]=[]
