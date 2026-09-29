@@ -66,6 +66,9 @@ class NativeReasoningModel:
         concept = re.match(r"^(?:[¿?]\s*)?(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(.+?)[?¿!¡.\s]*$", q, re.I)
         if concept:
             subject = re.sub(r"\s+", " ", concept.group(1)).strip(" ?¿!¡.")
+            # Normalize harmless articles so "qué es la NASA" and "qué es NASA"
+            # resolve to the same stable concept without broad fuzzy guessing.
+            subject = re.sub(r"^(?:la|el|los|las|un|una)\s+", "", subject, flags=re.I).strip()
             definitions = {
                 "mercado": {
                     "es": "Un mercado es un sistema o espacio donde compradores y vendedores intercambian bienes, servicios o activos y donde la oferta y la demanda ayudan a formar precios.",
@@ -101,6 +104,24 @@ class NativeReasoningModel:
             answer_set = definitions.get(subject.casefold())
             if answer_set:
                 return answer_set.get(language, answer_set["es"])
+
+            # A small set of high-confidence aliases improves typo tolerance
+            # without turning the native model into an unsafe fuzzy encyclopedia.
+            aliases = {
+                "nasa": "nasa",
+                "docker": "docker",
+                "block chain": "blockchain",
+                "bit coin": "bitcoin",
+            }
+            canonical = aliases.get(subject.casefold())
+            if canonical == "bitcoin":
+                if language == "pt":
+                    return "Bitcoin é uma moeda digital descentralizada introduzida em 2009. Funciona sobre uma rede blockchain distribuída e não é emitido por um banco central."
+                if language == "en":
+                    return "Bitcoin is a decentralized digital currency introduced in 2009. It operates on a distributed blockchain network and is not issued by a central bank."
+                return "Bitcoin es una moneda digital descentralizada introducida en 2009. Funciona sobre una red blockchain distribuida y no es emitido por un banco central."
+            if canonical and canonical in definitions:
+                return definitions[canonical].get(language, definitions[canonical]["es"])
         return ""
 
     @staticmethod
