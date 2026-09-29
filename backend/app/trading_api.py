@@ -100,7 +100,13 @@ def create_trading_router(providers: ProviderGateway) -> APIRouter:
                 context=context,
             )
             clean = sanitize_public_answer(raw)
-            data = json.loads(clean)
+            start = clean.find("{")
+            end = clean.rfind("}")
+            if start < 0 or end <= start:
+                raise ValueError("trading_provider_returned_no_json_object")
+            data = json.loads(clean[start : end + 1])
+            if not isinstance(data, dict):
+                raise ValueError("trading_provider_returned_non_object")
             action = str(data.get("action", "HOLD")).upper()
             if action not in {"BUY", "SELL", "HOLD"}:
                 action = "HOLD"
