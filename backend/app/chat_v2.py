@@ -715,6 +715,7 @@ def create_chat_v2_router(
         # gates; a temporary external-model failure must not break "hola".
         if ctx.get("intent_family") == "conversation":
             normalized_query = " ".join(query.casefold().strip().split())
+            answer = None
             if cognition._is_greeting(normalized_query):
                 if any(token in normalized_query for token in ("hello", "hi", "hey")):
                     answer = "Hello 👋. I'm Bitey IA. How can I help you?"
@@ -730,6 +731,15 @@ def create_chat_v2_router(
                     answer = "Boa noite! 👋 Sou o Bitey IA. Como posso ajudar?"
                 else:
                     answer = "¡Hola! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+            elif cognition._is_identity_request(normalized_query):
+                answer = (
+                    "Soy Bitey IA 👋, un asistente de inteligencia artificial. "
+                    "Puedo conversar, investigar en la web cuando hace falta, "
+                    "analizar información, trabajar con código y matemáticas, "
+                    "y mantener el contexto de esta conversación."
+                )
+
+            if answer is not None:
                 emit("✓ Entendí tu mensaje.")
                 emit("✓ Listo.")
                 await memory.append(cid, {"role": "user", "content": query})
@@ -781,7 +791,6 @@ def create_chat_v2_router(
         elif mode == "math":
             ctx["requested_capability"] = "calculator"
 
-        emit(_friendly_status(ctx.get("intent_family"), "route"))
         if ctx.get("intent_family") == "weather":
             locations = list((initial_cognitive.intention.get("entities") or {}).get("locations") or [])
             if locations:
