@@ -24,6 +24,7 @@ class CognitiveModel:
     """Domain-neutral structured cognition used before model routing."""
 
     _INTENT_FAMILIES = ("knowledge", "current_info", "weather", "time", "math", "programming", "file_analysis", "local_search", "comparison", "recommendation", "translation", "summarization", "planning", "creative", "research", "conversation")
+    _KNOWN_LOCATIONS = ("esteio", "porto alegre", "são leopoldo", "novo hamburgo", "canoas", "gramado", "caxias do sul", "são paulo", "rio de janeiro", "brasília", "curitiba", "florianópolis", "belo horizonte", "salvador", "lisboa", "madrid", "barcelona", "miami", "new york", "london")
 
     _DOMAIN_HINTS = {
         "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao", "tiempo"),
@@ -84,6 +85,7 @@ class CognitiveModel:
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
+        "orto": "porto", "poto": "porto",
         "tienpo": "tiempo", "timepo": "tiempo", "timepoe": "tiempo", "temppo": "tiempo", "tiemp": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
         "contiua": "continua", "contina": "continua", "continuaaa": "continua",
         "preico": "precio", "prceio": "precio", "cotizacon": "cotizacion", "accin": "accion",
@@ -216,18 +218,36 @@ class CognitiveModel:
             "answer_strategy": "direct" if family in {"conversation", "math", "time", "translation"} else "synthesize",
         }
 
-    @staticmethod
-    def _extract_entities(text: str) -> dict[str, list[str]]:
-        locations = re.findall(r"\b(?:en|in|em|cerca de|near)\s+([A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]*(?:\s+[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]*){0,3})", text, flags=re.UNICODE)
+    @classmethod
+    def _extract_entities(cls, text: str) -> dict[str, list[str]]:
+        """Extract locations even from lowercase, short, typo-prone queries."""
+        normalized = cls._normalize_for_routing(text).lower()
+        found: list[str] = []
+        for location in cls._KNOWN_LOCATIONS:
+            if re.search(r"(?<![\wÀ-ÿ])" + re.escape(location) + r"(?![\wÀ-ÿ])", normalized, re.I):
+                found.append(location)
+        contextual = re.findall(
+            r"\b(?:en|in|em|cerca de|near)\s+([A-Za-zÀ-ÿ][\wÀ-ÿ-]*(?:\s+[A-Za-zÀ-ÿ][\wÀ-ÿ-]*){0,3})",
+            normalized, flags=re.UNICODE | re.I,
+        )
+        for location in contextual:
+            cleaned = location.strip(" ,.!?").lower()
+            if cleaned and cleaned not in found:
+                found.append(cleaned)
         urls = re.findall(r"https?://[^\s]+|www\.[^\s]+", text, flags=re.I)
-        return {"locations": [x.strip(" ,.!?") for x in locations[:8]], "urls": urls[:8]}
-
+        return {"locations": found[:8], "urls": urls[:8]}
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
         weather_terms = ("tiempo", "clima", "temperatura", "weather")
         weather_temporal = any(x in text for x in weather_terms) and any(x in text for x in ("hoy", "ahora", "actual", "actualmente", "ahora mismo"))
-        weather_location_question = bool(re.search(r"\b(?:tiempo|clima|temperatura|weather)\b.*\b(?:en|in|em)\b", text))
+        weather_location_question = bool(
+            re.search(r"\b(?:tiempo|clima|temperatura|weather)\b.*\b(?:en|in|em)\b", text)
+            or (
+                any(term in text for term in weather_terms)
+                and any(re.search(r"(?<![\wÀ-ÿ])" + re.escape(location) + r"(?![\wÀ-ÿ])", text, re.I) for location in self._KNOWN_LOCATIONS)
+            )
+        )
         weather_state_question = bool(re.search(r"\b(?:como|cómo)\s+(?:esta|está)\s+(?:el\s+)?(?:tiempo|clima)\b", text))
         if weather_temporal or weather_location_question or weather_state_question:
             scores["weather"] = max(scores.get("weather", 0), 2)
