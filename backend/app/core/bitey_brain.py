@@ -134,17 +134,74 @@ class BiteyBrain:
 
     @staticmethod
     def _complexity(text: str, cognition: dict[str, Any]) -> float:
+        """Estimate task difficulty independently from provider choice."""
         perception = cognition.get("perception") or {}
         explicit = perception.get("complexity_signal")
+        low = text.casefold().strip()
+        tokens = text.split()
+
+        if perception.get("greeting") or perception.get("identity_request"):
+            return 0.08
+
         if isinstance(explicit, (int, float)):
-            base = max(0, min(1, float(explicit)))
+            base = max(0.0, min(1.0, float(explicit)))
         else:
-            base = .22 + min(.30, len(text.split()) / 180)
+            base = 0.14 + min(0.16, len(tokens) / 220)
+
         plan = cognition.get("plan") or {}
-        if plan.get("needs_evidence"): base += .12
-        if plan.get("requires_specialized_module"): base += .08
-        if any(x in text.lower() for x in (" y ", " además ", " also ", " e ", ";")): base += .05
-        return min(1, base)
+        intent = cognition.get("intention") or {}
+        family = str(intent.get("intent_family") or "knowledge").casefold()
+        domain = str(intent.get("domain") or "general").casefold()
+
+        if plan.get("needs_evidence"):
+            base += 0.18
+        if plan.get("requires_specialized_module"):
+            base += 0.12
+
+        if any(x in low for x in (
+            "investiga", "investigación", "investigacion", "research",
+            "fuentes", "evidencia", "verifica", "verificar", "contrasta",
+            "compara", "comparar", "analiza", "análisis", "analisis"
+        )):
+            base += 0.20
+
+        if any(x in low for x in (
+            "paso a paso", "cómo implementar", "como implementar",
+            "diseña", "diseñar", "arquitectura", "planifica", "planificar",
+            "estrategia", "workflow", "pipeline", "optimiza", "optimizar"
+        )):
+            base += 0.16
+
+        if any(x in low for x in (
+            "compara", "comparar", "diferencia entre", "versus", " vs ",
+            "pros y contras", "ventajas y desventajas", "alternativas"
+        )):
+            base += 0.12
+
+        if domain == "programming" or any(x in low for x in (
+            "código", "codigo", "debug", "depura", "error", "exception",
+            "traceback", "stack trace", "api", "endpoint", "backend",
+            "frontend", "python", "javascript", "typescript", "sql",
+            "docker", "github", "fastapi", "react"
+        )):
+            base += 0.18
+
+        if family in {"research", "comparison", "recommendation"}:
+            base += 0.10
+        if domain in {"programming", "research"}:
+            base += 0.08
+        if domain == "trading":
+            base += 0.06
+
+        separators = len(re.findall(r"[,;]|\s+y\s+|\s+e\s+|\s+además\s+", low))
+        base += min(0.12, separators * 0.025)
+
+        if len(tokens) >= 80:
+            base += 0.08
+        if len(tokens) >= 160:
+            base += 0.08
+
+        return max(0.0, min(1.0, base))
 
     @staticmethod
     def _capabilities(domain,evidence,freshness,complexity,context):
