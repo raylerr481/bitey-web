@@ -177,7 +177,18 @@ class ToolOrchestrator:
 
             if name == "weather" and not results[name].get("ok") and "web_research" in self._tools:
                 try:
-                    fallback = await self._tools["web_research"].handler(**kwargs)
+                    fallback_message = self.weather_fallback_query(
+                        str(kwargs.get("message") or ""),
+                        locations=list((kwargs.get("context") or {}).get("status_locations") or []),
+                    )
+                    fallback = await self._tools["web_research"].handler(
+                        message=fallback_message,
+                        context={
+                            **(kwargs.get("context") or {}),
+                            "weather_fallback": True,
+                            "weather_fallback_query": fallback_message,
+                        },
+                    )
                     if isinstance(fallback, dict):
                         fallback = dict(fallback)
                         fallback["fallback_from"] = "weather"
@@ -484,6 +495,23 @@ class ToolOrchestrator:
         }
 
     @staticmethod
+    def weather_fallback_query(message: str, locations: list[str] | None = None) -> str:
+        """Build a narrow meteorological query when the structured weather tool fails."""
+        requested = [str(item).strip() for item in (locations or []) if str(item).strip()]
+        if not requested:
+            requested = [ToolOrchestrator._weather_location(message)]
+        normalized: list[str] = []
+        for location in requested:
+            value = re.sub(r"\borto\s+alegre\b", "porto alegre", location, flags=re.I)
+            value = re.sub(r"\bbra(?:s|z)il\b", "Brasil", value, flags=re.I)
+            if value and value.casefold() not in {item.casefold() for item in normalized}:
+                normalized.append(value)
+        return " ; ".join(
+            f"weather {place} RS Brazil current conditions"
+            for place in normalized
+        ) or f"weather {message} Brazil current conditions"
+
+    @staticmethod
     def _weather_location(message: str) -> str:
         text = re.sub(r"[?!.]+", " ", message).strip()
         known = re.search(r"\b(esteio|porto alegre)\b", text, re.I)
@@ -512,49 +540,100 @@ class ToolOrchestrator:
         return mapping.get(code, "")
 
     async def _weather(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-        location_query = self._weather_location(message)
+        # Resolve every explicit known location so one request can return
+        # independently verified conditions for multiple cities.
+        context = context or {}
+        requested = [
+            str(item).strip()
+            for item in (context.get("status_locations") or [])
+            if str(item).strip()
+        ]
+        if not requested:
+            requested = re.findall(r"\b(?:esteio|porto alegre)\b", message, flags=re.I)
+        if not requested:
+            requested = [self._weather_location(message)]
+
+        locations_requested: list[str] = []
+        for value in requested:
+            normalized = re.sub(r"\borto\s+alegre\b", "porto alegre", value, flags=re.I)
+            if normalized and normalized.casefold() not in {item.casefold() for item in locations_requested}:
+                locations_requested.append(normalized)
+
+        observations: list[dict[str, Any]] = []
+        sources: list[dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=12.0) as client:
-            geo = await client.get("https://geocoding-api.open-meteo.com/v1/search", params={"name": location_query, "count": 5, "language": "pt", "format": "json"})
-            geo.raise_for_status()
-            locations = geo.json().get("results") or []
-            if not locations:
-                return {"ok": False, "available": False, "error": "location_not_found", "query": location_query}
-            location = locations[0]
-            lat, lon = location.get("latitude"), location.get("longitude")
-            weather = await client.get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code", "timezone": "auto", "forecast_days": 1})
-            weather.raise_for_status()
-            current = weather.json().get("current") or {}
-        condition = self._weather_condition(current.get("weather_code"))
-        evidence = (
-            f"WEATHER SOURCE: Open-Meteo\nLOCATION: {location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}\n"
-            f"OBSERVATION TIME: {current.get('time', 'unknown')}\nTEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\n"
-            f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\nRELATIVE HUMIDITY: {current.get('relative_humidity_2m', 'unknown')}%\n"
-            f"WIND SPEED: {current.get('wind_speed_10m', 'unknown')} km/h\nCONDITION: {condition or 'no disponible'}"
-        )
+            for location_query in locations_requested[:5]:
+                geo = await client.get(
+                    "https://geocoding-api.open-meteo.com/v1/search",
+                    params={"name": location_query, "count": 5, "language": "pt", "format": "json"},
+                )
+                geo.raise_for_status()
+                geo_locations = geo.json().get("results") or []
+                if not geo_locations:
+                    continue
+                location = geo_locations[0]
+                lat, lon = location.get("latitude"), location.get("longitude")
+                weather = await client.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude": lat,
+                        "longitude": lon,
+                        "current": "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code",
+                        "timezone": "auto",
+                        "forecast_days": 1,
+                    },
+                )
+                weather.raise_for_status()
+                current = weather.json().get("current") or {}
+                condition = self._weather_condition(current.get("weather_code"))
+                display_name = f"{location.get('name')}, {location.get('admin1') or ''}, {location.get('country') or ''}".strip(" ,")
+                evidence = (
+                    f"WEATHER SOURCE: Open-Meteo\nLOCATION: {display_name}\n"
+                    f"OBSERVATION TIME: {current.get('time', 'unknown')}\n"
+                    f"TEMPERATURE: {current.get('temperature_2m', 'unknown')} °C\n"
+                    f"APPARENT TEMPERATURE: {current.get('apparent_temperature', 'unknown')} °C\n"
+                    f"RELATIVE HUMIDITY: {current.get('relative_humidity_2m', 'unknown')}%\n"
+                    f"WIND SPEED: {current.get('wind_speed_10m', 'unknown')} km/h\n"
+                    f"CONDITION: {condition or 'no disponible'}"
+                )
+                observations.append({
+                    "name": location.get("name"),
+                    "country": location.get("country"),
+                    "admin1": location.get("admin1"),
+                    "latitude": lat,
+                    "longitude": lon,
+                    "current": current,
+                    "evidence": evidence,
+                })
+                sources.append({
+                    "ok": True,
+                    "url": "https://open-meteo.com/",
+                    "title": f"Open-Meteo — {location.get('name')} datos meteorológicos",
+                    "source_quality": 0.95,
+                    "page_evidence": evidence,
+                    "evidence_verified": True,
+                    "relevance": 1.0,
+                    "source": "open-meteo",
+                })
+
+        if not observations:
+            return {
+                "ok": False,
+                "available": False,
+                "error": "location_or_weather_unavailable",
+                "query": locations_requested,
+            }
+
+        evidence = "\n\n".join(item["evidence"] for item in observations)
         return {
             "ok": True,
             "available": True,
             "source": "open-meteo",
-            "sources": [{
-                "ok": True,
-                "url": "https://open-meteo.com/",
-                "title": "Open-Meteo — datos meteorológicos",
-                "source_quality": 0.85,
-                "page_evidence": evidence,
-                "evidence_verified": True,
-                "relevance": 1.0,
-            }],
-            "location": {
-                "name": location.get("name"),
-                "country": location.get("country"),
-                "admin1": location.get("admin1"),
-                "latitude": lat,
-                "longitude": lon,
-            },
-            "current": current,
+            "sources": sources,
+            "locations": observations,
+            "current": observations[0].get("current") if observations else {},
             "evidence": evidence,
         }
-
 
 def normalize_natural_math(text: str) -> str:
     s = text.strip().lower().replace(",", ".").rstrip("?").strip()
