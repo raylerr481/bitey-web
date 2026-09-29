@@ -104,6 +104,14 @@ class CognitiveModel:
     @classmethod
     def _normalize_for_routing(cls, text: str) -> str:
         """Correct only high-confidence typos for intent routing."""
+        # Common keyboard omission in conceptual questions. Keep this narrowly
+        # scoped so the short token "qu" is not globally rewritten.
+        text = re.sub(
+            r"\bqu\s+(?=(?:es|son|significa|funciona)\b)",
+            "qué ",
+            text,
+            flags=re.I,
+        )
         vocabulary = cls._routing_vocabulary()
         tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", text.strip(), re.UNICODE)
         normalized = []
