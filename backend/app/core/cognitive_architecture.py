@@ -113,7 +113,17 @@ class BiteyCognitiveArchitecture:
             domain, domain_score = "general", 0
 
         intent = self._intent(message, domain)
-        evidence_required = bool(context.get("research")) or domain in {"weather", "research", "health", "trading"}
+        # General conceptual/factual questions should use evidence when the
+        # native deterministic dictionary cannot guarantee coverage. This is
+        # what lets Bitey answer "qué es la NASA", "qué es Docker", or an
+        # unfamiliar concept through the normal research path instead of
+        # collapsing into the generic failure response.
+        conceptual_evidence = conceptual and not bool(context.get("conversation_only"))
+        evidence_required = (
+            bool(context.get("research"))
+            or domain in {"weather", "research", "health", "trading"}
+            or conceptual_evidence
+        )
         risk_flags: list[str] = []
         if domain == "trading" and any(token in lowered for token in ("comprar", "vender", "ejecuta", "orden", "live", "real")):
             risk_flags.append("financial_action")
