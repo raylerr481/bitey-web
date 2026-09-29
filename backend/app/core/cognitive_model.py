@@ -458,28 +458,111 @@ class CognitiveModel:
             if any(cue in lower_message for cue in ("verifica", "verificar", "contrasta", "contrastar")): steps.append("verify")
             steps.append("synthesize_answer")
 
+        # Cognitive planning is a decision layer, not a keyword-to-tool lookup.
+        # It separates objective, evidence, reasoning depth, and capabilities.
+        entities = intention.get("entities", {}) if isinstance(intention.get("entities"), dict) else {}
+        has_reference = bool(entities.get("references") or entities.get("selected_prior_result") or entities.get("prior_results"))
+        ambiguity = float(context.get("ambiguity", 0.0) or 0.0)
+        confidence = float(intention.get("intent_confidence") or intention.get("confidence") or 0.0)
+        conceptual = any(cue in lower_message for cue in self._CONCEPTUAL_CUES)
+        comparison_task = family in {"comparison", "recommendation"} or any(
+            cue in lower_message for cue in ("compara", "comparar", "mejor", "mejor opción", "mejor opcion", "alternativa", "pros y contras", "ventajas y desventajas")
+        )
+        calculation_task = family == "math" or bool(re.search(r"\d\s*[+\-*/%^=]\s*\d", lower_message))
+        programming_task = family == "programming" or any(
+            cue in lower_message for cue in ("código", "codigo", "debug", "error", "exception", "api", "endpoint", "backend", "frontend")
+        )
+        reasoning_required = bool(
+            multi_step or comparison_task or programming_task or family in {"research", "planning", "recommendation"}
+            or (not conceptual and confidence < 0.70)
+            or ambiguity >= 0.35
+        )
+
+        # Current/factual questions need evidence even when the router cannot
+        # confidently name a specialized domain.
+        generic_factual_signal = bool(re.search(
+            r"\b(?:quién|quien|dónde|donde|cuándo|cuando|cuál|cual|cuánto|cuanto|precio|valor|qué pasó|que paso|qué ocurrió|que ocurrio)\b",
+            lower_message,
+        ))
+        if generic_factual_signal and not conceptual and family not in {"conversation", "creative", "translation", "summarization"}:
+            evidence = True
+
+        if comparison_task:
+            evidence = True
+            if "retrieve_evidence" not in steps:
+                steps.insert(0, "retrieve_evidence")
+            if "analyze" not in steps:
+                steps.append("analyze")
+        if reasoning_required and "analyze" not in steps and family not in {"conversation", "translation"}:
+            steps.append("analyze")
+        if evidence and "retrieve_evidence" not in steps:
+            steps.insert(0, "retrieve_evidence")
+        if evidence and "verify" not in steps:
+            steps.append("verify")
+        if not steps and not conceptual and family not in {"conversation", "creative"}:
+            steps.append("reason_about_request")
+
+        tool_strategy: list[str] = []
+        if freshness:
+            tool_strategy.append("fresh_data")
+        if evidence:
+            tool_strategy.append("web_research")
+        if calculation_task:
+            tool_strategy.append("calculator")
+        if programming_task:
+            tool_strategy.append("code_reasoning")
+        if family == "weather":
+            tool_strategy.insert(0, "weather")
+        elif family == "time":
+            tool_strategy.insert(0, "time")
+        elif family == "local_search":
+            tool_strategy.insert(0, "local_search")
+        elif family == "file_analysis":
+            tool_strategy.insert(0, "file_context")
+        if reasoning_required:
+            tool_strategy.append("reasoning")
+        if not tool_strategy and family not in {"conversation", "creative", "translation", "summarization"}:
+            tool_strategy.append("llm_synthesis")
+
         return {
-            "objective": "retrieve_current_data_and_answer" if freshness else ("research_compare_recommend" if family in {"comparison", "recommendation"} else "answer_or_assist"),
+            "objective": "retrieve_current_data_and_answer" if freshness else ("research_compare_recommend" if comparison_task else "answer_or_assist"),
             "domain": domain,
             "intent_family": family,
-            "entities": intention.get("entities", {}),
+            "entities": entities,
             "needs_evidence": evidence,
             "freshness_required": freshness,
+            "reasoning_required": reasoning_required,
+            "ambiguity": round(max(0.0, min(1.0, ambiguity)), 3),
+            "intent_confidence": round(max(0.0, min(1.0, confidence)), 3),
+            "has_reference_context": has_reference,
+            "tool_strategy": list(dict.fromkeys(tool_strategy)),
             "requires_specialized_module": domain not in {"general", "research", "weather", "local_search", "translation", "summarization", "comparison", "recommendation", "planning", "creative", "time", "math"},
-            "verification_required": evidence or domain == "research" or multi_step,
+            "verification_required": evidence or domain == "research" or multi_step or reasoning_required,
+            "replan_if_insufficient": bool(evidence or reasoning_required),
             "multi_step": multi_step,
             "steps": list(dict.fromkeys(steps)),
-            "stop_condition": "all_planned_steps_completed_and_verified" if multi_step else ("fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence"),
+            "stop_condition": "all_planned_steps_completed_and_verified" if multi_step or reasoning_required else ("fresh_source_retrieved_and_validated" if freshness else "sufficient_confidence"),
         }
 
     def evaluate(self, state: CognitiveState, *, evidence_available: bool = False) -> CognitiveState:
         base = float(state.intention.get("confidence", 0.35))
         if state.plan.get("needs_evidence"):
             base += 0.15 if evidence_available else -0.05
-        state.evidence = {"available": evidence_available}
+        if state.plan.get("reasoning_required"):
+            base += 0.05 if state.plan.get("steps") else -0.05
+        state.evidence = {
+            "available": evidence_available,
+            "required": bool(state.plan.get("needs_evidence")),
+            "freshness_required": bool(state.plan.get("freshness_required")),
+        }
         state.confidence = max(0.0, min(1.0, base))
         state.decision = {
-            "mode": "retrieve_then_respond" if state.plan.get("needs_evidence") else "respond",
+            "mode": (
+                "retrieve_reason_verify_synthesize" if state.plan.get("needs_evidence") and state.plan.get("reasoning_required")
+                else "retrieve_then_respond" if state.plan.get("needs_evidence")
+                else "reason_then_respond" if state.plan.get("reasoning_required")
+                else "respond"
+            ),
             "domain": state.intention.get("domain", "general"),
             "intent": state.intention.get("intent", "answer_or_assist"),
             "intent_family": state.intention.get("intent_family", "knowledge"),
@@ -487,6 +570,9 @@ class CognitiveModel:
             "confidence": state.confidence,
             "evidence_required": bool(state.plan.get("needs_evidence")),
             "freshness_required": bool(state.plan.get("freshness_required")),
+            "reasoning_required": bool(state.plan.get("reasoning_required")),
+            "tool_strategy": list(state.plan.get("tool_strategy") or []),
+            "replan_if_insufficient": bool(state.plan.get("replan_if_insufficient")),
         }
         return state
 
