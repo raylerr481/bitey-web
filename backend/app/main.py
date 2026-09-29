@@ -29,7 +29,7 @@ from .core.workspace import WorkspaceStore
 from .notifications import send_trainer_test_email
 from .schemas import ConversationCreate, MessageCreate, MessageResponse
 from .workspace_api import router as workspace_router
-from .chat_v2 import create_chat_v2_router
+from .chat_v2 import create_chat_v2_router\nfrom .trading_api import create_trading_router
 
 async def _background_loop(stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
@@ -53,7 +53,7 @@ app.include_router(workspace_router)
 context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_trace = CognitiveTraceStore(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
 chat_v2_router = create_chat_v2_router(memory, providers, tools, brain, cognition, cognitive_trace=cognitive_trace, evaluator=evaluator, learning=learning)
-app.include_router(chat_v2_router)
+app.include_router(chat_v2_router)\ntrading_router = create_trading_router(providers)\napp.include_router(trading_router)
 
 modules.register(ModuleSpec("sbt", "Bitey IA integrated trading module for market intelligence, strategy and risk-aware workflows.", os.getenv("SBT_MODULE_URL"), ("trading", "market_intelligence", "strategy", "risk"), enabled=os.getenv("SBT_MODULE_ENABLED", "true").lower() != "false", metadata={"integration_type":"bitey_integrated","role":"integrated_specialized_module","owner":"bitey_ia","domain":"trading","execution_boundary":"sbt_risk_gate","live_trading":False}))
 
