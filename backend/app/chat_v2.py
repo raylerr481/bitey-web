@@ -563,7 +563,7 @@ def create_chat_v2_router(
             "found": True,
             "trace_id": trace.get("trace_id"),
             "stage": trace.get("stage", "ANALYZING"),
-            "activities": trace.get("activities", [])[-12:],
+            "activities": trace.get("activities", [])[-6:],
             "plan_steps": trace.get("decision", {}).get("plan_steps", []),
             "final_status": trace.get("final_status", "running"),
         }
@@ -588,7 +588,7 @@ def create_chat_v2_router(
             events.append(label)
             trace_store.emit(trace, label)
 
-        emit("Analizando tu solicitud…")
+        emit("◉ Entendiendo tu pregunta…")
         trace_store.set_stage(trace, "ANALYZING")
         calculations: dict[str, Any] | None = None
         sources: list[dict[str, Any]] = []
@@ -621,7 +621,7 @@ def create_chat_v2_router(
                 else None
             )
         if history:
-            emit("Recuperando contexto relevante de la conversación…")
+            emit("↻ Revisando el contexto necesario de la conversación…")
         learning_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
@@ -656,7 +656,7 @@ def create_chat_v2_router(
             except Exception:
                 adaptive_strategy_context = []
         ctx["adaptive_strategy_context"] = adaptive_strategy_context
-        emit(f"Intención cognitiva: {ctx['current_intent_domain']}…")
+        emit("✓ Entendí el tipo de solicitud…")
         brain_state = brain.think(query, ctx)
 
         # Explicit UI modes are hard user intent overrides. Auto mode remains
@@ -670,7 +670,7 @@ def create_chat_v2_router(
         elif mode == "math":
             ctx["requested_capability"] = "calculator"
 
-        emit("Enrutando la solicitud según intención y capacidades…")
+        emit("◉ Definiendo cómo resolver tu pregunta…")
         ctx["bitey_brain"] = brain_state.as_dict()
         ctx["requires_web_research"] = bool(ctx.get("requires_web_research", brain_state.evidence_required))
         ctx["evidence_required"] = bool(ctx.get("evidence_required", brain_state.evidence_required))
@@ -704,7 +704,7 @@ def create_chat_v2_router(
                 None,
             )
             if pending:
-                emit(f"Retomando la tarea activa: {pending.get('action', 'siguiente paso')}…")
+                emit("↻ Retomando el punto pendiente de la conversación…")
                 active_task["resumed_step"] = str(pending.get("id") or "")
                 active_task["resumed_action"] = str(pending.get("action") or "")
             else:
@@ -744,7 +744,7 @@ def create_chat_v2_router(
         plan_step("understand", "completed")
         if any(isinstance(step, dict) and step.get("id") == "decompose" for step in brain_state.plan_steps):
             plan_step("decompose", "running")
-            emit("Descomponiendo la tarea en pasos…")
+            emit("◉ Organizando los pasos necesarios…")
             plan_step("decompose", "completed")
         math_like = bool(re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)) or any(
             k in query.lower()
@@ -758,7 +758,7 @@ def create_chat_v2_router(
                 if re.fullmatch(r"[0-9.,\s()+\-*/%^]+", query)
                 else math_analyze(query)
             )
-            emit("Aplicando cálculo determinista…")
+            emit("◉ Calculando y comprobando el resultado…")
             trace_store.set_stage(trace, "REASONING")
 
         # Explicit research always enters the evidence gate. Auto mode follows
@@ -798,11 +798,11 @@ def create_chat_v2_router(
                     if name not in prior_tools
                 ]
                 if selected != original_selected:
-                    emit("Reutilizando capacidades ya ejecutadas compatibles…")
+                    emit("✓ Aprovechando información ya disponible cuando sigue siendo válida…")
                 if not selected and brain_state.evidence_required:
                     selected = ["web_research"]
                 elif prior_tools and not selected:
-                    emit("Reutilizando el estado de ejecución anterior…")
+                    emit("✓ Recuperando el progreso anterior…")
 
             # Explicit capability modes are hard tool-routing overrides.
             # Auto mode remains governed by the executive brain.
@@ -818,14 +818,14 @@ def create_chat_v2_router(
             ctx["selected_tools"] = selected
             trace.tools = {"selected": selected}
             if "weather" in selected:
-                emit("Consultando datos meteorológicos…")
+                emit("⌕ Consultando datos meteorológicos actuales…")
             elif "sbt_market" in selected:
-                emit("Consultando datos de mercado…")
+                emit("⌕ Consultando información de mercado actual…")
             elif "calculator" in selected:
-                emit("Aplicando cálculo determinista…")
+                emit("◉ Calculando y comprobando el resultado…")
             else:
-                emit("Buscando información en la web…")
-            emit("Recopilando información relevante…")
+                emit("⌕ Buscando información relevante…")
+            emit("⌕ Seleccionando la información más útil…")
             result = await tools.execute(
                 selected,
                 message=query,
@@ -880,7 +880,7 @@ def create_chat_v2_router(
                 and mode in {"auto", "research"}
                 and "web_research" not in selected
             ):
-                emit("La evidencia obtenida es insuficiente; realizando una búsqueda de respaldo…")
+                emit("⌕ La primera búsqueda no fue suficiente; ampliando la búsqueda…")
                 fallback_result = await tools.execute(
                     ["web_research"],
                     message=query,
@@ -927,9 +927,9 @@ def create_chat_v2_router(
                         })
 
             if sources:
-                emit(f"Encontradas {len(sources)} fuentes; verificando contenido…")
+                emit(f"✓ Encontré {len(sources)} fuente(s) relevantes; verificando su contenido…")
             else:
-                emit("La búsqueda inicial no produjo fuentes verificables.")
+                emit("⌕ No encontré evidencia suficiente en la primera búsqueda; verificando por otra vía…")
 
             # Require corroboration for general research. If discovery produced
             # too little usable evidence, run the deep-research pass instead of
@@ -975,7 +975,7 @@ def create_chat_v2_router(
             )
             if needs_second_pass:
                 plan_step("compare", "running")
-                emit("Contrastando evidencia con una segunda pasada…")
+                emit("◉ Contrastando la información con una segunda búsqueda…")
                 # Reformulate the second pass around the detected capability instead
                 # of repeating the exact failed query.
                 research_query = query
@@ -1012,11 +1012,11 @@ def create_chat_v2_router(
 
             if sources:
                 plan_step("compare", "completed")
-                emit(f"Evidencia verificada: {len(sources)} fuente(s).")
+                emit(f"✓ Información contrastada con {len(sources)} fuente(s).")
             elif any(isinstance(step, dict) and step.get("id") == "compare" for step in brain_state.plan_steps):
                 plan_step("compare", "failed")
             else:
-                emit("No se pudo verificar evidencia suficiente; no se presentará como confirmada.")
+                emit("◉ La evidencia sigue siendo limitada; mantendré la respuesta con el nivel de certeza correspondiente…")
 
         # Final relevance gate: deep-research results must satisfy the same
         # relevance boundary as the first search pass before synthesis/UI.
@@ -1075,8 +1075,8 @@ def create_chat_v2_router(
             if name not in selected and name in {"calculator", "code_reasoning", "web_research", "weather", "sbt_market"}
         ]
         if follow_up_tools:
-            emit("Reevaluando capacidades necesarias…")
-            emit("Completando la investigación con información adicional…")
+            emit("◉ Revisando si hace falta una comprobación adicional…")
+            emit("⌕ Realizando una comprobación adicional…")
             follow_up_context = {
                 **ctx,
                 "evidence": evidence,
@@ -1094,12 +1094,12 @@ def create_chat_v2_router(
                     selected.append(tool_name)
                 if tool_name == "calculator" and isinstance(tool_payload, dict) and tool_payload.get("ok"):
                     calculations = tool_payload
-                    emit("Cálculo complementario verificado…")
+                    emit("✓ Comprobación matemática completada…")
                 elif tool_name == "code_reasoning" and isinstance(tool_payload, dict):
                     extra_evidence = tool_payload.get("evidence") or tool_payload.get("analysis")
                     if extra_evidence:
                         evidence = f"{evidence}\n\n{extra_evidence}" if evidence else str(extra_evidence)
-                        emit("Análisis de código complementario completado…")
+                        emit("✓ Comprobación técnica completada…")
                 elif tool_name in {"weather", "sbt_market", "web_research"} and isinstance(tool_payload, dict):
                     extra_evidence = tool_payload.get("evidence")
                     if extra_evidence:
