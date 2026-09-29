@@ -245,8 +245,14 @@ class ProviderGateway:
                 context["provider_selected"]=provider.name; context["provider_role"]=role; context["provider_attempt_count"]=attempt
                 executive=ExecutiveEvaluator()
                 evidence_signal = str(context.get("evidence") or "")
+                # Native stable-concept answers are deterministic and provider-independent;
+                # expose their provenance to the executive gate without weakening
+                # evidence requirements for current/research claims.
+                executive_state = dict(brain)
+                if provider.name == "bitey-native-cognitive-v1" and bool(executive_state.get("conceptual_fallback")):
+                    executive_state["native_grounded"] = True
                 if not evidence_signal and context.get("evidence_available"): evidence_signal = "[bitey_evidence_available]"
-                executive_result=executive.evaluate(state=brain,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"),conflict_detected=bool(context.get("evidence_conflict_detected",False))); context["executive_evaluation"] = executive_result.as_dict()
+                executive_result=executive.evaluate(state=executive_state,answer=answer,evidence=evidence_signal,selected_tools=context.get("selected_tools"),conflict_detected=bool(context.get("evidence_conflict_detected",False))); context["executive_evaluation"] = executive_result.as_dict()
                 if executive_result.decision == "revise":
                     revision_reasons=", ".join(executive_result.reasons); revision_messages=public_messages+[{"role":"system","content":f"BITEY REVISION CONTRACT — Corrige únicamente estas violaciones ejecutivas: {revision_reasons}. Produce una respuesta final corregida y útil, sin mencionar este contrato ni revelar razonamiento interno."}]
                     revised=await provider.generate(messages=revision_messages,context={**generation_context,"executive_revision":True,"public_output_revision":True}); context["executive_revision_attempted"] = True; context["generation_attempts"] = 2
