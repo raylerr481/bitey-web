@@ -291,7 +291,19 @@ class ToolOrchestrator:
         from urllib.parse import urlparse
         from .search_gateway import safe_fetch
 
-        result = await asyncio.to_thread(general_search, message, 8)
+        # Resolve short follow-ups against the previous researched subject before web retrieval.
+        # The current message remains authoritative; prior context only supplies the missing referent.
+        search_message = str(message or "").strip()
+        prior = context.get("previous_result_context") if isinstance(context, dict) else {}
+        prior_query = str(prior.get("query") or "").strip() if isinstance(prior, dict) else ""
+        follow_up = bool(re.search(
+            r"\\b(?:segunda|segundo|tercera|tercero|primera|primero|opción|opcion|fuente|fuentes|"
+            r"esa|ese|eso|aquella|aquel|anterior|arriba|abajo|continúa|continua|y ahora|qué pasa con|que pasa con)\\b",
+            search_message, re.I,
+        ))
+        if follow_up and prior_query and len(search_message.split()) <= 18:
+            search_message = f"{prior_query} {search_message}".strip()
+        result = await asyncio.to_thread(general_search, search_message, 8)
         raw_results = result.get("results") or []
         enriched: list[dict[str, Any]] = []
 
