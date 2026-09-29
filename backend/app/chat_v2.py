@@ -209,6 +209,34 @@ def _active_conversation_state(
     }
 
 
+def _friendly_status(intent_family: str, stage: str, locations: list[str] | None = None, source_count: int = 0) -> str:
+    """Create concise, human-facing progress text from the detected request family."""
+    family = str(intent_family or "knowledge").lower()
+    locs = [str(item).strip() for item in (locations or []) if str(item).strip()]
+    labels = {
+        "weather": {
+            "understand": "◉ Entendiendo tu pregunta sobre el clima…",
+            "route": "✓ Identifiqué que preguntas por el clima…",
+            "locate": f"✓ Localizando {', '.join(locs)}…" if locs else "⌕ Localizando la ciudad…",
+            "retrieve": "⌕ Consultando datos meteorológicos actuales…",
+            "verify": "◉ Verificando las condiciones meteorológicas…",
+            "done": "✓ Datos meteorológicos verificados.",
+        },
+        "math": {"understand": "◉ Entendiendo el cálculo…", "retrieve": "◉ Calculando…", "verify": "✓ Comprobando el resultado…", "done": "✓ Cálculo comprobado."},
+        "programming": {"understand": "◉ Entendiendo lo que necesitas en el código…", "route": "✓ Identifiqué la tarea técnica…", "retrieve": "◉ Analizando el código y sus dependencias…", "verify": "✓ Comprobando la solución…", "done": "✓ Análisis técnico completado."},
+        "comparison": {"understand": "◉ Entendiendo qué quieres comparar…", "route": "✓ Identifiqué los elementos a comparar…", "retrieve": "⌕ Buscando información actual y relevante…", "verify": "◉ Contrastando las diferencias…", "done": "✓ Comparación verificada."},
+        "recommendation": {"understand": "◉ Entendiendo lo que buscas…", "route": "✓ Identifiqué los criterios de tu consulta…", "retrieve": "⌕ Buscando opciones e información actual…", "verify": "◉ Contrastando las opciones…", "done": "✓ Información contrastada."},
+        "research": {"understand": "◉ Entendiendo la investigación…", "route": "✓ Definiendo qué información necesito…", "retrieve": "⌕ Buscando fuentes relevantes…", "verify": "◉ Contrastando la información…", "done": "✓ Investigación verificada."},
+        "current_info": {"understand": "◉ Entendiendo tu pregunta…", "retrieve": "⌕ Buscando información actual…", "verify": "◉ Verificando los datos…", "done": "✓ Información actualizada y verificada."},
+        "translation": {"understand": "◉ Entendiendo el texto…", "retrieve": "◉ Preparando la traducción…", "verify": "✓ Revisando el significado y el contexto…", "done": "✓ Traducción lista."},
+        "local_search": {"understand": "◉ Entendiendo qué lugar necesitas…", "retrieve": "⌕ Buscando lugares relevantes…", "verify": "◉ Verificando la información…", "done": "✓ Información localizada y verificada."},
+        "knowledge": {"understand": "◉ Entendiendo tu pregunta…", "retrieve": "◉ Analizando la información…", "verify": "✓ Comprobando la respuesta…", "done": "✓ Respuesta comprobada."},
+        "conversation": {"understand": "◉ Entendiendo tu mensaje…", "done": "✓ Listo."},
+    }
+    stages = labels.get(family, labels["knowledge"])
+    return stages.get(stage) or stages.get("retrieve") or "◉ Procesando tu pregunta…"
+
+
 def _active_task_state(
     history: list[dict[str, Any]],
     current_query: str,
@@ -588,7 +616,7 @@ def create_chat_v2_router(
             events.append(label)
             trace_store.emit(trace, label)
 
-        emit("◉ Entendiendo tu pregunta…")
+        emit(_friendly_status(ctx.get("intent_family", "knowledge"), "understand"))
         trace_store.set_stage(trace, "ANALYZING")
         calculations: dict[str, Any] | None = None
         sources: list[dict[str, Any]] = []
@@ -644,6 +672,7 @@ def create_chat_v2_router(
         ctx["execution_policy"] = cognition.build_execution_policy(initial_cognitive.intention, query, ctx)
         ctx["current_intent_domain"] = initial_cognitive.intention.get("domain", "general")
         ctx["intent_family"] = initial_cognitive.intention.get("intent_family", "knowledge")
+        ctx["status_locations"] = list((initial_cognitive.intention.get("entities") or {}).get("locations") or [])
         adaptive_strategy_context: list[dict[str, Any]] = []
         if learning is not None:
             try:
@@ -656,7 +685,7 @@ def create_chat_v2_router(
             except Exception:
                 adaptive_strategy_context = []
         ctx["adaptive_strategy_context"] = adaptive_strategy_context
-        emit("✓ Entendí el tipo de solicitud…")
+        emit(_friendly_status(ctx.get("intent_family"), "route"))
         brain_state = brain.think(query, ctx)
 
         # Explicit UI modes are hard user intent overrides. Auto mode remains
@@ -670,7 +699,7 @@ def create_chat_v2_router(
         elif mode == "math":
             ctx["requested_capability"] = "calculator"
 
-        emit("◉ Definiendo cómo resolver tu pregunta…")
+        emit(_friendly_status(ctx.get("intent_family"), "route"))
         ctx["bitey_brain"] = brain_state.as_dict()
         ctx["requires_web_research"] = bool(ctx.get("requires_web_research", brain_state.evidence_required))
         ctx["evidence_required"] = bool(ctx.get("evidence_required", brain_state.evidence_required))
@@ -818,14 +847,14 @@ def create_chat_v2_router(
             ctx["selected_tools"] = selected
             trace.tools = {"selected": selected}
             if "weather" in selected:
-                emit("⌕ Consultando datos meteorológicos actuales…")
+                emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
             elif "sbt_market" in selected:
-                emit("⌕ Consultando información de mercado actual…")
+                emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
             elif "calculator" in selected:
                 emit("◉ Calculando y comprobando el resultado…")
             else:
-                emit("⌕ Buscando información relevante…")
-            emit("⌕ Seleccionando la información más útil…")
+                emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
+            emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
             result = await tools.execute(
                 selected,
                 message=query,
@@ -975,7 +1004,7 @@ def create_chat_v2_router(
             )
             if needs_second_pass:
                 plan_step("compare", "running")
-                emit("◉ Contrastando la información con una segunda búsqueda…")
+                emit(_friendly_status(ctx.get("intent_family"), "verify"))
                 # Reformulate the second pass around the detected capability instead
                 # of repeating the exact failed query.
                 research_query = query
@@ -1012,7 +1041,7 @@ def create_chat_v2_router(
 
             if sources:
                 plan_step("compare", "completed")
-                emit(f"✓ Información contrastada con {len(sources)} fuente(s).")
+                emit(_friendly_status(ctx.get("intent_family"), "done"))
             elif any(isinstance(step, dict) and step.get("id") == "compare" for step in brain_state.plan_steps):
                 plan_step("compare", "failed")
             else:
