@@ -106,7 +106,9 @@ class ProviderGateway:
         "synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
     }
     def __init__(self) -> None:
-        self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0; self._conversation_provider={}; self._register_from_environment()
+        self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0
+        self._conversation_provider={}; self._provider_cooldowns={}
+        self._register_from_environment()
     def register(self, provider):
         if free_only_mode() and not provider.free_only: logger.info("provider_rejected_free_only provider=%s",provider.name); return
         self._providers[provider.name]=provider
@@ -199,6 +201,8 @@ class ProviderGateway:
         if sticky and sticky.name != "bitey-native-cognitive-v1":
             ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
         max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","4")))
+        now=time.monotonic()
+        ordered=[p for p in ordered if self._provider_cooldowns.get(p.name, 0.0) <= now or p.name=="bitey-native-cognitive-v1"]
         selected_providers=ordered[:max_providers]
         if native and native not in selected_providers:
             selected_providers.append(native)
@@ -235,6 +239,13 @@ class ProviderGateway:
                 if conversation_id: self._conversation_provider[conversation_id]=provider.name
                 return answer
             except Exception as exc:
-                logger.warning("provider_generation_failed provider=%s attempt=%s error=%s",provider.name,attempt,type(exc).__name__)
+                # A transient outage must not poison the conversation's sticky
+                # provider choice. Cool down the failed provider briefly so the
+                # next request naturally starts with another eligible provider.
+                cooldown_seconds=max(15.0, float(os.getenv("AI_PROVIDER_FAILURE_COOLDOWN_SECONDS","60")))
+                self._provider_cooldowns[provider.name]=time.monotonic()+cooldown_seconds
+                if conversation_id and self._conversation_provider.get(conversation_id)==provider.name:
+                    self._conversation_provider.pop(conversation_id,None)
+                logger.warning("provider_generation_failed provider=%s attempt=%s error=%s cooldown=%ss",provider.name,attempt,type(exc).__name__,int(cooldown_seconds))
                 continue
         return "Ahora mismo no puedo completar esta consulta de forma segura. Inténtalo nuevamente en unos momentos."
