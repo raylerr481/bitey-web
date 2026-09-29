@@ -645,6 +645,11 @@ def create_chat_v2_router(
         query = payload.message.strip()
         mode = payload.mode if payload.mode in {"auto", "chat", "research", "math", "code"} else "auto"
 
+        # Keep request-local cognitive context initialized before any status
+        # emission. This prevents greeting/early-stage requests from referencing
+        # an uninitialized context when the normal pipeline is entered.
+        ctx: dict[str, Any] = {}
+
         # Absolute conversational fast path: greetings must remain available even
         # when memory, cognition, tools, or external providers are temporarily down.
         normalized_query = " ".join(query.casefold().strip().split())
