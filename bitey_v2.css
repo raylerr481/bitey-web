@@ -46,3 +46,11 @@
   .message.assistant .message-content{font-size:15px!important;line-height:1.68!important}
   .message.assistant .bitey-sources{grid-template-columns:1fr!important}
 }
+
+/* 2026-09-29: verification details stay collapsed so the answer remains primary. */
+.message.assistant .research-summary{display:block!important;overflow:hidden!important}
+.message.assistant .research-summary-title{display:flex!important;align-items:center!important;justify-content:space-between!important;cursor:pointer!important;list-style:none!important;font-weight:700!important;color:#5f7480!important}
+.message.assistant .research-summary-title::-webkit-details-marker{display:none!important}
+.message.assistant .research-summary-title::after{content:'＋';font-size:13px;opacity:.65}
+.message.assistant .research-summary[open] .research-summary-title::after{content:'−'}
+.message.assistant .research-summary-body{padding-top:6px!important}
