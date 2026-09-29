@@ -618,6 +618,8 @@ def create_chat_v2_router(
             "conversation_id": cid,
             "current_message": query,
             "request_id": request_id,
+            # Explicit continuity input for follow-up routing; current request wins.
+            "last_user_request": active_state.get("last_user_request", ""),
         }
 
         initial_cognitive = cognition.process(query, ctx, evidence_available=False)
