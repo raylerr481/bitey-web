@@ -644,6 +644,40 @@ def create_chat_v2_router(
 
         query = payload.message.strip()
         mode = payload.mode if payload.mode in {"auto", "chat", "research", "math", "code"} else "auto"
+
+        # Absolute conversational fast path: greetings must remain available even
+        # when memory, cognition, tools, or external providers are temporarily down.
+        normalized_query = " ".join(query.casefold().strip().split())
+        if cognition._is_greeting(normalized_query):
+            if any(token in normalized_query for token in ("hello", "hi", "hey")):
+                answer = "Hello 👋. I'm Bitey IA. How can I help you?"
+            elif any(token in normalized_query for token in ("buenos dias", "buenos días")):
+                answer = "¡Buenos días! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+            elif "buenas tardes" in normalized_query:
+                answer = "¡Buenas tardes! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+            elif "buenas noches" in normalized_query:
+                answer = "¡Buenas noches! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+            elif "boa tarde" in normalized_query:
+                answer = "Boa tarde! 👋 Sou o Bitey IA. Como posso ajudar?"
+            elif "boa noite" in normalized_query:
+                answer = "Boa noite! 👋 Sou o Bitey IA. Como posso ajudar?"
+            else:
+                answer = "¡Hola! 👋 Soy Bitey IA. ¿En qué puedo ayudarte?"
+            return ChatV2Response(
+                conversation_id=cid,
+                answer=answer,
+                mode="chat",
+                tools_used=[],
+                sources=[],
+                activity_events=["✓ Entendí tu mensaje.", "✓ Listo."],
+                calculations=None,
+                cognitive_plan=[],
+                trace_id="",
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                answer_validation={"valid": True, "decision": "accept", "confidence": 0.99},
+                evidence_analysis={"source_count": 0, "contradiction_count": 0, "conflict_detected": False},
+                execution_state={},
+            )
         request_id = str(payload.metadata.get("request_id") or "") or None
         trace = trace_store.start(query, cid, request_id=request_id)
         events: list[str] = []
