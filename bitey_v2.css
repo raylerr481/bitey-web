@@ -54,3 +54,13 @@
 .message.assistant .research-summary-title::after{content:'＋';font-size:13px;opacity:.65}
 .message.assistant .research-summary[open] .research-summary-title::after{content:'−'}
 .message.assistant .research-summary-body{padding-top:6px!important}
+
+/* 2026-09-29: keep verified sources secondary to the answer. */
+.message.assistant .bitey-sources{display:block!important;overflow:hidden!important}
+.message.assistant .bitey-sources-title{display:flex!important;align-items:center!important;justify-content:space-between!important;cursor:pointer!important;list-style:none!important;font-weight:700!important;color:#5f7480!important}
+.message.assistant .bitey-sources-title::-webkit-details-marker{display:none!important}
+.message.assistant .bitey-sources-title::after{content:'＋';font-size:13px;opacity:.65}
+.message.assistant .bitey-sources[open] .bitey-sources-title::after{content:'−'}
+.message.assistant .bitey-sources-list{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))!important;gap:5px!important;padding-top:6px!important}
+.message.assistant .bitey-sources-list a{min-width:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+@media(max-width:760px){.message.assistant .bitey-sources-list{grid-template-columns:1fr!important}}
