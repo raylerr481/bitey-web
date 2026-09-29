@@ -235,7 +235,8 @@ class CognitiveModel:
             if cleaned and cleaned not in found:
                 found.append(cleaned)
         urls = re.findall(r"https?://[^\s]+|www\.[^\s]+", text, flags=re.I)
-        return {"locations": found[:8], "urls": urls[:8]}
+        instruments = [match.upper() for match in cls._MARKET_INSTRUMENT_RE.findall(text)]
+        return {"locations": found[:8], "urls": urls[:8], "instruments": instruments[:8]}
     def infer_intention(self, message: str, context: dict[str, Any]) -> dict[str, Any]:
         text = self._normalize_for_routing(message).lower()
         scores = {domain: sum(1 for hint in hints if hint in text) for domain, hints in self._DOMAIN_HINTS.items()}
@@ -324,6 +325,16 @@ class CognitiveModel:
                 entities["locations"] = prior_entities["locations"][:8]
             if not entities.get("urls") and prior_entities.get("urls"):
                 entities["urls"] = prior_entities["urls"][:8]
+            if not entities.get("instruments") and prior_entities.get("instruments"):
+                entities["instruments"] = prior_entities["instruments"][:8]
+            reference_map = {
+                "allí": "location", "alli": "location", "ahí": "location", "ahi": "location",
+                "ese": "prior_entity", "esa": "prior_entity", "eso": "prior_entity",
+                "anterior": "prior_result", "siguiente": "prior_result",
+            }
+            references = [kind for token, kind in reference_map.items() if re.search(r"(?<![\wÀ-ÿ])" + re.escape(token) + r"(?![\wÀ-ÿ])", text, re.I)]
+            if references:
+                entities["references"] = list(dict.fromkeys(references))[:6]
         return {"domain": top_domain, "intent": "answer_or_assist", "intent_family": family, "intent_confidence": family_confidence, "entities": entities, "scores": scores, "confidence": min(1.0, max(confidence, family_confidence * 0.75)), "source": "structured_intent_inference"}
 
     def build_plan(self, message: str, context: dict[str, Any], intention: dict[str, Any]) -> dict[str, Any]:
