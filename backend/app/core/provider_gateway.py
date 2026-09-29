@@ -98,10 +98,13 @@ class CloudflareAIProvider:
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
     ROLE_PREFERENCES={
-        "strong_reasoning_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "code_reasoning":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "guarded_analysis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        # Routing is role-aware: simple answers favor the fastest eligible
+        # provider, while research/complex tasks favor providers that can
+        # sustain longer synthesis. All choices remain inside free-only policy.
+        "strong_reasoning_synthesis":("deepseek-free","openrouter-free-router","groq-free","ollama-local","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("openrouter-free-router","deepseek-free","groq-free","ollama-local","bitey-native-cognitive-v1"),
+        "code_reasoning":("groq-free","deepseek-free","openrouter-free-router","ollama-local","bitey-native-cognitive-v1"),
+        "guarded_analysis":("deepseek-free","openrouter-free-router","groq-free","ollama-local","bitey-native-cognitive-v1"),
         "fast_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
         "synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
     }
