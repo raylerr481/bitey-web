@@ -483,6 +483,12 @@ class CognitiveModel:
         elif family == "file_analysis":
             capabilities.append("file_context")
 
+        # Explicit URLs are a first-class retrieval capability, distinct from
+        # generic search. This lets the brain decide to inspect the supplied
+        # page rather than searching the web for it.
+        if intention.get("entities", {}).get("urls"):
+            capabilities.append("url_fetch")
+
         if family in {"comparison", "recommendation"}:
             capabilities.extend(["comparison_analysis", "decision_support"])
         if family in {"research", "current_info"} or evidence:
