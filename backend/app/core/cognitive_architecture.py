@@ -125,9 +125,15 @@ class BiteyCognitiveArchitecture:
         # what lets Bitey answer "qué es la NASA", "qué es Docker", or an
         # unfamiliar concept through the normal research path instead of
         # collapsing into the generic failure response.
-        conceptual_evidence = conceptual and not bool(context.get("conversation_only"))
+        # Stable conceptual questions are answered from model knowledge unless the
+        # user explicitly asks for current information, research, or sources.
+        # Treating every "qué es..." as a web-evidence requirement caused simple
+        # questions to enter the research/evidence failure path.
+        explicit_research = bool(context.get("research") or context.get("requires_web_research"))
+        explicit_current = any(cue in lowered for cue in cls.TEMPORAL_CUES)
+        conceptual_evidence = conceptual and (explicit_research or explicit_current)
         evidence_required = (
-            bool(context.get("research"))
+            explicit_research
             or domain in {"weather", "research", "health", "trading"}
             or conceptual_evidence
         )
