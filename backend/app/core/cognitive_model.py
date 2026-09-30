@@ -112,6 +112,22 @@ class CognitiveModel:
             text,
             flags=re.I,
         )
+        # Recover very common short keyboard/transposition errors in conceptual
+        # questions, e.g. "que e sla nasa" -> "qué es la nasa". Keep this
+        # narrowly scoped to the conceptual grammar so arbitrary text is not
+        # rewritten.
+        text = re.sub(
+            r"\b(?:que|qué)\s+e\s+sla\s+",
+            "qué es la ",
+            text,
+            flags=re.I,
+        )
+        text = re.sub(
+            r"\b(?:que|qué)\s+e\s+la\s+",
+            "qué es la ",
+            text,
+            flags=re.I,
+        )
         vocabulary = cls._routing_vocabulary()
         tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", text.strip(), re.UNICODE)
         normalized = []
