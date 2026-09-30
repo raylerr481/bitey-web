@@ -55,6 +55,8 @@ class NativeReasoningModel:
         # Recover a frequent omitted-accent/letter typo in conceptual questions
         # before deterministic fallback matching. This is intentionally narrow.
         q = re.sub(r"\bqu\s+(?=(?:es|son|significa|funciona)\b)", "qué ", q, flags=re.I)
+        q = re.sub(r"\b(?:que|qué)\s+e\s+sla\s+", "qué es la ", q, flags=re.I)
+        q = re.sub(r"\b(?:que|qué)\s+e\s+la\s+", "qué es la ", q, flags=re.I)
         language = frame.get("language") or "es"
         intent = str(frame.get("intent") or "")
         if intent == "greeting":
