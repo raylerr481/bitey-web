@@ -722,11 +722,17 @@ class ToolOrchestrator:
     @staticmethod
     def _weather_location(message: str) -> str:
         text = re.sub(r"[?!.]+", " ", message).strip()
-        known = re.search(r"\b(esteio|porto alegre)\b", text, re.I)
-        if known:
-            return known.group(1)
+
+        # Prefer explicit city names before stripping weather vocabulary.
+        known_locations = tuple(getattr(CognitiveModel, "_KNOWN_LOCATIONS", ()))
+        lowered = text.casefold()
+        for city in sorted(known_locations, key=len, reverse=True):
+            if city.casefold() in lowered:
+                return city
+
         # Recover common typing/speech variants before geocoding.
         normalized = re.sub(r"\borto\s+alegre\b", "porto alegre", text, flags=re.I)
+        normalized = re.sub(r"\btienpo\b|\btimepoe?\b|\btemppo\b", "tiempo", normalized, flags=re.I)
         normalized = re.sub(r"\bbra(?:s|z)il\b", "Brasil", normalized, flags=re.I)
         normalized = re.sub(r"\bbrasil\b", " ", normalized, flags=re.I)
         normalized = re.sub(
@@ -779,7 +785,19 @@ class ToolOrchestrator:
                 geo_locations = geo.json().get("results") or []
                 if not geo_locations:
                     continue
-                location = geo_locations[0]
+
+                # Prefer exact city matches and Brazilian results when the
+                # query is ambiguous; do not blindly trust the first result.
+                wanted = re.sub(r"\s+", " ", location_query).strip().casefold()
+                def _geo_score(item: dict[str, Any]) -> tuple[int, int, int]:
+                    name = str(item.get("name") or "").strip().casefold()
+                    country = str(item.get("country_code") or "").strip().casefold()
+                    exact = 3 if name == wanted else 0
+                    brazil = 2 if country == "br" else 0
+                    contains = 1 if wanted and (wanted in name or name in wanted) else 0
+                    return (exact, brazil, contains)
+
+                location = max(geo_locations, key=_geo_score)
                 lat, lon = location.get("latitude"), location.get("longitude")
                 weather = await client.get(
                     "https://api.open-meteo.com/v1/forecast",
