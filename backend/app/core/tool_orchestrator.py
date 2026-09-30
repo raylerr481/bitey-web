@@ -240,13 +240,54 @@ class ToolOrchestrator:
         results: dict[str, Any] = {}
         ordered_names = list(dict.fromkeys(str(name) for name in names if str(name).strip()))
 
-        for name in ordered_names:
+        executed: set[str] = set()
+        max_steps = max(1, min(int((kwargs.get("context") or {}).get("max_tool_steps", 4)), 6))
+        agent_loop = bool((kwargs.get("context") or {}).get("agent_loop"))
+
+        while ordered_names and len(executed) < max_steps:
+            name = ordered_names.pop(0)
+            if name in executed:
+                continue
             tool = self._tools.get(name)
             if not tool:
                 continue
 
             result = await self._execute_one(tool, **kwargs)
             results[name] = result
+            executed.add(name)
+
+            if agent_loop and len(executed) < max_steps:
+                # Feed the result back into cognition. The next tool is selected
+                # only when the current result is missing/failed or explicitly
+                # signals that additional evidence is needed.
+                evidence_text = str(result.get("evidence") or result.get("page_evidence") or "").strip()
+                needs_replan = (
+                    not result.get("ok")
+                    or not evidence_text
+                    or bool(result.get("needs_more_evidence"))
+                    or bool(result.get("verification_required"))
+                )
+                if needs_replan:
+                    loop_context = dict(kwargs.get("context") or {})
+                    loop_context.update({
+                        "evidence_available": bool(evidence_text),
+                        "evidence": evidence_text,
+                        "executed_tools": list(executed),
+                        "agent_loop": True,
+                        "max_tool_steps": max_steps,
+                        "replan_trigger": "tool_result_insufficient",
+                    })
+                    try:
+                        decision = self.cognitive_selection(str(kwargs.get("message") or ""), loop_context)
+                        replanned = decision.get("selected_tools") or []
+                        for candidate in replanned:
+                            if candidate not in executed and candidate not in ordered_names and candidate in self._tools:
+                                ordered_names.append(candidate)
+                        kwargs["context"] = loop_context
+                    except Exception:
+                        # Tool replanning is advisory; a failed cognitive retry
+                        # must never break the original execution path.
+                        pass
 
             if name == "weather" and not result.get("ok") and "web_research" in self._tools:
                 fallback_message = self.weather_fallback_query(
