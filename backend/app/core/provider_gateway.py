@@ -333,31 +333,18 @@ class ProviderGateway:
         preferred = self.ROLE_PREFERENCES.get(role, self.ROLE_PREFERENCES["synthesis"])
         rank = {name: i for i, name in enumerate(preferred)}
 
-        # Role-aware tiers make the Brain's model decision real rather than
-        # decorative. The free policy remains absolute; this only changes the
-        # order among already-eligible providers.
-        role_priority = {
-            "strong_reasoning_synthesis": {"deepseek-free": 0, "openrouter-free-router": 0, "groq-free": 1},
-            "evidence_grounded_synthesis": {"openrouter-free-router": 0, "deepseek-free": 0, "groq-free": 1},
-            "guarded_analysis": {"deepseek-free": 0, "openrouter-free-router": 0, "groq-free": 1},
-            "code_reasoning": {"groq-free": 0, "deepseek-free": 1, "openrouter-free-router": 1},
-            "fast_synthesis": {"groq-free": 0, "openrouter-free-router": 1, "deepseek-free": 1},
-            "synthesis": {"groq-free": 0, "openrouter-free-router": 1, "deepseek-free": 1},
-        }.get(role, {})
-
+        # Hard infrastructure tiers keep local Ollama first, then remote Ollama,
+        # then Cloudflare free, then external free gateways, then native fallback.
+        # Role preferences only refine providers inside the same tier.
         def tier(provider):
             name = str(provider.name)
-            if name in role_priority:
-                return role_priority[name]
-            if name.startswith("openrouter-free-") or name == "deepseek-free":
-                return 2
             if name == "ollama-local":
                 return 0
             if name.startswith("ollama-vps-"):
                 return 1
             if name == "cloudflare-workers-ai-free":
                 return 2
-            if name.startswith("openrouter-free-") or name == "deepseek-free" or name == "groq-free":
+            if name == "groq-free" or name.startswith("openrouter-free-") or name == "deepseek-free" or name == "huggingface-open-free":
                 return 3
             if name == "bitey-native-cognitive-v1":
                 return 4
