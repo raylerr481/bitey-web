@@ -92,6 +92,8 @@ class ToolOrchestrator:
             preferred.append("time")
         if "file_context" in capabilities or "file_analysis" in capabilities:
             preferred.append("file_context")
+        if "url_fetch" in capabilities:
+            preferred.append("url_fetch")
         if "code_reasoning" in capabilities:
             preferred.append("code_reasoning")
         return list(dict.fromkeys(name for name in preferred if name in self._tools))
@@ -130,6 +132,8 @@ class ToolOrchestrator:
             requested = ["weather"]
             if re.search(r"\b(fuente|fuentes|compara|contrasta|corrobora)\b", normalized):
                 requested.append("search")
+        elif "url_fetch" in brain.required_capabilities and "url_fetch" not in requested:
+            requested.insert(0, "url_fetch")
         elif brain.evidence_required and "search" not in requested and "web_research" not in requested:
             requested.append("search")
 
