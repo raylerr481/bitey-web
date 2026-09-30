@@ -1063,6 +1063,8 @@ def create_chat_v2_router(
                     "current_intent_domain": brain_state.task_class,
                     "evidence_required": True,
                     "requires_web_research": True,
+                    "agent_loop": True,
+                    "max_tool_steps": 4,
                 },
             )
             executed_tools.extend(name for name in result.keys() if name not in executed_tools)
