@@ -1036,21 +1036,26 @@ def create_chat_v2_router(
         # Explicit research always enters the evidence gate. Auto mode follows
         # the executive brain; chat mode remains conversational unless the
         # executive decision says fresh evidence is mandatory.
-        research_required = mode in {"research", "code"} or (
+        # Research and code are different execution contracts. Research requires
+        # external evidence; code mode requires the code-reasoning capability but
+        # must not silently turn every coding task into a web-search task.
+        research_required = mode == "research" or (
             mode == "auto" and (brain_state.evidence_required or tools.needs_web_research(query, ctx))
         )
+        tool_execution_required = research_required or mode == "code"
         if mode == "chat":
             research_required = False
+            tool_execution_required = False
         evidence_quality = {"state": "not_required", "usable": True}
         quality_replan_attempted = False
 
-        if research_required and calculations is None:
+        if tool_execution_required and calculations is None:
             plan_step("retrieve", "running")
             selection_context = {
                 **ctx,
                 "current_intent_domain": brain_state.task_class,
-                "evidence_required": True,
-                "requires_web_research": True,
+                "evidence_required": bool(research_required or brain_state.evidence_required),
+                "requires_web_research": bool(research_required),
             }
             selected = tools.select(query, selection_context)
 
@@ -1105,8 +1110,8 @@ def create_chat_v2_router(
                 context={
                     **ctx,
                     "current_intent_domain": brain_state.task_class,
-                    "evidence_required": True,
-                    "requires_web_research": True,
+                    "evidence_required": bool(research_required or brain_state.evidence_required),
+                    "requires_web_research": bool(research_required),
                     "agent_loop": True,
                     "max_tool_steps": 4,
                 },
