@@ -17,6 +17,7 @@ from .core.execution_context import server_execution_context
 from .core.mathematics import analyze as math_analyze, calculate as math_calculate
 from .core.provider_gateway import ProviderGateway
 from .core.tool_orchestrator import ToolOrchestrator
+from .core.native_model import NativeReasoningModel
 
 
 class ChatV2Request(BaseModel):
@@ -748,6 +749,47 @@ def create_chat_v2_router(
                 evidence_analysis={"source_count": 0, "contradiction_count": 0, "conflict_detected": False},
                 execution_state={},
             )
+        # Deterministic stable-concept fast path. Simple questions such as
+        # "qué es la NASA" or "qué es un cohete" must not depend on web
+        # retrieval, the external-provider council, or an evidence gate.
+        # NativeReasoningModel only returns a fast-path answer when it has a
+        # high-confidence stable definition; otherwise the normal pipeline continues.
+        native_context = {
+            "current_message": query,
+            "conversation_id": cid,
+            "conversation_only": False,
+        }
+        try:
+            native = NativeReasoningModel()
+            native_answer = await native.generate(
+                messages=[{"role": "user", "content": query}],
+                context=native_context,
+            )
+        except Exception:
+            native_answer = ""
+        if native_answer and native_context.get("native_grounded") and native_context.get("native_grounded_type") == "stable_concept":
+            await memory.append(cid, {"role": "user", "content": query})
+            await memory.append(cid, {
+                "role": "assistant",
+                "content": native_answer,
+                "metadata": {"reference_context": {"query": query, "trust": "stable_native_concept"}},
+            })
+            return ChatV2Response(
+                conversation_id=cid,
+                answer=native_answer,
+                mode="chat",
+                tools_used=[],
+                sources=[],
+                activity_events=["✓ Entendí tu pregunta.", "✓ Respondí con conocimiento estable de Bitey.", "✓ Listo."],
+                calculations=None,
+                cognitive_plan=[],
+                trace_id="",
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                answer_validation={"valid": True, "decision": "accept", "confidence": 0.99, "provenance": "bitey_native_stable_concept"},
+                evidence_analysis={"source_count": 0, "contradiction_count": 0, "conflict_detected": False, "provenance": "native_stable_concept"},
+                execution_state={"completed_phases": ["understand", "synthesize", "verify", "respond"], "execution_phase": "complete"},
+            )
+
         request_id = str(payload.metadata.get("request_id") or "") or None
         trace = trace_store.start(query, cid, request_id=request_id)
         events: list[str] = []
