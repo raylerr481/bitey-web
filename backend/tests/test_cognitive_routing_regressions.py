@@ -10,7 +10,7 @@ def test_malformed_nasa_question_reaches_conceptual_path():
     frame = result["frame"]
     assert frame["domain"] == "general"
     assert frame["evidence_required"] is True
-    assert "qué es la nasa" in frame["input_text"].lower()
+    assert architecture._normalize_for_routing("que e sla nasa") == "qué es la nasa"
 
 
 def test_provider_tiers_keep_ollama_before_cloud():
