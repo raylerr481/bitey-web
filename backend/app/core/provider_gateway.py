@@ -81,6 +81,21 @@ class OpenAICompatibleProvider:
         return str(choices[0]["message"]["content"]).strip()
 
 
+class RemoteOllamaProvider(OllamaProvider):
+    """Remote Ollama worker, used for user-owned/free-tier VPS instances.
+
+    The endpoint is deliberately configured by the user. Bitey does not assume
+    that a public free VPS exposes Ollama or that its capacity is permanent.
+    """
+
+    def __init__(self, name: str, base_url: str, priority: int) -> None:
+        super().__init__()
+        self.name = name
+        self.base_url = base_url.rstrip("/")
+        self.priority = priority
+        self.free_only = True
+
+
 class HuggingFaceFreeProvider:
     """Free-credit-only open-weight model gateway.
 
@@ -171,6 +186,12 @@ class ProviderGateway:
             if env_true("DEEPSEEK_ENABLED",True) and can_use_external_free_provider("openrouter",model=deepseek): self.register(OpenAICompatibleProvider("deepseek-free","https://openrouter.ai/api/v1",deepseek,os.getenv("OPENROUTER_API_KEY",""),70,True))
     def _register_from_environment(self):
         if env_true("OLLAMA_ENABLED",True): self.register(OllamaProvider())
+        # Remote Ollama workers are optional. Configure one or more user-owned
+        # free-tier VPS endpoints separated by commas. Local Ollama remains first.
+        if env_true("OLLAMA_REMOTE_ENABLED",True):
+            remote_urls = [item.strip().rstrip("/") for item in os.getenv("OLLAMA_REMOTE_URLS", "").split(",") if item.strip()]
+            for index, endpoint in enumerate(remote_urls, 1):
+                self.register(RemoteOllamaProvider(f"ollama-vps-{index}", endpoint, 10 + index))
         # Hugging Face is opt-in because its free credit allowance is limited.
         # It never becomes a paid route: credit exhaustion is treated as failure.
         if cloud_allowed() and free_only_mode() and env_true("HF_FREE_ENABLED", False) and os.getenv("HF_TOKEN"):
@@ -233,6 +254,8 @@ class ProviderGateway:
             if name.startswith("openrouter-free-") or name == "deepseek-free":
                 return 2
             if name == "ollama-local":
+                return 3
+            if name.startswith("ollama-vps-"):
                 return 3
             if name == "bitey-native-cognitive-v1":
                 return 4
