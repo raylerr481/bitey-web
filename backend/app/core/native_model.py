@@ -108,6 +108,16 @@ class NativeReasoningModel:
                     "pt": "Docker é uma plataforma para criar, executar e distribuir aplicações em contêineres, que empacotam a aplicação junto com suas dependências.",
                     "en": "Docker is a platform for building, running, and distributing applications in containers that package the application with its dependencies.",
                 },
+                "cohete": {
+                    "es": "Un cohete es un vehículo que genera empuje expulsando gases a gran velocidad. Puede utilizarse para transportar cargas o personas y para alcanzar grandes altitudes o el espacio.",
+                    "pt": "Um foguete é um veículo que gera impulso ao expelir gases em alta velocidade. Pode transportar cargas ou pessoas e alcançar grandes altitudes ou o espaço.",
+                    "en": "A rocket is a vehicle that produces thrust by expelling gases at high speed. It can carry payloads or people and reach high altitudes or space.",
+                },
+                "cohete espacial": {
+                    "es": "Un cohete espacial es un vehículo propulsado por reacción diseñado para transportar cargas o personas fuera de la atmósfera o hacia una trayectoria espacial.",
+                    "pt": "Um foguete espacial é um veículo propulsionado por reação projetado para transportar cargas ou pessoas para fora da atmosfera ou para uma trajetória espacial.",
+                    "en": "A space rocket is a reaction-propelled vehicle designed to carry payloads or people beyond the atmosphere or onto a space trajectory.",
+                },
             }
             answer_set = definitions.get(subject.casefold())
             if answer_set:
