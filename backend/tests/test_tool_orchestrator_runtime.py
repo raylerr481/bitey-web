@@ -44,3 +44,35 @@ def test_tool_timeout_is_bounded_and_reported():
 
     assert result["test_slow"]["ok"] is False
     assert result["test_slow"]["error"] == "tool_timeout"
+
+
+def test_agent_loop_replans_after_insufficient_tool_result():
+    orchestrator = ToolOrchestrator()
+
+    async def first(**kwargs):
+        return {"ok": True, "evidence": "", "needs_more_evidence": True}
+
+    async def second(**kwargs):
+        return {"ok": True, "evidence": "replanned evidence"}
+
+    orchestrator.register(
+        ToolSpec("test_first_loop", "test", ("test",), first, timeout_seconds=2.0, max_retries=0)
+    )
+    orchestrator.register(
+        ToolSpec("test_second_loop", "test", ("test",), second, timeout_seconds=2.0, max_retries=0)
+    )
+
+    orchestrator.cognitive_selection = lambda message, context: {
+        "selected_tools": ["test_second_loop"]
+    }
+
+    result = asyncio.run(
+        orchestrator.execute(
+            ["test_first_loop"],
+            message="test",
+            context={"agent_loop": True, "max_tool_steps": 2},
+        )
+    )
+
+    assert result["test_first_loop"]["needs_more_evidence"] is True
+    assert result["test_second_loop"]["evidence"] == "replanned evidence"
