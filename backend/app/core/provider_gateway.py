@@ -296,7 +296,10 @@ class ProviderGateway:
     def available(self): return [p.name for p in sorted(self._providers.values(),key=lambda p:p.priority)]
 
     def _health_for(self, provider_name: str) -> ProviderHealth:
-        return self._provider_health.setdefault(provider_name, ProviderHealth())
+        health_map = getattr(self, "_provider_health", None)
+        if health_map is None:
+            health_map = self._provider_health = {}
+        return health_map.setdefault(provider_name, ProviderHealth())
 
     def _record_provider_result(self, provider_name: str, *, success: bool, latency_ms: float) -> None:
         health = self._health_for(provider_name)
@@ -313,6 +316,7 @@ class ProviderGateway:
 
     def routing_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return safe telemetry for diagnostics/UI; never expose credentials."""
+        health_map = getattr(self, "_provider_health", {})
         return {
             name: {
                 "attempts": health.attempts,
@@ -322,7 +326,7 @@ class ProviderGateway:
                 "latency_ms": round(health.ewma_latency_ms, 1),
                 "score": round(health.reliability_score, 3),
             }
-            for name, health in self._provider_health.items()
+            for name, health in health_map.items()
         }
 
     def _order_for_role(self, providers, role):
