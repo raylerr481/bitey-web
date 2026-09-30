@@ -1380,11 +1380,14 @@ def create_chat_v2_router(
                 }
                 trace.decision["quality_replan"] = ctx["quality_replan"]
 
-                available_tools = {
-                    str(item.get("name"))
-                    for item in tools.available()
-                    if isinstance(item, dict) and item.get("name")
-                }
+                available_tools = set()
+                for item in tools.available():
+                    if isinstance(item, dict):
+                        name = item.get("name")
+                    else:
+                        name = item
+                    if name:
+                        available_tools.add(str(name))
                 capability_tools = {
                     "weather": "weather",
                     "time": "time",
