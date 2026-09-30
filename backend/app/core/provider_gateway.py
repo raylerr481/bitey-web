@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
@@ -182,8 +183,37 @@ class CloudflareAIProvider:
         context["cloudflare_model"] = self.model
         return str(content).strip()
 
+@dataclass
+class ProviderHealth:
+    """Runtime routing telemetry kept in-process; no provider secrets are stored."""
+    successes: int = 0
+    failures: int = 0
+    ewma_latency_ms: float = 0.0
+    last_success_at: float = 0.0
+    last_failure_at: float = 0.0
+
+    @property
+    def attempts(self) -> int:
+        return self.successes + self.failures
+
+    @property
+    def success_rate(self) -> float:
+        return self.successes / self.attempts if self.attempts else 0.5
+
+    @property
+    def reliability_score(self) -> float:
+        reliability = 0.45 + 0.55 * self.success_rate
+        latency = 1.0 if self.ewma_latency_ms <= 0 else max(0.15, min(1.0, 1200.0 / self.ewma_latency_ms))
+        return max(0.0, min(1.0, reliability * 0.7 + latency * 0.3))
+
+
 class ProviderGateway:
-    """Model execution only: Bitey decides the inference role before this layer runs."""
+    """Model execution only: Bitey decides the inference role before this layer runs.
+
+    The router is adaptive inside the free-first policy: it learns short-lived
+    health, latency and failure signals from real requests, while hard policy
+    tiers still prevent a paid provider from outranking a free/local route.
+    """
     ROLE_PREFERENCES={
         # Routing is role-aware: simple answers favor the fastest eligible
         # provider, while research/complex tasks favor providers that can
@@ -197,7 +227,7 @@ class ProviderGateway:
     }
     def __init__(self) -> None:
         self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0
-        self._conversation_provider={}; self._provider_cooldowns={}
+        self._conversation_provider={}; self._provider_cooldowns={}; self._provider_health={}; self._routing_epoch=0
         self._register_from_environment()
     def register(self, provider):
         if free_only_mode() and not provider.free_only: logger.info("provider_rejected_free_only provider=%s",provider.name); return
@@ -264,6 +294,37 @@ class ProviderGateway:
     async def _prepare_external_free_providers(self):
         if cloud_allowed() and free_only_mode(): await self._discover_openrouter_free_models(); await self._register_external_free_providers()
     def available(self): return [p.name for p in sorted(self._providers.values(),key=lambda p:p.priority)]
+
+    def _health_for(self, provider_name: str) -> ProviderHealth:
+        return self._provider_health.setdefault(provider_name, ProviderHealth())
+
+    def _record_provider_result(self, provider_name: str, *, success: bool, latency_ms: float) -> None:
+        health = self._health_for(provider_name)
+        alpha = 0.30
+        health.ewma_latency_ms = latency_ms if health.ewma_latency_ms <= 0 else alpha * latency_ms + (1 - alpha) * health.ewma_latency_ms
+        now = time.monotonic()
+        if success:
+            health.successes += 1
+            health.last_success_at = now
+        else:
+            health.failures += 1
+            health.last_failure_at = now
+        self._routing_epoch += 1
+
+    def routing_snapshot(self) -> dict[str, dict[str, Any]]:
+        """Return safe telemetry for diagnostics/UI; never expose credentials."""
+        return {
+            name: {
+                "attempts": health.attempts,
+                "successes": health.successes,
+                "failures": health.failures,
+                "success_rate": round(health.success_rate, 3),
+                "latency_ms": round(health.ewma_latency_ms, 1),
+                "score": round(health.reliability_score, 3),
+            }
+            for name, health in self._provider_health.items()
+        }
+
     def _order_for_role(self, providers, role):
         preferred = self.ROLE_PREFERENCES.get(role, self.ROLE_PREFERENCES["synthesis"])
         rank = {name: i for i, name in enumerate(preferred)}
@@ -298,14 +359,16 @@ class ProviderGateway:
                 return 4
             return 5
 
-        return sorted(
-            providers,
-            key=lambda p: (tier(p), rank.get(p.name, 100), p.priority),
-        )
+        def adaptive_key(provider):
+            health = self._health_for(provider.name)
+            return (tier(provider), -health.reliability_score, rank.get(provider.name, 100), provider.priority)
+
+        return sorted(providers, key=adaptive_key)
 
     async def generate(self, *, messages, context):
         await self._prepare_external_free_providers()
         context["provider_attempts"]=[]
+        context["provider_routing"] = self.routing_snapshot()
         # Keep the native model available as the final fallback. Real inference providers remain first.
         providers=[p for p in self._providers.values() if not free_only_mode() or p.free_only]
         if not providers: return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
@@ -344,8 +407,11 @@ class ProviderGateway:
             selected_providers.append(native)
         for attempt,provider in enumerate(selected_providers,1):
             context["provider_attempts"].append({"provider":provider.name,"attempt":attempt})
+            started = time.monotonic()
             try:
-                if not await provider.health(): continue
+                if not await provider.health():
+                    self._record_provider_result(provider.name, success=False, latency_ms=(time.monotonic() - started) * 1000)
+                    continue
                 generation_context={**context,"bitey_model_role":role}
                 public_messages=list(messages)+[{"role":"system","content":PUBLIC_OUTPUT_CONTRACT}]
                 answer=await provider.generate(messages=public_messages,context=generation_context)
@@ -378,9 +444,13 @@ class ProviderGateway:
                     # not allowed to become the public answer. Try the next
                     # provider instead of silently exposing an unverified draft.
                     continue
+                self._record_provider_result(provider.name, success=True, latency_ms=(time.monotonic() - started) * 1000)
+                context["provider_routing"] = self.routing_snapshot()
                 if conversation_id: self._conversation_provider[conversation_id]=provider.name
                 return answer
             except Exception as exc:
+                self._record_provider_result(provider.name, success=False, latency_ms=(time.monotonic() - started) * 1000)
+                context["provider_routing"] = self.routing_snapshot()
                 # A transient outage must not poison the conversation's sticky
                 # provider choice. Cool down the failed provider briefly so the
                 # next request naturally starts with another eligible provider.
