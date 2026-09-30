@@ -9,7 +9,7 @@ def test_malformed_nasa_question_reaches_conceptual_path():
     result = architecture.run("que e sla nasa", {})
     frame = result["frame"]
     assert frame["domain"] == "general"
-    assert frame["evidence_required"] is True
+    assert frame["evidence_required"] is False
     assert architecture._normalize_for_routing("que e sla nasa") == "qué es la nasa"
 
 
@@ -31,3 +31,45 @@ def test_provider_tiers_keep_ollama_before_cloud():
         "cloudflare-workers-ai-free",
         "groq-free",
     ]
+
+
+def test_simple_concept_does_not_require_web_evidence():
+    from app.core.cognitive_model import CognitiveModel
+    model = CognitiveModel()
+    state = model.process("qué es la NASA", {})
+    assert state.plan["needs_evidence"] is False
+    assert state.plan["tool_strategy"] == ["llm_synthesis"]
+
+
+def test_native_stable_concepts_are_available_without_web():
+    import asyncio
+    from app.core.native_model import NativeReasoningModel
+
+    async def run():
+        context = {}
+        answer = await NativeReasoningModel().generate(
+            messages=[{"role": "user", "content": "que e sla nasa"}],
+            context=context,
+        )
+        return answer, context
+
+    answer, context = asyncio.run(run())
+    assert "NASA" in answer
+    assert context["native_grounded_type"] == "stable_concept"
+
+
+def test_native_rocket_definition_is_available_without_web():
+    import asyncio
+    from app.core.native_model import NativeReasoningModel
+
+    async def run():
+        context = {}
+        answer = await NativeReasoningModel().generate(
+            messages=[{"role": "user", "content": "que es un cohete"}],
+            context=context,
+        )
+        return answer, context
+
+    answer, context = asyncio.run(run())
+    assert "cohete" in answer.lower() or "cohete espacial" in answer.lower()
+    assert context["native_grounded_type"] == "stable_concept"
