@@ -4,6 +4,7 @@ from ast import Expression, Constant, BinOp, UnaryOp, Add, Sub, Mult, Div, Pow, 
 from dataclasses import dataclass
 import os
 import re
+import asyncio
 from typing import Any, Awaitable, Callable
 from datetime import datetime
 from urllib.parse import urlparse
@@ -22,6 +23,9 @@ class ToolSpec:
     description: str
     capabilities: tuple[str, ...]
     handler: Callable[..., Awaitable[dict[str, Any]]]
+    timeout_seconds: float = 20.0
+    max_retries: int = 1
+    retry_backoff_seconds: float = 0.35
 
 
 class ToolOrchestrator:
@@ -187,73 +191,98 @@ class ToolOrchestrator:
     def select(self, message: str, context: dict[str, Any] | None = None) -> list[str]:
         return self.cognitive_selection(message, context)["selected_tools"]
 
+    async def _execute_one(self, tool: ToolSpec, **kwargs: Any) -> dict[str, Any]:
+        """Execute one tool with bounded timeout/retry and normalized provenance."""
+        attempts = max(1, min(int(tool.max_retries) + 1, 3))
+        last_error = "tool_execution_failed"
+        for attempt in range(1, attempts + 1):
+            started = datetime.now().isoformat()
+            try:
+                payload = await asyncio.wait_for(
+                    tool.handler(**kwargs),
+                    timeout=max(1.0, float(tool.timeout_seconds)),
+                )
+                if not isinstance(payload, dict):
+                    payload = {"ok": True, "value": payload}
+                result = dict(payload)
+                result.setdefault("ok", True)
+                result["tool"] = tool.name
+                result["capabilities"] = list(tool.capabilities)
+                result["execution"] = {
+                    "attempt": attempt,
+                    "max_attempts": attempts,
+                    "started_at": started,
+                    "timeout_seconds": float(tool.timeout_seconds),
+                    "retry": attempt > 1,
+                }
+                return result
+            except asyncio.TimeoutError:
+                last_error = "tool_timeout"
+            except Exception as exc:
+                last_error = type(exc).__name__
+            if attempt < attempts:
+                await asyncio.sleep(max(0.0, float(tool.retry_backoff_seconds)) * attempt)
+
+        return {
+            "ok": False,
+            "tool": tool.name,
+            "capabilities": list(tool.capabilities),
+            "error": last_error,
+            "execution": {
+                "attempt": attempts,
+                "max_attempts": attempts,
+                "timeout_seconds": float(tool.timeout_seconds),
+            },
+        }
+
     async def execute(self, names: list[str], **kwargs: Any) -> dict[str, Any]:
+        """Execute a bounded multi-tool plan while preserving provenance."""
         results: dict[str, Any] = {}
-        for name in names:
+        ordered_names = list(dict.fromkeys(str(name) for name in names if str(name).strip()))
+
+        for name in ordered_names:
             tool = self._tools.get(name)
             if not tool:
                 continue
-            try:
-                results[name] = await tool.handler(**kwargs)
-            except Exception as exc:
-                results[name] = {"ok": False, "error": type(exc).__name__}
 
-            if name == "weather" and not results[name].get("ok") and "web_research" in self._tools:
-                try:
-                    fallback_message = self.weather_fallback_query(
-                        str(kwargs.get("message") or ""),
-                        locations=list((kwargs.get("context") or {}).get("status_locations") or []),
-                    )
-                    fallback = await self._tools["web_research"].handler(
-                        message=fallback_message,
-                        context={
-                            **(kwargs.get("context") or {}),
-                            "weather_fallback": True,
-                            "weather_fallback_query": fallback_message,
-                        },
-                    )
-                    if isinstance(fallback, dict):
-                        fallback = dict(fallback)
-                        fallback["fallback_from"] = "weather"
-                        fallback["specialized_tool_error"] = results[name].get("error") or results[name].get("reason")
-                    results["web_research"] = fallback
-                except Exception as fallback_exc:
-                    results["web_research"] = {"ok": False, "error": type(fallback_exc).__name__, "fallback_from": "weather", "specialized_tool_error": results[name].get("error") or results[name].get("reason")}
+            result = await self._execute_one(tool, **kwargs)
+            results[name] = result
 
-        # Preserve each tool's full result, especially web-research provenance,
-        # conflict metadata, verified-source counts, and raw discovery results.
-        # Older code rebuilt a synthetic "web_research" result here and silently
-        # discarded those fields, which caused the main research loop to lose
-        # source-count and conflict information.
+            if name == "weather" and not result.get("ok") and "web_research" in self._tools:
+                fallback_message = self.weather_fallback_query(
+                    str(kwargs.get("message") or ""),
+                    locations=list((kwargs.get("context") or {}).get("status_locations") or []),
+                )
+                fallback = await self._execute_one(
+                    self._tools["web_research"],
+                    message=fallback_message,
+                    context={
+                        **(kwargs.get("context") or {}),
+                        "weather_fallback": True,
+                        "weather_fallback_query": fallback_message,
+                    },
+                )
+                fallback["fallback_from"] = "weather"
+                fallback["specialized_tool_error"] = result.get("error") or result.get("reason")
+                results["web_research"] = fallback
+
         if "web_research" not in results and "search" in results:
             results["web_research"] = results["search"]
 
         # A failed specialized capability gets one bounded compatible fallback.
-        # Never expose provider/tool exceptions to the user-facing answer layer.
         for name, payload in list(results.items()):
-            if isinstance(payload, dict) and not payload.get("ok"):
-                fallback_name = None
-                if name == "calculator":
-                    fallback_name = "web_research"
-                elif name == "sbt_market":
-                    fallback_name = "web_research"
-                if fallback_name and fallback_name not in results and fallback_name in self._tools:
-                    try:
-                        fallback = await self._tools[fallback_name].handler(**kwargs)
-                        if isinstance(fallback, dict):
-                            fallback = dict(fallback)
-                            fallback["fallback_from"] = name
-                            fallback["specialized_tool_error"] = payload.get("error") or payload.get("reason")
-                        results[fallback_name] = fallback
-                    except Exception as fallback_exc:
-                        results[fallback_name] = {
-                            "ok": False,
-                            "error": type(fallback_exc).__name__,
-                            "fallback_from": name,
-                        }
+            if not isinstance(payload, dict) or payload.get("ok"):
+                continue
+            fallback_name = None
+            if name in {"calculator", "sbt_market"}:
+                fallback_name = "web_research"
+            if fallback_name and fallback_name not in results and fallback_name in self._tools:
+                fallback = await self._execute_one(self._tools[fallback_name], **kwargs)
+                fallback["fallback_from"] = name
+                fallback["specialized_tool_error"] = payload.get("error") or payload.get("reason")
+                results[fallback_name] = fallback
 
         return results
-
 
     async def _time(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return deterministic current time for an explicitly named/common location."""
