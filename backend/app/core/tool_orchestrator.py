@@ -243,6 +243,12 @@ class ToolOrchestrator:
         executed: set[str] = set()
         max_steps = max(1, min(int((kwargs.get("context") or {}).get("max_tool_steps", 4)), 6))
         agent_loop = bool((kwargs.get("context") or {}).get("agent_loop"))
+        loop_context = dict(kwargs.get("context") or {})
+        verification_required = bool(loop_context.get("verification_required") or loop_context.get("evidence_required"))
+        verification_completed = bool(loop_context.get("verification_completed"))
+        replans = 0
+        stop_reason = "no_tools_selected"
+        objective_complete = False
 
         while ordered_names and len(executed) < max_steps:
             name = ordered_names.pop(0)
@@ -252,9 +258,18 @@ class ToolOrchestrator:
             if not tool:
                 continue
 
+            kwargs["context"] = loop_context
             result = await self._execute_one(tool, **kwargs)
             results[name] = result
             executed.add(name)
+
+            evidence_text = str(result.get("evidence") or result.get("page_evidence") or "").strip()
+            if result.get("ok") and evidence_text:
+                loop_context["evidence_available"] = True
+                loop_context["evidence"] = evidence_text
+            if result.get("ok") and result.get("evidence_verified") is True:
+                verification_completed = True
+                loop_context["verification_completed"] = True
 
             if agent_loop and len(executed) < max_steps:
                 # Feed the result back into cognition. The next tool is selected
@@ -263,11 +278,17 @@ class ToolOrchestrator:
                 evidence_text = str(result.get("evidence") or result.get("page_evidence") or "").strip()
                 needs_replan = (
                     not result.get("ok")
-                    or not evidence_text
                     or bool(result.get("needs_more_evidence"))
                     or bool(result.get("verification_required"))
+                    or (verification_required and not verification_completed and bool(evidence_text))
                 )
-                if needs_replan:
+                # A successful, verified evidence result satisfies an evidence gate.
+                # Do not keep calling tools merely because the generic agent loop is enabled.
+                if verification_required and result.get("ok") and evidence_text and verification_completed:
+                    ordered_names = []
+                    objective_complete = True
+                    stop_reason = "verified_objective_complete"
+                elif needs_replan:
                     loop_context = dict(kwargs.get("context") or {})
                     loop_context.update({
                         "evidence_available": bool(evidence_text),
@@ -278,6 +299,7 @@ class ToolOrchestrator:
                         "replan_trigger": "tool_result_insufficient",
                     })
                     try:
+                        replans += 1
                         decision = self.cognitive_selection(str(kwargs.get("message") or ""), loop_context)
                         replanned = decision.get("selected_tools") or []
                         for candidate in replanned:
@@ -307,6 +329,13 @@ class ToolOrchestrator:
                 fallback["specialized_tool_error"] = result.get("error") or result.get("reason")
                 results["web_research"] = fallback
 
+        if objective_complete:
+            stop_reason = stop_reason or "verified_objective_complete"
+        elif len(executed) >= max_steps:
+            stop_reason = "max_tool_steps_reached"
+        elif not ordered_names:
+            stop_reason = "no_additional_tools_selected"
+
         if "web_research" not in results and "search" in results:
             results["web_research"] = results["search"]
 
@@ -322,7 +351,18 @@ class ToolOrchestrator:
                 fallback["fallback_from"] = name
                 fallback["specialized_tool_error"] = payload.get("error") or payload.get("reason")
                 results[fallback_name] = fallback
+                executed.add(fallback_name)
 
+        results["_agent_loop"] = {
+            "enabled": agent_loop,
+            "objective_complete": objective_complete,
+            "stop_reason": stop_reason,
+            "steps": len(executed),
+            "replans": replans,
+            "verification_required": verification_required,
+            "verification_completed": verification_completed,
+            "executed_tools": list(executed),
+        }
         return results
 
     async def _time(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
