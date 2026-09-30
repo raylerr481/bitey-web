@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -40,15 +41,16 @@ def _endpoint(cognition):
     return route.endpoint
 
 
-@pytest.mark.asyncio
-async def test_chat_v2_internal_failure_returns_safe_response():
-    endpoint = _endpoint(_ExplodingCognition())
-    payload = ChatV2Request(
-        conversation_id="00000000-0000-0000-0000-000000000001",
-        message="qué es la NASA",
-    )
+def test_chat_v2_internal_failure_returns_safe_response():
+    async def run():
+        endpoint = _endpoint(_ExplodingCognition())
+        payload = ChatV2Request(
+            conversation_id="00000000-0000-0000-0000-000000000001",
+            message="qué es la NASA",
+        )
+        return await endpoint(payload)
 
-    response = await endpoint(payload)
+    response = asyncio.run(run())
 
     assert isinstance(response, ChatV2Response)
     assert response.answer_validation["decision"] == "recoverable_error"
@@ -59,15 +61,16 @@ async def test_chat_v2_internal_failure_returns_safe_response():
     assert response.sources == []
 
 
-@pytest.mark.asyncio
-async def test_chat_v2_greeting_stays_available_without_external_provider():
-    endpoint = _endpoint(_StableCognition())
-    payload = ChatV2Request(
-        conversation_id="00000000-0000-0000-0000-000000000001",
-        message="hola",
-    )
+def test_chat_v2_greeting_stays_available_without_external_provider():
+    async def run():
+        endpoint = _endpoint(_StableCognition())
+        payload = ChatV2Request(
+            conversation_id="00000000-0000-0000-0000-000000000001",
+            message="hola",
+        )
+        return await endpoint(payload)
 
-    response = await endpoint(payload)
+    response = asyncio.run(run())
 
     assert response.answer.startswith("¡Hola!")
     assert response.mode == "chat"
