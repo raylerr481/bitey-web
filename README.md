@@ -197,3 +197,18 @@ Configure remote workers with OLLAMA_REMOTE_ENABLED=true and OLLAMA_REMOTE_URLS=
 Each remote endpoint must expose the standard Ollama API (/api/tags and /api/chat). Bitey health-checks each worker and automatically skips unavailable workers. Remote workers are inference workers only and are never treated as evidence sources.
 
 The pool is provider-agnostic so free infrastructure can be changed without modifying the cognitive architecture. Oracle Cloud Always Free is one deployment target; other providers can be added by exposing the same Ollama API. Free-tier availability and limits must be verified before provisioning.
+
+
+## Cloudflare Workers AI free route
+
+Bitey IA can optionally use Cloudflare Workers AI as a free inference worker. Cloudflare currently provides a daily free Workers AI allocation measured in Neurons; this is separate from the Workers Free request quota. Bitey keeps this route opt-in and free-only.
+
+Enable with:
+- `CLOUDFLARE_AI_FREE_ENABLED=true`
+- `CLOUDFLARE_ACCOUNT_ID=<account-id>`
+- `CLOUDFLARE_API_TOKEN=<server-side-token>`
+- `CLOUDFLARE_AI_FREE_MODEL=@cf/zai-org/glm-4.7-flash`
+
+The free-only allowlist currently includes `@cf/zai-org/glm-4.7-flash`, `@cf/google/gemma-4-26b-a4b-it`, and `@cf/nvidia/nemotron-3-120b`. If the provider returns a free-limit/model-unavailable response, Bitey automatically fails over to the next eligible provider. Cloudflare credentials remain server-side.
+
+This route does not enable a paid Cloudflare plan and does not treat the 100,000/day Workers request quota as 100,000 free AI inferences.
