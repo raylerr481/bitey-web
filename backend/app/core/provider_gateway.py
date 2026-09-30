@@ -142,18 +142,45 @@ class HuggingFaceFreeProvider:
 
 
 class CloudflareAIProvider:
-    def __init__(self, model: str, account_id: str, api_token: str, priority: int) -> None:
-        self.name="cloudflare-paid-or-plan-dependent"; self.model=model; self.account_id=account_id.strip(); self.api_token=api_token.strip(); self.priority=priority; self.free_only=False
-    async def health(self) -> bool: return bool(self.account_id and self.api_token)
-    async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
-        if not await self.health(): raise RuntimeError("provider_not_configured")
-        prompt="\n".join(f"{m['role']}: {m['content']}" for m in messages)
-        url=f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
-        headers={"Authorization":f"Bearer {self.api_token}","Content-Type":"application/json"}
-        async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT","45"))) as client:
-            response=await client.post(url,headers=headers,json={"messages":messages,"prompt":prompt}); response.raise_for_status(); data=response.json()
-        result=data.get("result") or {}; return str(result.get("response") or result.get("text") or "").strip()
+    """Cloudflare Workers AI provider with an explicit free-only mode."""
+    FREE_MODELS = {
+        "@cf/zai-org/glm-4.7-flash",
+        "@cf/google/gemma-4-26b-a4b-it",
+        "@cf/nvidia/nemotron-3-120b",
+    }
 
+    def __init__(self, model: str, account_id: str, api_token: str, priority: int, free_only: bool = True) -> None:
+        self.name = "cloudflare-workers-ai-free" if free_only else "cloudflare-paid-or-plan-dependent"
+        self.model = model.strip()
+        self.account_id = account_id.strip()
+        self.api_token = api_token.strip()
+        self.priority = priority
+        self.free_only = free_only
+
+    async def health(self) -> bool:
+        if not (self.account_id and self.api_token and self.model):
+            return False
+        if self.free_only and self.model not in self.FREE_MODELS:
+            return False
+        return True
+
+    async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
+        if not await self.health():
+            raise RuntimeError("provider_not_configured")
+        url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/ai/run/{self.model}"
+        headers = {"Authorization": f"Bearer {self.api_token}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT","45"))) as client:
+            response = await client.post(url, headers=headers, json={"messages": messages})
+            if response.status_code in {402, 403, 429}:
+                raise RuntimeError("cloudflare_free_limit_or_model_unavailable")
+            response.raise_for_status()
+            data = response.json()
+        result = data.get("result") or {}
+        content = result.get("response") or result.get("text") or result.get("content") or ""
+        if not content:
+            raise RuntimeError("empty_response")
+        context["cloudflare_model"] = self.model
+        return str(content).strip()
 
 class ProviderGateway:
     """Model execution only: Bitey decides the inference role before this layer runs."""
@@ -161,12 +188,12 @@ class ProviderGateway:
         # Routing is role-aware: simple answers favor the fastest eligible
         # provider, while research/complex tasks favor providers that can
         # sustain longer synthesis. All choices remain inside free-only policy.
-        "strong_reasoning_synthesis":("deepseek-free","openrouter-free-router","groq-free","ollama-local","bitey-native-cognitive-v1"),
-        "evidence_grounded_synthesis":("openrouter-free-router","deepseek-free","groq-free","ollama-local","bitey-native-cognitive-v1"),
-        "code_reasoning":("groq-free","deepseek-free","openrouter-free-router","ollama-local","bitey-native-cognitive-v1"),
-        "guarded_analysis":("deepseek-free","openrouter-free-router","groq-free","ollama-local","bitey-native-cognitive-v1"),
-        "fast_synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
-        "synthesis":("groq-free","openrouter-free-router","deepseek-free","ollama-local","bitey-native-cognitive-v1"),
+        "strong_reasoning_synthesis":("ollama-local","ollama-vps-1","cloudflare-workers-ai-free","deepseek-free","openrouter-free-router","groq-free","bitey-native-cognitive-v1"),
+        "evidence_grounded_synthesis":("ollama-local","ollama-vps-1","cloudflare-workers-ai-free","groq-free","openrouter-free-router","deepseek-free","bitey-native-cognitive-v1"),
+        "code_reasoning":("ollama-local","ollama-vps-1","cloudflare-workers-ai-free","groq-free","deepseek-free","openrouter-free-router","bitey-native-cognitive-v1"),
+        "guarded_analysis":("ollama-local","ollama-vps-1","cloudflare-workers-ai-free","deepseek-free","openrouter-free-router","groq-free","bitey-native-cognitive-v1"),
+        "fast_synthesis":("ollama-local","ollama-vps-1","cloudflare-workers-ai-free","groq-free","openrouter-free-router","deepseek-free","bitey-native-cognitive-v1"),
+        "synthesis":("ollama-local","ollama-vps-1","cloudflare-workers-ai-free","groq-free","openrouter-free-router","deepseek-free","bitey-native-cognitive-v1"),
     }
     def __init__(self) -> None:
         self._providers={}; self._openrouter_catalog_loaded=False; self._openrouter_catalog_loaded_at=0.0
@@ -201,9 +228,15 @@ class ProviderGateway:
         if env_true("GEMMA_4_12B_ENABLED",False):
             endpoint=os.getenv("GEMMA_4_12B_ENDPOINT","http://127.0.0.1:50305/v1")
             self.register(OpenAICompatibleProvider("gemma-4-12b-local",endpoint,os.getenv("GEMMA_4_12B_MODEL","google/gemma-4-12B-it"),os.getenv("GEMMA_4_12B_API_KEY",""),int(os.getenv("GEMMA_4_12B_PRIORITY","3")),endpoint.startswith("http://127.0.0.1") or endpoint.startswith("http://localhost")))
+        if cloud_allowed() and free_only_mode() and env_true("CLOUDFLARE_AI_FREE_ENABLED",False):
+            account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID",""); token=os.getenv("CLOUDFLARE_API_TOKEN","")
+            model=os.getenv("CLOUDFLARE_AI_FREE_MODEL","@cf/zai-org/glm-4.7-flash")
+            if account_id and token:
+                self.register(CloudflareAIProvider(model,account_id,token,int(os.getenv("CLOUDFLARE_AI_FREE_PRIORITY","40")),True))
         if cloud_allowed() and not free_only_mode() and env_true("CLOUDFLARE_AI_ENABLED",True):
             account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID",""); token=os.getenv("CLOUDFLARE_API_TOKEN","")
-            if account_id and token: self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL","@cf/qwen/qwen3-0.6b"),account_id,token,int(os.getenv("CLOUDFLARE_PRIORITY","80"))))
+            if account_id and token:
+                self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL","@cf/glm-4.7-flash"),account_id,token,int(os.getenv("CLOUDFLARE_PRIORITY","80")),False))
     @staticmethod
     def _is_free_model_id(model_id): return openrouter_model_is_free(model_id)
     @staticmethod
@@ -254,8 +287,12 @@ class ProviderGateway:
             if name.startswith("openrouter-free-") or name == "deepseek-free":
                 return 2
             if name == "ollama-local":
-                return 3
+                return 0
             if name.startswith("ollama-vps-"):
+                return 1
+            if name == "cloudflare-workers-ai-free":
+                return 2
+            if name.startswith("openrouter-free-") or name == "deepseek-free" or name == "groq-free":
                 return 3
             if name == "bitey-native-cognitive-v1":
                 return 4
