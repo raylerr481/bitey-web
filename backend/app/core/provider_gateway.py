@@ -236,7 +236,7 @@ class ProviderGateway:
         if cloud_allowed() and not free_only_mode() and env_true("CLOUDFLARE_AI_ENABLED",True):
             account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID",""); token=os.getenv("CLOUDFLARE_API_TOKEN","")
             if account_id and token:
-                self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL","@cf/glm-4.7-flash"),account_id,token,int(os.getenv("CLOUDFLARE_PRIORITY","80")),False))
+                self.register(CloudflareAIProvider(os.getenv("CLOUDFLARE_AI_MODEL","@cf/zai-org/glm-4.7-flash"),account_id,token,int(os.getenv("CLOUDFLARE_PRIORITY","80")),False))
     @staticmethod
     def _is_free_model_id(model_id): return openrouter_model_is_free(model_id)
     @staticmethod
