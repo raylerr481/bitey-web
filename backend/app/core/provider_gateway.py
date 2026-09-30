@@ -270,8 +270,12 @@ class ProviderGateway:
         # one is healthy. The native model remains the final deterministic fallback.
         sticky_name=self._conversation_provider.get(conversation_id) if conversation_id else None
         sticky=next((p for p in ordered if p.name==sticky_name),None) if sticky_name else None
-        if sticky and sticky.name != "bitey-native-cognitive-v1":
-            ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
+        # Local Ollama always wins while healthy. A historical cloud sticky
+        # choice must never override the user's zero-cost/local-first policy.
+        if sticky and sticky.name not in {"bitey-native-cognitive-v1", "ollama-local"}:
+            ollama = next((p for p in ordered if p.name == "ollama-local"), None)
+            if ollama is None:
+                ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
         max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","4")))
         now=time.monotonic()
         ordered=[p for p in ordered if self._provider_cooldowns.get(p.name, 0.0) <= now or p.name=="bitey-native-cognitive-v1"]
