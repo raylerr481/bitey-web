@@ -81,6 +81,51 @@ class OpenAICompatibleProvider:
         return str(choices[0]["message"]["content"]).strip()
 
 
+class HuggingFaceFreeProvider:
+    """Free-credit-only open-weight model gateway.
+
+    Hugging Face routed inference has a small free monthly credit allowance.
+    Bitey never enables pay-as-you-go from this provider: HTTP 402/credit
+    exhaustion is treated as provider unavailable and the gateway falls back.
+    """
+
+    name = "huggingface-open-free"
+    priority = 80
+    free_only = True
+
+    def __init__(self) -> None:
+        self.endpoint = os.getenv("HF_BASE_URL", "https://router.huggingface.co/v1").rstrip("/")
+        self.api_key = os.getenv("HF_TOKEN", "").strip()
+        self.model = os.getenv("HF_MODEL", "openai/gpt-oss-20b:fastest").strip()
+        self.timeout = float(os.getenv("HF_TIMEOUT", os.getenv("AI_REQUEST_TIMEOUT", "45")))
+
+    async def health(self) -> bool:
+        return bool(self.api_key)
+
+    async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
+        if not await self.health():
+            raise RuntimeError("provider_not_configured")
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": int(os.getenv("AI_MAX_OUTPUT_TOKENS", "1200")),
+        }
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(f"{self.endpoint}/chat/completions", headers=headers, json=payload)
+            if response.status_code in {402, 429}:
+                raise RuntimeError("huggingface_free_credit_unavailable")
+            response.raise_for_status()
+            data = response.json()
+        choices = data.get("choices") or []
+        content = choices[0].get("message", {}).get("content") if choices else None
+        if not content:
+            raise RuntimeError("empty_response")
+        context["huggingface_model"] = self.model
+        return str(content).strip()
+
+
 class CloudflareAIProvider:
     def __init__(self, model: str, account_id: str, api_token: str, priority: int) -> None:
         self.name="cloudflare-paid-or-plan-dependent"; self.model=model; self.account_id=account_id.strip(); self.api_token=api_token.strip(); self.priority=priority; self.free_only=False
@@ -126,6 +171,10 @@ class ProviderGateway:
             if env_true("DEEPSEEK_ENABLED",True) and can_use_external_free_provider("openrouter",model=deepseek): self.register(OpenAICompatibleProvider("deepseek-free","https://openrouter.ai/api/v1",deepseek,os.getenv("OPENROUTER_API_KEY",""),70,True))
     def _register_from_environment(self):
         if env_true("OLLAMA_ENABLED",True): self.register(OllamaProvider())
+        # Hugging Face is opt-in because its free credit allowance is limited.
+        # It never becomes a paid route: credit exhaustion is treated as failure.
+        if cloud_allowed() and free_only_mode() and env_true("HF_FREE_ENABLED", False) and os.getenv("HF_TOKEN"):
+            self.register(HuggingFaceFreeProvider())
         if env_true("BITEY_NATIVE_MODEL_ENABLED",True):
             native=NativeReasoningModel(); native.priority=2; self.register(native)
         if env_true("GEMMA_4_12B_ENABLED",False):
