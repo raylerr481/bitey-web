@@ -767,7 +767,10 @@ def create_chat_v2_router(
             )
         except Exception:
             native_answer = ""
-        if native_answer and native_context.get("native_grounded") and native_context.get("native_grounded_type") == "stable_concept":
+        # Explicit research mode must never be short-circuited by a local
+        # definition. Auto/chat may use the deterministic stable-concept path;
+        # research mode must retrieve and verify current/primary evidence.
+        if mode in {"auto", "chat"} and native_answer and native_context.get("native_grounded") and native_context.get("native_grounded_type") == "stable_concept":
             await memory.append(cid, {"role": "user", "content": query})
             await memory.append(cid, {
                 "role": "assistant",
