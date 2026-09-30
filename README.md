@@ -184,3 +184,16 @@ Bitey must never treat a model's generated text as evidence. Current information
 - Do not execute trading orders from Bitey IA Web.
 - Keep Qwen and Gemini out of the active free-provider routing policy.
 - Preserve the free-first/no-surprise-cost policy.
+
+
+## Free inference server pool
+
+Bitey IA supports multiple Ollama workers without making any one VPS mandatory. The local GPU Ollama worker remains the preferred inference host; optional free-tier/user-owned VPS Ollama workers are added through configuration.
+
+Execution order: Local Ollama -> Ollama VPS #1 -> Ollama VPS #2 -> free OpenRouter/Groq/Hugging Face routes -> Bitey Native.
+
+Configure remote workers with OLLAMA_REMOTE_ENABLED=true and OLLAMA_REMOTE_URLS=https://server-1.example.com,https://server-2.example.com.
+
+Each remote endpoint must expose the standard Ollama API (/api/tags and /api/chat). Bitey health-checks each worker and automatically skips unavailable workers. Remote workers are inference workers only and are never treated as evidence sources.
+
+The pool is provider-agnostic so free infrastructure can be changed without modifying the cognitive architecture. Oracle Cloud Always Free is one deployment target; other providers can be added by exposing the same Ollama API. Free-tier availability and limits must be verified before provisioning.
