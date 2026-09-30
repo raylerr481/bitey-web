@@ -70,6 +70,13 @@ class BiteyCognitiveArchitecture:
 
     @classmethod
     def _normalize_for_routing(cls, text: str) -> str:
+        # Recover a narrow family of high-confidence conceptual typos before
+        # intent/evidence classification. This keeps malformed questions such
+        # as "que e sla nasa" on the normal knowledge path instead of treating
+        # them as an unknown request.
+        text = re.sub(r"\b(?:que|qué)\s+e\s+sla\s+", "qué es la ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+la\s+", "qué es la ", text, flags=re.I)
+        text = re.sub(r"\bqu\s+(?=(?:es|son|significa|funciona)\b)", "qué ", text, flags=re.I)
         tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", text.strip(), re.UNICODE)
         normalized = []
         for token in tokens:
