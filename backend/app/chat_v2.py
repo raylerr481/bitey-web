@@ -698,8 +698,7 @@ def create_chat_v2_router(
             "final_status": trace.get("final_status", "running"),
         }
 
-    @router.post("/chat", response_model=ChatV2Response)
-    async def chat(payload: ChatV2Request):
+    async def _chat_impl(payload: ChatV2Request):
         started = time.perf_counter()
         cid = payload.conversation_id
         try:
@@ -2252,5 +2251,60 @@ def create_chat_v2_router(
             },
             execution_state=active_task.get("execution_state") or {},
         )
+
+    @router.post("/chat", response_model=ChatV2Response)
+    async def chat(payload: ChatV2Request):
+        """Stable API boundary: internal failures become a safe response, never a raw HTTP 500."""
+        started = time.perf_counter()
+        cid = payload.conversation_id
+        try:
+            UUID(cid or "")
+        except Exception:
+            cid = str(uuid4())
+        try:
+            return await _chat_impl(payload)
+        except Exception as exc:
+            # Keep infrastructure details out of the user response. The full
+            # traceback remains available in the platform logs for diagnosis.
+            import logging
+            logging.getLogger("bitey.chat_v2").exception(
+                "chat_v2_request_failed request_id=%s conversation_id=%s",
+                str(payload.metadata.get("request_id") or "")[:120],
+                cid,
+            )
+            return ChatV2Response(
+                conversation_id=cid,
+                answer=(
+                    "No pude completar esta solicitud en este momento. "
+                    "La infraestructura de Bitey tuvo un fallo interno, pero no se perdió tu pregunta. "
+                    "Puedes intentarlo de nuevo y el sistema seguirá usando sus rutas de recuperación."
+                ),
+                mode="chat",
+                tools_used=[],
+                sources=[],
+                activity_events=[
+                    "◉ Detecté un fallo interno durante la ejecución.",
+                    "↻ La solicitud quedó en una salida segura.",
+                ],
+                calculations=None,
+                cognitive_plan=[],
+                trace_id="",
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+                answer_validation={
+                    "valid": False,
+                    "decision": "recoverable_error",
+                    "confidence": 0.0,
+                    "internal_error": True,
+                },
+                evidence_analysis={
+                    "source_count": 0,
+                    "quality_state": "execution_error",
+                    "quality_gate_passed": False,
+                },
+                execution_state={
+                    "execution_phase": "error_recovery",
+                    "recoverable": True,
+                },
+            )
 
     return router
