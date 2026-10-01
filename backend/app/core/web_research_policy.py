@@ -25,7 +25,17 @@ class WebResearchPolicy:
         re.I,
     )
     FACTUAL_DYNAMIC = re.compile(
-        r"\b(precio|precios|cotización|cotizaciones|stock|acciones|mercado|clima|temperatura|tiempo|pronóstico|weather|forecast|news|noticias|horario|horarios|disponible|disponibilidad|versión|version|release|regulación|ley|impuesto|tax|tipo de cambio|exchange rate|población|estadística|ranking|score|resultado|resultados)\b",
+        r"\b(precio|precios|cotización|cotizaciones|cotiza|stock|acciones|dividendo|dividendos|clima|temperatura|pronóstico|pronostico|weather|forecast|news|noticias|horario|horarios|disponible|disponibilidad|versión|version|release|regulación|regulacion|ley|impuesto|tax|tipo de cambio|exchange rate|población|poblacion|estadística|estadisticas|ranking|score|resultado|resultados)\b",
+        re.I,
+    )
+    DYNAMIC_CONTEXT = re.compile(
+        r"\b(?:mercado|mercados|tiempo|time|valor|valores)\b.*\b(?:ahora|hoy|actual|actualmente|precio|cotiza|cotización|cotizacion|en vivo|tiempo real|latest|current|live)\b"
+        r"|\b(?:ahora|hoy|actual|actualmente|precio|cotiza|cotización|cotizacion|en vivo|tiempo real|latest|current|live)\b.*\b(?:mercado|mercados|tiempo|time|valor|valores)\b",
+        re.I,
+    )
+    CONCEPTUAL = re.compile(
+        r"^(?:\s*(?:¿|\?)?\s*)?(?:qué|que|cuál|cual|quién|quien|what|which|who)\s+"
+        r"(?:es|son|significa|significan|are|is|means)\b",
         re.I,
     )
     FACTUAL_QUESTION = re.compile(
@@ -57,7 +67,7 @@ class WebResearchPolicy:
             score += 0.95; reasons.append("explicit_research")
         if self.FRESH.search(text):
             score += 0.90; reasons.append("freshness_sensitive")
-        if self.FACTUAL_DYNAMIC.search(text):
+        if self.FACTUAL_DYNAMIC.search(text) or self.DYNAMIC_CONTEXT.search(text):
             score += 0.72; reasons.append("dynamic_domain")
         if self.FACTUAL_QUESTION.search(text):
             score += 0.78; reasons.append("factual_question")
@@ -69,6 +79,24 @@ class WebResearchPolicy:
             score += 0.80; reasons.append("evidence_requested")
         if self.URL.search(text):
             score += 0.95; reasons.append("url_present")
+
+        # Stable conceptual questions should normally be answered directly.
+        # Do not force them into web/evidence mode merely because they are
+        # factual questions. Explicit research, freshness, dynamic data,
+        # medical topics, URLs, and evidence requests still override this.
+        conceptual = bool(self.CONCEPTUAL.search(text))
+        protected_research_signal = bool(
+            self.EXPLICIT.search(text)
+            or self.FRESH.search(text)
+            or self.FACTUAL_DYNAMIC.search(text)
+            or self.DYNAMIC_CONTEXT.search(text)
+            or self.EVIDENCE.search(text)
+            or self.URL.search(text)
+            or self.MEDICAL.search(text)
+        )
+        if conceptual and not protected_research_signal:
+            score = 0.0
+            reasons = ["stable_conceptual_knowledge"]
 
         if self.CASUAL.fullmatch(text):
             score = 0.0
