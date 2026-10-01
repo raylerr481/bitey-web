@@ -150,7 +150,9 @@
       row.append(check, label);
       events.appendChild(row);
     });
-    events.hidden = false;
+    // Keep the activity drawer collapsed by default. The execution status
+    // must never expand the page or compete with the assistant response.
+    events.hidden = true;
     if (toggle) {
       toggle.hidden = false;
       toggle.textContent = 'Ver actividad';
@@ -183,10 +185,12 @@
         sourceBox.appendChild(link);
       });
       events.appendChild(sourceBox);
-      events.hidden = false;
+      // Sources stay inside the same collapsed activity drawer.
+      events.hidden = true;
       if (toggle) {
         toggle.hidden = false;
         toggle.textContent = 'Ver actividad';
+        toggle.setAttribute('aria-expanded', 'false');
       }
     }
     const last = list[list.length - 1];
@@ -249,6 +253,12 @@
     if (events) events.hidden = !open;
     toggle.setAttribute('aria-expanded', String(open));
     toggle.textContent = open ? 'Ocultar actividad' : 'Ver actividad';
+    if (open && events) {
+      requestAnimationFrame(() => {
+        const first = events.querySelector('.activity-event, .activity-sources');
+        first?.scrollIntoView({ block: 'nearest' });
+      });
+    }
   });
 
   new MutationObserver(sync).observe(activity, { attributes: true, attributeFilter: ['hidden'] });
