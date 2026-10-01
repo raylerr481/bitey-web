@@ -259,7 +259,10 @@ class BiteyBrain:
         # Specialized current-data tools come first.
         if domain == "weather" and "fresh_data" in capabilities:
             t.append("weather")
-        elif domain == "trading":
+        elif domain == "trading" and intent_family != "current_info":
+            # Current price/news/status questions need generic fresh evidence.
+            # SBT is reserved for explicit trading analysis, not as a blocker
+            # for ordinary current-information requests about financial assets.
             t.append("sbt_market")
 
         # Evidence, reasoning, and deterministic tools may be composed.
