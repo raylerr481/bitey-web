@@ -113,6 +113,11 @@ class NativeReasoningModel:
                     "pt": "Um foguete é um veículo que gera impulso ao expelir gases em alta velocidade. Pode transportar cargas ou pessoas e alcançar grandes altitudes ou o espaço.",
                     "en": "A rocket is a vehicle that produces thrust by expelling gases at high speed. It can carry payloads or people and reach high altitudes or space.",
                 },
+                "adn": {
+                    "es": "El ADN (ácido desoxirribonucleico) es la molécula que almacena la información genética de los seres vivos. Está formado por dos cadenas organizadas en una doble hélice y contiene secuencias que participan en las instrucciones necesarias para el desarrollo y funcionamiento de los organismos.",
+                    "pt": "O DNA (ácido desoxirribonucleico) é a molécula que armazena a informação genética dos seres vivos. É formado por duas cadeias organizadas em uma dupla hélice e contém sequências que participam das instruções necessárias ao desenvolvimento e funcionamento dos organismos.",
+                    "en": "DNA (deoxyribonucleic acid) is the molecule that stores the genetic information of living organisms. It consists of two strands arranged in a double helix and contains sequences involved in the instructions needed for an organism's development and function.",
+                },
                 "cohete espacial": {
                     "es": "Un cohete espacial es un vehículo propulsado por reacción diseñado para transportar cargas o personas fuera de la atmósfera o hacia una trayectoria espacial.",
                     "pt": "Um foguete espacial é um veículo propulsionado por reação projetado para transportar cargas ou pessoas para fora da atmosfera ou para uma trajetória espacial.",
