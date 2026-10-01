@@ -11,7 +11,7 @@ const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en 
 const WEATHER_RE = /\b(temperatura|temperaturas|clima|tiempo|timepoe|tiempoe|tiempe|tempo|weather|temperature|forecast|previs[aã]o|previsao)\b/i;
 const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
 const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
-const RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -3) + '|' + FRESHNESS_RE.source.slice(2, -3) + ')', 'i');
+const RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -2) + '|' + FRESHNESS_RE.source.slice(2, -2) + ')', 'i');
 
 export default {
   async fetch(request, env) {
