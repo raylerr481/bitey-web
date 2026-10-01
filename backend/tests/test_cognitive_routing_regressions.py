@@ -26,6 +26,18 @@ def test_omitted_verb_concept_question_reaches_knowledge_path():
     assert state.plan["needs_evidence"] is False
 
 
+def test_common_conceptual_typos_normalize_to_stable_question_forms():
+    model = CognitiveModel()
+    cases = {
+        "que e sla nasa": "qué es la nasa",
+        "que e sun cohete": "qué es un cohete",
+        "que e s un cohete": "qué es un cohete",
+        "que e sel mercado": "qué es el mercado",
+    }
+    for raw, expected in cases.items():
+        assert model._normalize_for_routing(raw) == expected
+
+
 def test_shorthand_concept_normalization_handles_articles_without_literal_escape_artifacts():
     from app.core.cognitive_model import CognitiveModel
 
