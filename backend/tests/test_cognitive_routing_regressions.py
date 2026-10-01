@@ -73,3 +73,29 @@ def test_native_rocket_definition_is_available_without_web():
     answer, context = asyncio.run(run())
     assert "cohete" in answer.lower() or "cohete espacial" in answer.lower()
     assert context["native_grounded_type"] == "stable_concept"
+
+
+def test_current_bitcoin_price_uses_generic_web_evidence_not_sbt():
+    from app.core.bitey_brain import BiteyBrain
+
+    ctx = {}
+    state = BiteyBrain().think("¿Cuál es el precio de Bitcoin ahora?", ctx)
+    assert "web_research" in state.tool_priority
+    assert "sbt_market" not in state.tool_priority
+
+
+def test_portuguese_tempo_routes_to_weather():
+    from app.core.cognitive_model import CognitiveModel
+    model = CognitiveModel()
+
+    state = model.process("tempo em Esteio", {})
+    assert state.intention["intent_family"] == "weather"
+    assert "weather" in state.plan["tool_strategy"]
+
+
+def test_common_tempo_typo_is_normalized_for_routing():
+    from app.core.cognitive_model import CognitiveModel
+    model = CognitiveModel()
+
+    state = model.process("timepoe em Esteio", {})
+    assert state.intention["intent_family"] == "weather"
