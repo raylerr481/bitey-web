@@ -535,10 +535,10 @@ function extractStructuredClaim(text) {
   const frame = extractClaimFrame(raw);
   const currencyMatches = raw.match(/(?:R\\$|US\\$|USD|BRL|EUR|€|£|\\$)/gi) || [];
   const currencies = [...new Set(currencyMatches.map(value => { const v = normalizeSearchText(value); return /^(?:r\\$|brl)$/.test(v) ? 'brl' : /^(?:us\\$|\\$|usd)$/.test(v) ? 'usd' : /^(?:€|eur)$/.test(v) ? 'eur' : /^(?:£|gbp)$/.test(v) ? 'gbp' : v; }))];
-  const unitMatches = raw.match(/(?:%|porcentaje|°C|\\bC\\b|km\\/h|mph|GB|TB|MB|USD|BRL|EUR|R\\$|US\\$|acciones?|shares?|unidades?|mes(?:es)?|años?|años?|d[ií]as?)/gi) || [];
+  const unitMatches = raw.match(/(?:%|porcentaje|°C|\bC\b|km\/h|mph|GB|TB|MB|USD|BRL|EUR|R\$|US\$|acciones?|shares?|unidades?|mes(?:es)?|años?|años?|d[ií]as?)/gi) || [];
   const units = [...new Set(unitMatches.map(value => normalizeSearchText(value)))];
-  const dates = [...raw.matchAll(/\\b(?:20\\d{2}(?:[-/]\\d{1,2}(?:[-/]\\d{1,2})?)?|\\d{1,2}\\/\\d{1,2}\\/20\\d{2})\\b/g)].map(match => match[0]);
-  const numericValues = [...raw.matchAll(/(?:R\\$|US\\$|USD|BRL|EUR|€|£|\\$)?\\s*(-?\\d+(?:[.,]\\d+)?)(?:\\s*(%|°C|C|km\\/h|mph|GB|TB|MB))?/gi)]
+  const dates = [...raw.matchAll(/\b(?:20\d{2}(?:[-/]\d{1,2}(?:[-/]\d{1,2})?)?|\d{1,2}\/\d{1,2}\/20\d{2})\b/g)].map(match => match[0]);
+  const numericValues = [...raw.matchAll(/(?:R\$|US\$|USD|BRL|EUR|€|£|\$)?\s*(-?\d+(?:[.,]\d+)?)(?:\s*(%|°C|C|km\/h|mph|GB|TB|MB))?/gi)]
     .map(match => {
       const rawNumber = String(match[1] || '').replace(/\\.(?=\\d{3}(?:\\D|$))/g, '').replace(',', '.');
       return {
