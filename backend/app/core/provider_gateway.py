@@ -392,7 +392,7 @@ class ProviderGateway:
                 ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
         max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","4")))
         now=time.monotonic()
-        ordered=[p for p in ordered if self._provider_cooldowns.get(p.name, 0.0) <= now or p.name=="bitey-native-cognitive-v1"]
+        ordered=[p for p in ordered if getattr(self, '_provider_cooldowns', {}).get(p.name, 0.0) <= now or p.name=="bitey-native-cognitive-v1"]
         selected_providers=ordered[:max_providers]
         if native and native not in selected_providers:
             selected_providers.append(native)
