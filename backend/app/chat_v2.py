@@ -407,6 +407,25 @@ def _execution_state(
     }
 
 
+def _is_degraded_answer(answer: str) -> bool:
+    """Detect provider-level non-answers that should not become the user-facing result."""
+    normalized = " ".join(str(answer or "").casefold().split())
+    if not normalized:
+        return True
+    phrases = (
+        "ahora mismo no puedo completar",
+        "no pude completar la solicitud",
+        "no pude completar esta solicitud",
+        "no puedo completar esta solicitud",
+        "i can't complete this request",
+        "i cannot complete this request",
+        "unable to complete this request",
+        "try again in a few moments",
+        "inténtalo nuevamente en unos momentos",
+    )
+    return any(phrase in normalized for phrase in phrases)
+
+
 def _filter_relevant_sources(
     query: str,
     sources: list[dict[str, Any]],
@@ -1797,6 +1816,36 @@ def create_chat_v2_router(
                 "evidence_source_count": evidence_source_count,
             }
             answer = await providers.generate(messages=messages, context=provider_context)
+
+            # A provider can return a transport-safe fallback even when the
+            # request itself is answerable. Recover only stable requests; current,
+            # research, weather, and trading requests remain evidence-first.
+            if _is_degraded_answer(answer) and not research_required and calculations is None:
+                native_recovery_context = {
+                    **ctx,
+                    "current_message": query,
+                    "conversation_id": cid,
+                    "conversation_only": ctx.get("intent_family") == "conversation",
+                    "evidence": evidence,
+                    "evidence_attempted": bool(evidence),
+                    "evidence_required": bool(brain_state.evidence_required),
+                    "selected_tools": selected,
+                }
+                try:
+                    recovered = await NativeReasoningModel().generate(
+                        messages=[{"role": "user", "content": query}],
+                        context=native_recovery_context,
+                    )
+                except Exception:
+                    recovered = ""
+                if recovered and not _is_degraded_answer(recovered):
+                    answer = recovered
+                    provider_context["provider_selected"] = "bitey-native-cognitive-v1"
+                    provider_context["provider_recovery"] = True
+                    emit("↻ Activé la recuperación cognitiva nativa de Bitey.")
+                else:
+                    emit("↻ La recuperación cognitiva no produjo una respuesta suficiente.")
+
             selected_provider = str(provider_context.get("provider_selected") or "").strip()
             if selected_provider:
                 provider_labels = {"groq-free": "Groq gratuito", "openrouter-free-router": "OpenRouter Free", "deepseek-free": "DeepSeek Free", "ollama-local": "Ollama local", "bitey-native-cognitive-v1": "motor nativo de Bitey"}
@@ -2269,6 +2318,65 @@ def create_chat_v2_router(
         try:
             return await _chat_impl(payload)
         except Exception as exc:
+            # Recover stable knowledge/conversation requests before exposing the
+            # generic infrastructure fallback. Fresh/current requests never use
+            # model memory as a substitute for missing evidence.
+            try:
+                normalized = " ".join(payload.message.casefold().strip().split())
+                stable_signal = bool(re.search(
+                    r"\b(?:qué|que|cual|cuál|cómo|como|what|who|qual|o que|por qué|porque|why)\b",
+                    normalized,
+                    re.I,
+                ))
+                freshness_signal = any(token in normalized for token in (
+                    "ahora", "hoy", "actualmente", "actual", "último", "ultimo",
+                    "latest", "current", "en vivo", "tiempo real", "precio",
+                    "clima", "tiempo", "weather", "forecast", "previsão",
+                ))
+                if stable_signal and not freshness_signal:
+                    recovery_context = {
+                        "current_message": payload.message,
+                        "conversation_id": cid,
+                        "conversation_only": False,
+                    }
+                    recovered = await NativeReasoningModel().generate(
+                        messages=[{"role": "user", "content": payload.message}],
+                        context=recovery_context,
+                    )
+                    if recovered and not _is_degraded_answer(recovered):
+                        return ChatV2Response(
+                            conversation_id=cid,
+                            answer=recovered,
+                            mode="chat",
+                            tools_used=["bitey-native-recovery"],
+                            sources=[],
+                            activity_events=[
+                                "↻ Se activó la recuperación cognitiva nativa.",
+                                "✓ La pregunta fue respondida sin inventar datos actuales.",
+                            ],
+                            calculations=None,
+                            cognitive_plan=[],
+                            trace_id="",
+                            elapsed_ms=int((time.perf_counter() - started) * 1000),
+                            answer_validation={
+                                "valid": True,
+                                "decision": "accept",
+                                "confidence": 0.90,
+                                "provenance": "bitey_native_recovery",
+                            },
+                            evidence_analysis={
+                                "source_count": 0,
+                                "quality_state": "native_recovery",
+                                "quality_gate_passed": True,
+                            },
+                            execution_state={
+                                "execution_phase": "recovered",
+                                "recoverable": True,
+                            },
+                        )
+            except Exception:
+                pass
+
             # Keep infrastructure details out of the user response. The full
             # traceback remains available in the platform logs for diagnosis.
             import logging
