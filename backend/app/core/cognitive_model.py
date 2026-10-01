@@ -27,7 +27,7 @@ class CognitiveModel:
     _KNOWN_LOCATIONS = ("esteio", "porto alegre", "são leopoldo", "novo hamburgo", "canoas", "gramado", "caxias do sul", "são paulo", "rio de janeiro", "brasília", "curitiba", "florianópolis", "belo horizonte", "salvador", "lisboa", "madrid", "barcelona", "miami", "new york", "london")
 
     _DOMAIN_HINTS = {
-        "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao", "tiempo"),
+        "weather": ("temperatura", "clima", "weather", "temperature", "forecast", "previsão", "previsao"),
         "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
         "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
         "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair"),
