@@ -1533,7 +1533,10 @@ function specializedFallbackBlocked(capability, requestId) {
 
 function normalizeInteractionMode(value) {
   const mode = String(value || 'auto').toLowerCase().trim();
-  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';\n}\n\nfunction buildInteractionSystemPrompt(mode = 'auto') {
+  return ['auto','chat','research','math','code'].includes(mode) ? mode : 'auto';
+}
+
+function buildInteractionSystemPrompt(mode = 'auto') {
   const guidance = {
     auto: 'Selecciona automáticamente el nivel de investigación y razonamiento necesario. No hagas búsquedas para una conversación trivial.',
     chat: 'Prioriza conversación y explicación directa. No hagas investigación externa salvo que la pregunta exija información actual o el usuario la pida explícitamente.',
@@ -1541,7 +1544,10 @@ function normalizeInteractionMode(value) {
     math: 'Prioriza cálculo determinista para expresiones numéricas y razonamiento matemático verificable. No uses investigación externa salvo que el problema la requiera.',
     code: 'Prioriza análisis técnico de código, estructura, errores y soluciones. No hagas investigación externa salvo que sea necesaria para información específica de una tecnología.'
   }[normalizeInteractionMode(mode)];
-  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';\n}\n\nfunction planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto', context = {}) {
+  return 'Eres Bitey IA, una inteligencia general. Responde en el idioma del usuario. Sé útil, clara y directa. No inventes datos. Mantén continuidad con el historial disponible. ' + guidance + ' No expongas diagnósticos internos, nombres de capas cognitivas, contratos, errores de proveedores ni mensajes de recuperación.';
+}
+
+function planCognitiveRoute(message, specialized, sources, evidenceMethod, language = null, mode = 'auto', context = {}) {
   const text = String(message || '').trim();
   const analyzed = language || analyzeLanguage(text);
   const hasQuestion = /[?¿]|\b(qué|que|cuál|cual|cómo|como|por qué|porque|quién|quien|dónde|donde|cuándo|cuando|what|which|how|why|who|where|when)\b/i.test(text);
