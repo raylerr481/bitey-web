@@ -2890,44 +2890,6 @@ async function weatherEndpoint(url, requestId) {
     return jsonError('weather_unavailable',502,requestId);
   }
 }
- : symbol || 'R
-  const text = String(message || '').trim().replace(/,/g, '.');
-  const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
-  if (!match) return null;
-  const expression = match[1].replace(/\s+/g, '');
-  if (!/^[0-9.+*\/\-]+$/.test(expression) || /[+*\/\-]{2,}/.test(expression)) return null;
-  try {
-    const tokens = expression.match(/[-+]?\d+(?:\.\d+)?|[+*\/\-]/g) || [];
-    if (!tokens.length || tokens.length % 2 === 0) return null;
-    let total = Number(tokens[0]);
-    if (!Number.isFinite(total)) return null;
-    const addTerms = [];
-    let term = total;
-    let pendingAdd = '+';
-    for (let i = 1; i < tokens.length; i += 2) {
-      const op = tokens[i], rhs = Number(tokens[i + 1]);
-      if (!Number.isFinite(rhs)) return null;
-      if (op === '*') term *= rhs;
-      else if (op === '/') {
-        if (rhs === 0) return null;
-        term /= rhs;
-      } else if (op === '+' || op === '-') {
-        addTerms.push({ op: pendingAdd, value: term });
-        term = rhs;
-        pendingAdd = op;
-      } else return null;
-      if (!Number.isFinite(term)) return null;
-    }
-    addTerms.push({ op: pendingAdd, value: term });
-    total = addTerms.reduce((sum, item) => item.op === '+' ? sum + item.value : sum - item.value, 0);
-    if (!Number.isFinite(total)) return null;
-    const formatted = Number.isInteger(total) ? String(total) : String(Number(total.toFixed(10)));
-    return { expression, value: total, answer: 'El resultado es **' + formatted + '**.', text: 'CALCULATOR: ' + expression + ' = ' + formatted };
-  } catch (_) {
-    return null;
-  }
-}
-
 function weatherLocation(message) {
   const known = message.match(/\b(esteio|porto alegre)\b/i);
   if (known) return known[1];
@@ -3261,42 +3223,6 @@ function jsonError(message, status = 500, requestId = '') {
   return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
 }
 
-async function weatherEndpoint(url, requestId) {
-  const q = String(url.searchParams.get('q') || '').trim();
-  if (!q) return jsonError('weather_location_required', 400, requestId);
-  try {
-    const geo = new URL('https://geocoding-api.open-meteo.com/v1/search');
-    geo.searchParams.set('name', q);
-    geo.searchParams.set('count', '5');
-    geo.searchParams.set('language', 'pt');
-    geo.searchParams.set('format', 'json');
-    const gr = await fetch(geo, {headers:{'User-Agent':'BiteyWeb/1.0'}});
-    if (!gr.ok) return jsonError('weather_geocoding_unavailable',502,requestId);
-    const results = (await gr.json())?.results || [];
-    if (!results.length) return jsonError('weather_location_not_found',404,requestId);
-    const loc = results.find(x=>String(x?.name||'').toLowerCase()===q.toLowerCase()) || results[0];
-    const api = new URL('https://api.open-meteo.com/v1/forecast');
-    api.searchParams.set('latitude',String(loc.latitude));
-    api.searchParams.set('longitude',String(loc.longitude));
-    api.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code');
-    api.searchParams.set('timezone','auto');
-    api.searchParams.set('forecast_days','1');
-    const wr = await fetch(api,{headers:{'User-Agent':'BiteyWeb/1.0'}});
-    if (!wr.ok) return jsonError('weather_data_unavailable',502,requestId);
-    const data=await wr.json();
-    return jsonResponse({
-      ok:true,
-      location:{name:loc.name,admin1:loc.admin1||'',country:loc.country||'',latitude:loc.latitude,longitude:loc.longitude},
-      current:data.current||{},
-      source:{title:'Open-Meteo',url:api.toString()},
-      request_id:requestId
-    },200,'weather-open-meteo',requestId);
-  } catch(error) {
-    console.warn('Bitey weather endpoint failed',{requestId,error:String(error)});
-    return jsonError('weather_unavailable',502,requestId);
-  }
-}
-}
 
 async function recoverSearch(message, requestId) {
   const sources = [
@@ -3571,38 +3497,3 @@ function jsonError(message, status = 500, requestId = '') {
   return jsonResponse({ error: message, request_id: requestId }, status, 'cloudflare-error', requestId);
 }
 
-async function weatherEndpoint(url, requestId) {
-  const q = String(url.searchParams.get('q') || '').trim();
-  if (!q) return jsonError('weather_location_required', 400, requestId);
-  try {
-    const geo = new URL('https://geocoding-api.open-meteo.com/v1/search');
-    geo.searchParams.set('name', q);
-    geo.searchParams.set('count', '5');
-    geo.searchParams.set('language', 'pt');
-    geo.searchParams.set('format', 'json');
-    const gr = await fetch(geo, {headers:{'User-Agent':'BiteyWeb/1.0'}});
-    if (!gr.ok) return jsonError('weather_geocoding_unavailable',502,requestId);
-    const results = (await gr.json())?.results || [];
-    if (!results.length) return jsonError('weather_location_not_found',404,requestId);
-    const loc = results.find(x=>String(x?.name||'').toLowerCase()===q.toLowerCase()) || results[0];
-    const api = new URL('https://api.open-meteo.com/v1/forecast');
-    api.searchParams.set('latitude',String(loc.latitude));
-    api.searchParams.set('longitude',String(loc.longitude));
-    api.searchParams.set('current','temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code');
-    api.searchParams.set('timezone','auto');
-    api.searchParams.set('forecast_days','1');
-    const wr = await fetch(api,{headers:{'User-Agent':'BiteyWeb/1.0'}});
-    if (!wr.ok) return jsonError('weather_data_unavailable',502,requestId);
-    const data=await wr.json();
-    return jsonResponse({
-      ok:true,
-      location:{name:loc.name,admin1:loc.admin1||'',country:loc.country||'',latitude:loc.latitude,longitude:loc.longitude},
-      current:data.current||{},
-      source:{title:'Open-Meteo',url:api.toString()},
-      request_id:requestId
-    },200,'weather-open-meteo',requestId);
-  } catch(error) {
-    console.warn('Bitey weather endpoint failed',{requestId,error:String(error)});
-    return jsonError('weather_unavailable',502,requestId);
-  }
-}
