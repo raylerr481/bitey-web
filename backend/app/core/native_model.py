@@ -58,6 +58,7 @@ class NativeReasoningModel:
         q = re.sub(r"\b(?:que|qué)\s+e\s+s(?:la|lha)\s+", "qué es la ", q, flags=re.I)
         q = re.sub(r"\b(?:que|qué)\s+e\s+s(?:el|le)\s+", "qué es el ", q, flags=re.I)
         q = re.sub(r"\b(?:que|qué)\s+e\s+s(?:un)\s+", "qué es un ", q, flags=re.I)
+        q = re.sub(r"\b(?:que|qué)\s+(?:el|la|los|las|un|una)\s+", lambda m: "qué es " + m.group(0).split()[-1] + " ", q, flags=re.I)
         q = re.sub(r"\b(?:que|qué)\s+e\s+s(?:una)\s+", "qué es una ", q, flags=re.I)
         q = re.sub(r"\b(?:que|qué)\s+e\s+la\s+", "qué es la ", q, flags=re.I)
         q = re.sub(r"\b(?:que|qué)\s+e\s+el\s+", "qué es el ", q, flags=re.I)
