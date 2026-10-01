@@ -80,7 +80,7 @@ class BiteyBrain:
         if intent_family not in {"knowledge", "conversation"} and intent_family not in capabilities:
             capabilities.append(intent_family)
         ctx["intent_family"] = intent_family
-        tools = self._tool_policy(capabilities, domain, ctx)
+        tools = self._tool_policy(capabilities, domain, intent_family, ctx)
         # Respect the Cognitive Model's explicit capability decision when present.
         if isinstance(cognitive_strategy, list) and cognitive_strategy:
             strategy_map = {
@@ -244,7 +244,7 @@ class BiteyBrain:
         return c
 
     @staticmethod
-    def _tool_policy(capabilities,domain,context):
+    def _tool_policy(capabilities, domain, intent_family, context):
         message = str(context.get("message") or context.get("query") or "").lower()
         math_cues = (
             bool(re.fullmatch(r"[0-9.,\s()+*/%^=-]+", message))
@@ -259,16 +259,18 @@ class BiteyBrain:
         # Specialized current-data tools come first.
         if domain == "weather" and "fresh_data" in capabilities:
             t.append("weather")
-        elif domain == "trading" and intent_family != "current_info":
-            # Current price/news/status questions need generic fresh evidence.
-            # SBT is reserved for explicit trading analysis, not as a blocker
-            # for ordinary current-information requests about financial assets.
-            t.append("sbt_market")
+        elif domain == "trading":
+            # Current market-information requests need generic web evidence;
+            # explicit trading analysis may use SBT.
+            if intent_family == "current_info":
+                t.append("web_research")
+            else:
+                t.append("sbt_market")
 
         # Evidence, reasoning, and deterministic tools may be composed.
         # The planner keeps specialized current-data tools first, then adds
         # research/reasoning/calculation capabilities required by the request.
-        if "external_evidence" in capabilities and domain not in {"weather", "trading"}:
+        if "external_evidence" in capabilities and domain not in {"weather"} and not (domain == "trading" and intent_family == "current_info"):
             t.append("web_research")
         if "code_reasoning" in capabilities:
             t.append("code_reasoning")
