@@ -26,6 +26,18 @@ def test_omitted_verb_concept_question_reaches_knowledge_path():
     assert state.plan["needs_evidence"] is False
 
 
+def test_shorthand_concept_normalization_handles_articles_without_literal_escape_artifacts():
+    from app.core.cognitive_model import CognitiveModel
+
+    model = CognitiveModel()
+    for raw, expected in (
+        ("que el adn", "qué es el adn"),
+        ("que la nasa", "qué es la nasa"),
+        ("qué los satélites", "qué es los satélites"),
+    ):
+        assert model._normalize_for_routing(raw) == expected
+
+
 def test_provider_tiers_keep_ollama_before_cloud():
     gateway = ProviderGateway.__new__(ProviderGateway)
     gateway._provider_health = {
