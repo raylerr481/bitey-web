@@ -259,3 +259,138 @@ button{font-family:inherit}.new-chat{height:42px!important;margin:0 1px 7px!impo
   }
   .chat-area>.activity-events{bottom:clamp(100px,14vh,126px)!important}
 }
+
+
+/* 2026-10-01: compact cognitive-status drawer.
+   The execution indicator is an overlay, never a layout participant. */
+.chat-area > .activity{
+  position:absolute!important;
+  left:50%!important;
+  transform:translateX(-50%)!important;
+  bottom:clamp(82px,10vh,112px)!important;
+  width:min(720px,calc(100% - 28px))!important;
+  height:24px!important;
+  min-height:24px!important;
+  max-height:24px!important;
+  margin:0!important;
+  padding:0 8px!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:6px!important;
+  box-sizing:border-box!important;
+  overflow:hidden!important;
+  border-radius:999px!important;
+  background:rgba(12,18,24,.90)!important;
+  border:1px solid rgba(76,103,116,.48)!important;
+  box-shadow:0 4px 14px rgba(0,0,0,.16)!important;
+  backdrop-filter:blur(8px)!important;
+  font-size:10px!important;
+  line-height:1!important;
+  z-index:30!important;
+  pointer-events:none!important;
+}
+.chat-area > .activity .thinking-dots{flex:0 0 auto!important;transform:scale(.7)!important}
+.chat-area > .activity #activity-text{
+  min-width:0!important;
+  flex:1 1 auto!important;
+  overflow:hidden!important;
+  white-space:nowrap!important;
+  text-overflow:ellipsis!important;
+  opacity:.82!important;
+}
+.chat-area > .activity .activity-elapsed{
+  flex:0 0 auto!important;
+  font-size:9px!important;
+  opacity:.52!important;
+}
+.chat-area > .activity .activity-toggle{
+  flex:0 0 auto!important;
+  pointer-events:auto!important;
+  border:0!important;
+  background:transparent!important;
+  color:#8fcbd6!important;
+  padding:2px 4px!important;
+  margin:0!important;
+  font-size:9px!important;
+  line-height:1!important;
+  cursor:pointer!important;
+}
+.chat-area > .activity-events{
+  position:absolute!important;
+  left:50%!important;
+  transform:translateX(-50%)!important;
+  bottom:clamp(110px,13vh,140px)!important;
+  width:min(720px,calc(100% - 28px))!important;
+  max-height:min(180px,28vh)!important;
+  overflow:auto!important;
+  box-sizing:border-box!important;
+  padding:7px!important;
+  margin:0!important;
+  border:1px solid rgba(76,103,116,.52)!important;
+  border-radius:12px!important;
+  background:rgba(10,16,21,.96)!important;
+  box-shadow:0 10px 28px rgba(0,0,0,.25)!important;
+  backdrop-filter:blur(10px)!important;
+  z-index:29!important;
+  scrollbar-width:thin!important;
+}
+.chat-area > .activity-events .activity-event{
+  display:flex!important;
+  align-items:flex-start!important;
+  gap:6px!important;
+  padding:3px 4px!important;
+  margin:0!important;
+  font-size:9px!important;
+  line-height:1.3!important;
+  white-space:normal!important;
+}
+.chat-area > .activity-events .activity-check{
+  flex:0 0 12px!important;
+  text-align:center!important;
+  opacity:.72!important;
+}
+.chat-area > .activity-events .activity-sources{
+  margin-top:5px!important;
+  padding-top:5px!important;
+  border-top:1px solid rgba(255,255,255,.07)!important;
+}
+.chat-area > .activity-events .activity-source-heading{
+  font-size:9px!important;
+  margin-bottom:3px!important;
+  opacity:.65!important;
+}
+.chat-area > .activity-events .activity-source{
+  display:block!important;
+  max-width:100%!important;
+  padding:3px 4px!important;
+  font-size:9px!important;
+  line-height:1.25!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+@media(max-width:760px){
+  .chat-area > .activity{
+    left:8px!important;
+    right:8px!important;
+    transform:none!important;
+    bottom:clamp(72px,10vh,94px)!important;
+    width:auto!important;
+    max-width:none!important;
+    height:23px!important;
+    min-height:23px!important;
+    max-height:23px!important;
+    padding:0 6px!important;
+    font-size:9px!important;
+  }
+  .chat-area > .activity .activity-elapsed{display:none!important}
+  .chat-area > .activity .activity-toggle{font-size:8.5px!important}
+  .chat-area > .activity-events{
+    left:8px!important;
+    right:8px!important;
+    transform:none!important;
+    bottom:clamp(99px,13vh,120px)!important;
+    width:auto!important;
+    max-height:150px!important;
+  }
+}
