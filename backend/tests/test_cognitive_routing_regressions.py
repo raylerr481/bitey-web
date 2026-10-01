@@ -13,6 +13,19 @@ def test_malformed_nasa_question_reaches_conceptual_path():
     assert architecture._normalize_for_routing("que e sla nasa") == "qué es la nasa"
 
 
+def test_omitted_verb_concept_question_reaches_knowledge_path():
+    from app.core.cognitive_model import CognitiveModel
+
+    model = CognitiveModel()
+    normalized = model._normalize_for_routing("que el adn")
+    state = model.process("que el adn", {})
+
+    assert normalized == "qué es el adn"
+    assert state.intention["intent_family"] == "knowledge"
+    assert state.intention["domain"] == "general"
+    assert state.plan["needs_evidence"] is False
+
+
 def test_provider_tiers_keep_ollama_before_cloud():
     gateway = ProviderGateway.__new__(ProviderGateway)
     gateway._provider_health = {
