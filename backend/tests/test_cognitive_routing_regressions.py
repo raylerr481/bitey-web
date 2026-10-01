@@ -99,3 +99,37 @@ def test_common_tempo_typo_is_normalized_for_routing():
 
     state = model.process("timepoe em Esteio", {})
     assert state.intention["intent_family"] == "weather"
+
+
+def test_brain_tool_policy_has_no_undefined_intent_family_dependency():
+    from app.core.bitey_brain import BiteyBrain
+
+    brain = BiteyBrain()
+    state = brain.think(
+        "¿Cuál es el precio de Bitcoin ahora?",
+        {
+            "cognition": {
+                "perception": {"question": True},
+                "intention": {
+                    "domain": "trading",
+                    "intent_family": "current_info",
+                },
+                "plan": {
+                    "needs_evidence": True,
+                    "freshness_required": True,
+                    "tool_strategy": ["web_research"],
+                },
+            }
+        },
+    )
+    assert "web_research" in state.tool_priority
+    assert "sbt_market" not in state.tool_priority
+
+
+def test_stable_conceptual_question_remains_general_knowledge():
+    from app.core.bitey_brain import BiteyBrain
+
+    state = BiteyBrain().think("¿Qué es un cohete?", {})
+    assert state.task_class == "general"
+    assert not state.evidence_required
+    assert "web_research" not in state.tool_priority
