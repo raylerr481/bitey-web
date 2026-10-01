@@ -133,3 +133,11 @@ def test_stable_conceptual_question_remains_general_knowledge():
     assert state.task_class == "general"
     assert not state.evidence_required
     assert "web_research" not in state.tool_priority
+
+
+def test_degraded_provider_answer_is_detected_for_native_recovery():
+    from app.chat_v2 import _is_degraded_answer
+
+    assert _is_degraded_answer("Ahora mismo no puedo completar esta consulta de forma segura.")
+    assert _is_degraded_answer("I can't complete this request right now.")
+    assert not _is_degraded_answer("Un cohete genera empuje expulsando gases a gran velocidad.")
