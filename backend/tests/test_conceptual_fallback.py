@@ -1,40 +1,61 @@
 from app.core.bitey_brain import BiteyBrain
 from app.core.executive_evaluator import ExecutiveEvaluator
+from app.core.web_research_policy import WebResearchPolicy
 
 
-def test_brain_marks_market_definition_as_research_required_conceptual_case():
+def test_brain_keeps_stable_market_definition_direct():
     brain = BiteyBrain().think(
         "¿Qué es el mercado?",
         {
             "cognition": {
-                "intention": {"domain": "general"},
+                "intention": {"domain": "general", "intent_family": "knowledge"},
                 "perception": {"question": True, "greeting": False, "identity_request": False},
-                "plan": {"needs_evidence": True},
+                "plan": {"needs_evidence": False},
             },
-            "requires_web_research": True,
             "evidence_available": False,
         },
     )
     assert brain.task_class == "general"
     assert brain.conceptual_fallback is True
-    assert brain.tool_priority == ["search"]
+    assert brain.evidence_required is False
+    assert brain.tool_priority == []
 
 
-def test_conceptual_case_without_evidence_is_rejected():
+def test_web_policy_does_not_force_stable_conceptual_questions_to_research():
+    policy = WebResearchPolicy()
+
+    for query in (
+        "¿Qué es un cohete?",
+        "¿Qué es la NASA?",
+        "¿Qué es el mercado?",
+        "¿Qué significa inteligencia artificial?",
+    ):
+        decision = policy.decide(query)
+        assert decision.required is False
+        assert decision.strategy == "none"
+
+
+def test_web_policy_keeps_dynamic_bitcoin_price_current():
+    decision = WebResearchPolicy().decide("¿Cuál es el precio de Bitcoin ahora?")
+    assert decision.required is True
+    assert "freshness_sensitive" in decision.reasons
+    assert "dynamic_domain" in decision.reasons
+
+
+def test_conceptual_case_without_evidence_is_not_rejected_when_web_is_not_required():
     brain = {
         "task_class": "general",
-        "evidence_required": True,
+        "evidence_required": False,
         "conceptual_fallback": True,
-        "tool_priority": ["search"],
+        "tool_priority": [],
         "risk_level": "low",
-        "execution_allowed": False,
-        "verification_required": True,
+        "execution_allowed": True,
+        "verification_required": False,
     }
     result = ExecutiveEvaluator().evaluate(
         state=brain,
-        answer="Un mercado es un sistema donde compradores y vendedores intercambian bienes, servicios o activos.",
+        answer="Un cohete es un vehículo o dispositivo que genera empuje expulsando gases a gran velocidad.",
         evidence="",
-        selected_tools=["search"],
+        selected_tools=[],
     )
-    assert result.decision == "revise"
-    assert "required_evidence_missing" in result.reasons
+    assert result.decision in {"accept", "pass"}
