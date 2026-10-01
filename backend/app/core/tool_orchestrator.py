@@ -32,7 +32,7 @@ class ToolOrchestrator:
     """Capability executor whose selection follows Bitey's cognitive plan."""
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    WEATHER_RE = re.compile(r"\b(temperatur\w*|clima|tiempo|tempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
+    WEATHER_RE = re.compile(r"\b(temperatur\w*|clima|weather|temperature|forecast|previs[aã]o)\b|\b(?:tiempo|tempo)\s+(?:en|hoy|ahora|hace|est[aá]|está)\b", re.I)
     SEARCH_RE = re.compile(r"\b(busca|buscar|búsqueda|investiga|investigar|fuentes|compara|contrasta|search|research|latest|actual|hoy|noticias|news)\b", re.I)
     FRESH_RE = re.compile(r"\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\b", re.I)
     # Broad interrogatives do not automatically require web research.
@@ -98,8 +98,7 @@ class ToolOrchestrator:
             preferred.append("file_context")
         if "url_fetch" in capabilities:
             preferred.append("url_fetch")
-        if "code_reasoning" in capabilities:
-            preferred.append("code_reasoning")
+        # code_reasoning remains an internal model role, not an executable tool.
         return list(dict.fromkeys(name for name in preferred if name in self._tools))
 
     def cognitive_selection(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -128,6 +127,8 @@ class ToolOrchestrator:
         # for deterministic arithmetic only; symbolic math remains model work.
         if arithmetic_request and calculation_profile:
             requested = ["calculator"]
+        elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
+            requested = ["sbt_market"]
         elif self.WEATHER_RE.search(message) and (
             str(cognitive.intention.get("domain", "general")).lower() == "weather"
             or "weather" in requested
@@ -141,9 +142,8 @@ class ToolOrchestrator:
         elif brain.evidence_required and "search" not in requested and "web_research" not in requested:
             requested.append("search")
 
-        # Brain capabilities such as code_reasoning are model roles unless a
-        # concrete executable tool is registered. Never expose a phantom tool.
-        requested = ["web_research" if name == "search" else name for name in requested]
+        # Code reasoning is a model capability, not a public executable tool.
+        requested = ["web_research" if name == "search" else name for name in requested if name != "code_reasoning"]
         selected = [name for name in dict.fromkeys(requested) if name in self._tools]
         if context is not None:
             context.update({
