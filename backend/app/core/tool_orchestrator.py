@@ -32,7 +32,7 @@ class ToolOrchestrator:
     """Capability executor whose selection follows Bitey's cognitive plan."""
 
     URL_RE = re.compile(r"(?:https?://|www\.)[^\s<>'\"]+", re.I)
-    WEATHER_RE = re.compile(r"\b(temperatur\w*|clima|tiempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
+    WEATHER_RE = re.compile(r"\b(temperatur\w*|clima|tiempo|tempo|weather|temperature|forecast|previs[aã]o)\b", re.I)
     SEARCH_RE = re.compile(r"\b(busca|buscar|búsqueda|investiga|investigar|fuentes|compara|contrasta|search|research|latest|actual|hoy|noticias|news)\b", re.I)
     FRESH_RE = re.compile(r"\b(ahora|ahora mismo|actualmente|actual|hoy|esta semana|este mes|últim[oa]s?|reciente|recientemente|en vivo|tiempo real|live|today|latest|current|recent|this week|this month)\b", re.I)
     # Broad interrogatives do not automatically require web research.
