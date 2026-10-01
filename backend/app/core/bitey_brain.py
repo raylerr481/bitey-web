@@ -99,6 +99,12 @@ class BiteyBrain:
                 tools = list(dict.fromkeys(cognitive_tools + tools))
         # "clarify" is a cognitive stop decision, not a tool. Never execute
         # fallback tools when the request is explicitly underspecified.
+        # Specialized domain ownership is authoritative. Generic helper capabilities
+        # from the cognitive plan must not reintroduce competing tools.
+        if domain == "weather":
+            tools = ["weather"]
+        elif domain == "trading" and intent_family == "current_info":
+            tools = ["web_research"]
         if isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy:
             tools = []
         verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
