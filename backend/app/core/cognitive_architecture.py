@@ -134,7 +134,7 @@ class BiteyCognitiveArchitecture:
         # Treating every "qué es..." as a web-evidence requirement caused simple
         # questions to enter the research/evidence failure path.
         explicit_research = bool(context.get("research") or context.get("requires_web_research"))
-        explicit_current = any(cue in lowered for cue in cls.TEMPORAL_CUES)
+        explicit_current = any(cue in lowered for cue in self.TEMPORAL_CUES)
         conceptual_evidence = conceptual and (explicit_research or explicit_current)
         evidence_required = (
             explicit_research
