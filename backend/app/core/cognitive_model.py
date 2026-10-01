@@ -86,8 +86,7 @@ class CognitiveModel:
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
         "orto": "porto", "poto": "porto",
-        "tienpo": "tiempo", "timepo": "tiempo", "timepoe": "tiempo", "temppo": "tiempo", "tiemp": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima", "com": "como",
-        "contiua": "continua", "contina": "continua", "continuaaa": "continua",
+        "tienpo": "tiempo", "timepo": "tiempo", "timepoe": "tiempo", "temppo": "tiempo", "tiemp": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima",         "contiua": "continua", "contina": "continua", "continuaaa": "continua",
         "preico": "precio", "prceio": "precio", "cotizacon": "cotizacion", "accin": "accion",
     }
 
@@ -233,12 +232,20 @@ class CognitiveModel:
         if "reasoning" not in tool_chain and family not in {"conversation", "math", "time", "weather"}:
             tool_chain.append("reasoning")
         deduped = list(dict.fromkeys(tool_chain)) or ["llm"]
+        if family in {"current_info", "research", "weather", "local_search", "comparison", "recommendation"}:
+            fallback_order = ["specialized_tool", "web_research", "llm", "reasoning"]
+        elif family in {"math", "time"}:
+            fallback_order = ["deterministic_tool", "llm"]
+        elif family == "conversation":
+            fallback_order = ["llm"]
+        else:
+            fallback_order = ["llm", "reasoning", "web_research"]
         return {
             "intent_family": family,
             "confidence": round(max(0.0, min(1.0, confidence)), 3),
             "capabilities": deduped,
             "requires_evidence": bool("web_research" in deduped or family in {"weather", "time", "local_search"}),
-            "fallback_order": ["llm", "web_research", "reasoning"],
+            "fallback_order": fallback_order,
             "answer_strategy": "direct" if family in {"conversation", "math", "time", "translation"} else "synthesize",
         }
 
