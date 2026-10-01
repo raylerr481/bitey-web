@@ -226,7 +226,7 @@ function inferRecoveryTool(gapText = '', validation = {}) {
   return 'web_search';
 }
 
-function selectTools({ language = {}, route = {}, message = '', context = {}, recovery = null } = {}) {
+export function selectTools({ language = {}, route = {}, message = '', context = {}, recovery = null } = {}) {
   const recoveryTool = recovery?.needed ? inferRecoveryTool(recovery.gap_text || message, recovery.validation || {}) : null;
   const intentEval = evaluateIntent({ language, route, message, context });
   const domains = new Set((language.domains || []).map(item => item?.domain).filter(Boolean));
