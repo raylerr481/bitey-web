@@ -83,6 +83,23 @@ def test_native_stable_concepts_are_available_without_web():
     assert context["native_grounded_type"] == "stable_concept"
 
 
+def test_native_adn_definition_is_available_without_web():
+    import asyncio
+    from app.core.native_model import NativeReasoningModel
+
+    async def run():
+        context = {}
+        answer = await NativeReasoningModel().generate(
+            messages=[{"role": "user", "content": "que el adn"}],
+            context=context,
+        )
+        return answer, context
+
+    answer, context = asyncio.run(run())
+    assert "ADN" in answer or "DNA" in answer
+    assert context["native_grounded_type"] == "stable_concept"
+
+
 def test_native_rocket_definition_is_available_without_web():
     import asyncio
     from app.core.native_model import NativeReasoningModel
