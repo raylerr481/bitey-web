@@ -74,8 +74,12 @@ class BiteyCognitiveArchitecture:
         # intent/evidence classification. This keeps malformed questions such
         # as "que e sla nasa" on the normal knowledge path instead of treating
         # them as an unknown request.
-        text = re.sub(r"\b(?:que|qué)\s+e\s+sla\s+", "qué es la ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+s(?:la|lha)\s+", "qué es la ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+s(?:el|le)\s+", "qué es el ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+s(?:un)\s+", "qué es un ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+s(?:una)\s+", "qué es una ", text, flags=re.I)
         text = re.sub(r"\b(?:que|qué)\s+e\s+la\s+", "qué es la ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+el\s+", "qué es el ", text, flags=re.I)
         text = re.sub(r"\bqu\s+(?=(?:es|son|significa|funciona)\b)", "qué ", text, flags=re.I)
         tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", text.strip(), re.UNICODE)
         normalized = []
