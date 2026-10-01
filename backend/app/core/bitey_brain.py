@@ -256,10 +256,12 @@ class BiteyBrain:
         )
         t = []
 
+        # Weather is a single specialized capability: do not compose
+        # generic time/search tools into a weather request.
+        if domain == "weather":
+            return ["weather"]
         # Specialized current-data tools come first.
-        if domain == "weather" and "fresh_data" in capabilities:
-            t.append("weather")
-        elif domain == "trading":
+        if domain == "trading":
             # Current market-information requests need generic web evidence;
             # explicit trading analysis may use SBT.
             if intent_family == "current_info":
