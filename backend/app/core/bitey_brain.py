@@ -80,6 +80,8 @@ class BiteyBrain:
         if intent_family not in {"knowledge", "conversation"} and intent_family not in capabilities:
             capabilities.append(intent_family)
         ctx["intent_family"] = intent_family
+        # Preserve the original request for deterministic tool-policy checks.
+        ctx["message"] = message
         tools = self._tool_policy(capabilities, domain, intent_family, ctx)
         # Respect the Cognitive Model's explicit capability decision when present.
         if isinstance(cognitive_strategy, list) and cognitive_strategy:
