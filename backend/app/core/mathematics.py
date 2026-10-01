@@ -34,7 +34,10 @@ def analyze(text: str) -> dict[str, Any]:
     if any(k in s for k in ("desviación", "desviacion", "standard deviation", "desvio")):
         return {"ok": True, "operation": "population_stddev", "result": pstdev(nums), "inputs": nums}
     if any(k in s for k in ("porcentaje", "percent", "%")) and len(nums) >= 2:
-        base, value = nums[0], nums[1]
+        if re.search(r"%\s+de|por\s+ciento\s+de", s):
+            value, base = nums[0], nums[1]
+        else:
+            base, value = nums[0], nums[1]
         if base == 0:
             return {"ok": False, "error": "division_by_zero"}
         return {"ok": True, "operation": "percentage", "result": value / base * 100, "base": base, "value": value}
