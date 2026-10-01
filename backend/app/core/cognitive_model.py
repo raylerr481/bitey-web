@@ -127,6 +127,8 @@ class CognitiveModel:
             text,
             flags=re.I,
         )
+        # Recover shorthand conceptual questions such as "que el adn".
+        text = re.sub(r"^\\s*(?:que|qué)\\s+(el|la|los|las)\\s+([^?!.]{1,80})\\s*[?!.]?\\s*$", r"qué es \\1 \\2", text, flags=re.I)
         vocabulary = cls._routing_vocabulary()
         tokens = re.findall(r"[\wÀ-ÿ]+|[^\wÀ-ÿ]+", text.strip(), re.UNICODE)
         normalized = []
