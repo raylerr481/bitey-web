@@ -178,7 +178,7 @@ class BiteyCognitiveArchitecture:
     @staticmethod
     def _intent(text: str, domain: str) -> str:
         lowered = text.strip().lower()
-        if re.fullmatch(r"(?:hola|holaa+|buenas|hey|hello|hi|oi|olá|ola|buenos días|buenas tardes|buenas noches|buenos dias|buenas tardes|buenas noches)[!.?,\s]*", lowered, re.I): return "greeting"
+        if re.fullmatch(r"(?:hola|holaa+|buenas|hey|hello|hi|oi|olá|ola|holla|hoka|hol)[!.?,\s]*(?:como estas|cómo estás|como está|cómo esta|todo bien|que tal|qué tal)?[!.?,\s]*", lowered, re.I): return "greeting"
         return {"weather":"weather_request", "trading":"trading_request", "research":"research_request", "programming":"programming_request", "support":"support_request", "marketing":"marketing_request", "health":"health_request"}.get(domain, "answer_or_assist")
 
     @staticmethod
