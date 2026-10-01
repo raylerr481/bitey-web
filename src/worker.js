@@ -2557,7 +2557,6 @@ async function weatherEndpoint(url, requestId) {
     return jsonError('weather_unavailable',502,requestId);
   }
 }
- ? 'US
   const text = String(message || '').trim().replace(/,/g, '.');
   const match = text.match(/(?:cu[aá]nto es|calculate|compute|calcula(?:r)?|resultado de)?\s*([-+]?\d+(?:\.\d+)?(?:\s*[+*\/\-]\s*[-+]?\d+(?:\.\d+)?)+)\s*(?:\?|$)/i);
   if (!match) return null;
