@@ -312,7 +312,7 @@ class ProviderGateway:
         else:
             health.failures += 1
             health.last_failure_at = now
-        self._routing_epoch += 1
+        self._routing_epoch = getattr(self, '_routing_epoch', 0) + 1
 
     def routing_snapshot(self) -> dict[str, dict[str, Any]]:
         """Return safe telemetry for diagnostics/UI; never expose credentials."""
