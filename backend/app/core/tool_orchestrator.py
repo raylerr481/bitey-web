@@ -125,7 +125,7 @@ class ToolOrchestrator:
 
         # Calculator is an executable capability, not merely a label. Use it
         # for deterministic arithmetic only; symbolic math remains model work.
-        if arithmetic_request and calculation_profile:
+        if arithmetic_request:
             requested = ["calculator"]
         elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
             requested = ["sbt_market"]
@@ -200,7 +200,7 @@ class ToolOrchestrator:
             try:
                 payload = await asyncio.wait_for(
                     tool.handler(**kwargs),
-                    timeout=max(1.0, float(tool.timeout_seconds)),
+                    timeout=max(0.01, float(tool.timeout_seconds)),
                 )
                 if not isinstance(payload, dict):
                     payload = {"ok": True, "value": payload}
@@ -353,16 +353,17 @@ class ToolOrchestrator:
                 results[fallback_name] = fallback
                 executed.add(fallback_name)
 
-        results["_agent_loop"] = {
-            "enabled": agent_loop,
-            "objective_complete": objective_complete,
-            "stop_reason": stop_reason,
-            "steps": len(executed),
-            "replans": replans,
-            "verification_required": verification_required,
-            "verification_completed": verification_completed,
-            "executed_tools": list(executed),
-        }
+        if agent_loop:
+            results["_agent_loop"] = {
+                "enabled": True,
+                "objective_complete": objective_complete,
+                "stop_reason": stop_reason,
+                "steps": len(executed),
+                "replans": replans,
+                "verification_required": verification_required,
+                "verification_completed": verification_completed,
+                "executed_tools": list(executed),
+            }
         return results
 
     async def _time(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
