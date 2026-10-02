@@ -20,6 +20,7 @@ export function createProviderAi(env) {
 export async function runFreeProviderChain(env, input = {}) {
   const messages = Array.isArray(input.messages) ? input.messages : [];
   const maxTokens = Number(input.max_tokens || 512);
+  const maxCompletionTokens = Number(input.max_completion_tokens || maxTokens);
   const temperature = Number.isFinite(Number(input.temperature)) ? Number(input.temperature) : 0.2;
   const order = String(env.BITEY_PROVIDER_ORDER || 'groq,openrouter')
     .split(',').map(value => value.trim().toLowerCase())
@@ -159,11 +160,12 @@ async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages
     }
     const response = await fetch(endpoint, {
       method: 'POST', signal: controller.signal, headers,
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature })
+      body: JSON.stringify({ model, messages, max_completion_tokens: maxCompletionTokens, temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: 'low', reasoning_format: 'hidden' } : {}) })
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: { provider, status: response.status, message: String(body?.error?.message || body?.message || 'provider_error') } };
-    const text = String(body?.choices?.[0]?.message?.content || body?.output?.[0]?.content?.[0]?.text || '').trim();
+    const message = body?.choices?.[0]?.message || {};
+    const text = String(message?.content || body?.output?.[0]?.content?.[0]?.text || body?.output_text || '').trim();
     if (!text) return { ok: false, error: { provider, status: response.status, message: 'empty_response' } };
     return { ok: true, response: { response: text, provider, model, cost_mode: 'free-only' } };
   } catch (error) {
