@@ -47,7 +47,6 @@
     const url = typeof request === 'string' ? request : request?.url || '';
     const method = String(args[1]?.method || (request?.method || 'GET')).toUpperCase();
     const isV1MessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && method === 'POST';
-    const isV2ChatPost = /\/api\/v2\/chat$/.test(url) && method === 'POST';
     const isMessagePost = isV1MessagePost;
     let messageRequestId = null;
     let messageConversationId = null;
@@ -67,7 +66,6 @@
         }
         if (!messageRequestId) messageRequestId = createRequestId();
         if (isV1MessagePost && messageConversationId) startLive(messageConversationId, messageRequestId);
-        if (isV2ChatPost) startLive(null, messageRequestId);
       } catch (_) {}
     }
 
