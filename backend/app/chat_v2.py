@@ -1846,6 +1846,91 @@ def create_chat_v2_router(
                 else:
                     emit("↻ La recuperación cognitiva no produjo una respuesta suficiente.")
 
+                    # Last-resort knowledge recovery for ordinary questions.
+                    # A provider outage must not automatically become a conversation
+                    # failure. One bounded free web pass can supply evidence, after
+                    # which Bitey's deterministic native model can synthesize it.
+                    if not research_required and ctx.get("intent_family") not in {"weather", "trading"}:
+                        try:
+                            emit("⌕ Intentando una última recuperación de conocimiento…")
+                            recovery_result = await tools.execute(
+                                ["web_research"],
+                                message=query,
+                                context={
+                                    **ctx,
+                                    "current_intent_domain": "general",
+                                    "evidence_required": True,
+                                    "requires_web_research": True,
+                                    "fallback_knowledge_recovery": True,
+                                },
+                            )
+                            recovery_parts = []
+                            recovery_sources = []
+                            for tool_name, tool_payload in recovery_result.items():
+                                if not isinstance(tool_payload, dict):
+                                    continue
+                                if tool_payload.get("evidence"):
+                                    recovery_parts.append(str(tool_payload.get("evidence")))
+                                recovery_sources.extend(
+                                    tool_payload.get("sources")
+                                    or tool_payload.get("results")
+                                    or []
+                                )
+                            recovery_evidence = "\n\n".join(recovery_parts).strip()
+                            if recovery_evidence:
+                                evidence = recovery_evidence
+                                sources = [
+                                    {
+                                        "url": str(item.get("url")).strip(),
+                                        "title": item.get("title") or item.get("url"),
+                                        "verified": True,
+                                        "quality": item.get("source_quality", 0.65),
+                                        "evidence": str(
+                                            item.get("page_evidence")
+                                            or item.get("evidence")
+                                            or ""
+                                        )[:5000],
+                                    }
+                                    for item in recovery_sources
+                                    if isinstance(item, dict)
+                                    and item.get("ok")
+                                    and item.get("url")
+                                ]
+                                recovery_context = {
+                                    **ctx,
+                                    "current_message": query,
+                                    "conversation_id": cid,
+                                    "evidence": evidence,
+                                    "evidence_available": True,
+                                    "evidence_attempted": True,
+                                    "evidence_required": True,
+                                    "research_required": True,
+                                    "selected_tools": ["web_research"],
+                                }
+                                recovered = await NativeReasoningModel().generate(
+                                    messages=[{"role": "user", "content": query}],
+                                    context=recovery_context,
+                                )
+                                if recovered and not _is_degraded_answer(recovered):
+                                    answer = recovered
+                                    provider_context["provider_selected"] = "bitey-native-cognitive-v1"
+                                    provider_context["provider_recovery"] = True
+                                    provider_context["knowledge_recovery"] = True
+                                    ctx["evidence"] = evidence
+                                    ctx["evidence_available"] = True
+                                    ctx["evidence_source_count"] = len(sources)
+                                    executed_tools.extend(
+                                        name for name in recovery_result.keys()
+                                        if name not in executed_tools
+                                    )
+                                    emit("✓ Recuperación de conocimiento completada.")
+                                else:
+                                    emit("◉ La recuperación no produjo una respuesta verificable suficiente.")
+                            else:
+                                emit("◉ No se encontró conocimiento verificable suficiente.")
+                        except Exception:
+                            emit("◉ La recuperación adicional no estuvo disponible.")
+
             selected_provider = str(provider_context.get("provider_selected") or "").strip()
             if selected_provider:
                 provider_labels = {"groq-free": "Groq gratuito", "openrouter-free-router": "OpenRouter Free", "deepseek-free": "DeepSeek Free", "ollama-local": "Ollama local", "bitey-native-cognitive-v1": "motor nativo de Bitey"}
