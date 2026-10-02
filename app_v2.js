@@ -68,5 +68,32 @@ async function sendMessage(raw,options={}){const text=String(raw||'').trim();if(
 function regenerateMessage(row,prompt){if(!row||!prompt||state.busy)return;row.remove();sendMessage(prompt,{regenerate:true})}
 function bindStarters(){document.querySelectorAll('[data-starter]').forEach(b=>b.onclick=()=>{input.value=b.dataset.starter;form.requestSubmit()})}
 function installModeSelector(){if(!input||$('#bitey-mode'))return;const wrap=document.createElement('select');wrap.id='bitey-mode';wrap.title='Modo de Bitey IA';[['auto','Auto'],['chat','Chat'],['research','Investigación'],['math','Matemática'],['code','Código']].forEach(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;wrap.appendChild(o)});wrap.onchange=()=>{state.mode=wrap.value;input.focus()};wrap.className='bitey-mode';$('.composer')?.appendChild(wrap)}
-if(form)form.onsubmit=e=>{e.preventDefault();sendMessage(input.value)};if($('#new-chat'))$('#new-chat').onclick=reset;if(input)input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();form.requestSubmit()}};input?.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,180)+'px'});installModeSelector();bindStarters();renderHistory();window.BiteyChatV2={sendMessage,reset,openConversation,retry:()=>state.lastPrompt?sendMessage(state.lastPrompt):null,regenerateMessage,stop:()=>state.abortController?.abort()};
+function installChatSubmitGuard(){
+  if(!form||!input)return;
+  form.setAttribute('novalidate','');
+  form.addEventListener('submit',e=>{
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const value=input.value;
+    if(value.trim())void sendMessage(value);
+  },true);
+  send?.addEventListener('click',e=>{
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const value=input.value;
+    if(value.trim())void sendMessage(value);
+  },true);
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&!e.shiftKey){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const value=input.value;
+      if(value.trim())void sendMessage(value);
+    }
+  },true);
+}
+if($('#new-chat'))$('#new-chat').onclick=reset;
+input?.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,180)+'px'});
+installModeSelector();bindStarters();renderHistory();installChatSubmitGuard();
+window.BiteyChatV2={sendMessage,reset,openConversation,retry:()=>state.lastPrompt?sendMessage(state.lastPrompt):null,regenerateMessage,stop:()=>state.abortController?.abort()};
 })();
