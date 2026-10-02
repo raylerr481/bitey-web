@@ -160,7 +160,7 @@ async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages
     }
     const response = await fetch(endpoint, {
       method: 'POST', signal: controller.signal, headers,
-      body: JSON.stringify({ model, messages, max_completion_tokens: Number(maxCompletionTokens || maxTokens || 512), temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: 'low', reasoning_format: 'hidden' } : {}) })
+      body: JSON.stringify({ model, messages, max_completion_tokens: Number(maxCompletionTokens || maxTokens || 512), temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: 'low', include_reasoning: false } : {}) })
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: { provider, status: response.status, message: String(body?.error?.message || body?.message || 'provider_error') } };
