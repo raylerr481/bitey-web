@@ -1916,9 +1916,14 @@ def create_chat_v2_router(
                                     provider_context["provider_selected"] = "bitey-native-cognitive-v1"
                                     provider_context["provider_recovery"] = True
                                     provider_context["knowledge_recovery"] = True
+                                    provider_context["evidence_source_count"] = len(sources)
                                     ctx["evidence"] = evidence
                                     ctx["evidence_available"] = True
                                     ctx["evidence_source_count"] = len(sources)
+                                    selected.extend(
+                                        name for name in recovery_result.keys()
+                                        if name not in selected
+                                    )
                                     executed_tools.extend(
                                         name for name in recovery_result.keys()
                                         if name not in executed_tools
