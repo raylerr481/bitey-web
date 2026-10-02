@@ -27,7 +27,7 @@ export async function runFreeProviderChain(env, input = {}) {
     .filter(provider => FREE_PROVIDERS.has(provider));
   const errors = [];
   for (const provider of order) {
-    const result = await callProvider(provider, env, { messages, maxTokens, temperature });
+    const result = await callProvider(provider, env, { messages, maxTokens, maxCompletionTokens, temperature });
     if (result.ok) return result;
     errors.push(result.error);
   }
@@ -143,7 +143,7 @@ function providerUnavailable(errors) {
   return error;
 }
 
-async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages, maxTokens, temperature }) {
+async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages, maxTokens, maxCompletionTokens, temperature }) {
   if (!apiKey) return { ok: false, error: { provider, status: 0, message: 'api_key_not_configured' } };
   if (!baseUrl) return { ok: false, error: { provider, status: 0, message: 'base_url_not_configured' } };
   if (provider === 'openrouter' && !String(model).endsWith(':free')) {
@@ -160,7 +160,7 @@ async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages
     }
     const response = await fetch(endpoint, {
       method: 'POST', signal: controller.signal, headers,
-      body: JSON.stringify({ model, messages, max_completion_tokens: maxCompletionTokens, temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: 'low', reasoning_format: 'hidden' } : {}) })
+      body: JSON.stringify({ model, messages, max_completion_tokens: Number(maxCompletionTokens || maxTokens || 512), temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: 'low', reasoning_format: 'hidden' } : {}) })
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: { provider, status: response.status, message: String(body?.error?.message || body?.message || 'provider_error') } };
