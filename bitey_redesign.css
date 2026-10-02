@@ -2,7 +2,7 @@
    Presentation-only layer. Existing DOM IDs/classes and behavior remain intact.
 */
 :root{
-  --bitey-bg:#ffffff;
+  --bitey-bg:#f8fafc;
   --bitey-panel:#f7f8fa;
   --bitey-panel-2:#f1f3f5;
   --bitey-border:#e5e7eb;
@@ -13,9 +13,9 @@
   --bitey-accent-soft:#eef2f7;
   --bitey-shadow:0 8px 30px rgba(15,23,42,.07);
 }
-html,body{background:var(--bitey-bg);color:var(--bitey-text)}
+html,body{background:#f8fafc;color:var(--bitey-text)}
 body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-.app-shell{height:100dvh;background:#fff}
+.app-shell{height:100dvh;background:#f8fafc}
 
 /* Sidebar */
 .sidebar{
@@ -227,21 +227,20 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
   .site-footer{display:none!important}
 }
 
-/* 2026-10-02 visibility correction: restore contrast so secondary components remain visible. */
-html,body{background:#eef1f4!important;color:#1f2937!important}
-body{min-width:0}
-.app-shell{background:#eef1f4!important}
-.sidebar{background:#f1f3f5!important;border-right:1px solid #d7dce1!important;box-shadow:2px 0 10px rgba(15,23,42,.04)}
-.chat-area{background:#f8f9fa!important;min-width:0}
-.topbar{background:#ffffff!important;border-bottom:1px solid #dfe3e8!important;box-shadow:0 1px 4px rgba(15,23,42,.03)}
-.messages{background:#f8f9fa!important;background-image:radial-gradient(circle at 50% 0,#eef2f5 0,rgba(238,242,245,0) 360px)!important}
-.welcome{background:rgba(255,255,255,.58);border:1px solid #e5e8eb;border-radius:20px;padding:28px 24px 24px;box-shadow:0 6px 24px rgba(15,23,42,.045)}
-.welcome h1{color:#111827!important}
-.hero-copy{color:#66707c!important}
-.starter-row button{background:#ffffff!important;border-color:#d7dce1!important;box-shadow:0 1px 2px rgba(15,23,42,.03)}
-.workspace-entry{background:#ffffff!important;border-color:#d7dce1!important;box-shadow:0 2px 8px rgba(15,23,42,.04)!important}
-.message.assistant .message-content{color:#1f2937!important}
-.composer-wrap{background:#f8f9fa!important;border-top:1px solid #e9ecef}
-.composer{background:#ffffff!important;border-color:#cfd5db!important;box-shadow:0 6px 20px rgba(15,23,42,.08)!important}
-.site-footer{background:#f8f9fa!important}
-@media(max-width:760px){.welcome{padding:22px 15px 20px;border-radius:16px}.chat-area{background:#f8f9fa!important}.messages{background:#f8f9fa!important}}
+
+/* 2026-10-02: restore original Bitey blue visual identity. */
+.sidebar{color:#fff;border-right:1px solid #0b2037}
+.brand strong{color:#fff}.brand small{color:#b9d7e8}
+.new-chat{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.18);color:#fff}
+.new-chat:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.28)}
+.sidebar-tool{color:#dcecf5}.sidebar-tool:hover{background:rgba(255,255,255,.10);color:#fff}.tool-icon{color:#9dcde2}
+.sidebar-section{color:#8fb0c4}.history-item{color:#b8d1df}.history-item:hover{background:rgba(255,255,255,.09);color:#fff}.history-item.active{background:rgba(255,255,255,.14);color:#fff}.history-empty{color:#8fb0c4}
+.sidebar-bottom{border-top-color:rgba(255,255,255,.10)}.sidebar-profile{color:#dcecf5}.sidebar-profile:hover{background:rgba(255,255,255,.09)}.profile-copy strong{color:#fff}.profile-copy small,.profile-more{color:#9dcde2}
+.welcome h1{color:#10243f!important}.eyebrow{color:#1677c8}.hero-copy{color:#64748b!important}
+.starter-row button:hover{background:#e5f3fb;border-color:#9dcde2;color:#10243f}
+.workspace-entry-icon{background:#e5f3fb;color:#1677c8}
+.message.assistant .message-content a{color:#1677c8}
+.composer:focus-within{border-color:#9acde0!important;box-shadow:0 5px 22px rgba(22,119,200,.12)!important}
+.composer .send-button,#send{background:#1677c8!important}.composer .send-button:hover,#send:hover{background:#10243f!important}
+.site-footer a{color:#718096!important}
+@media(max-width:760px){.sidebar{background:linear-gradient(180deg,#10243f 0%,#123554 58%,#0d2943 100%)}}
