@@ -31,7 +31,7 @@ export default {
     // Bitey IA Web v2 chat is backend-authoritative. Proxy the v2 endpoints
     // to the Render backend instead of sending them through the legacy v1 worker router.
     if (url.pathname === '/api/v2/chat' || url.pathname.startsWith('/api/v2/chat/activity/')) {
-      const origin = String(env.BITEY_BACKEND_ORIGIN || '').replace(/\\/$/, '');
+      const origin = String(env.BITEY_BACKEND_ORIGIN || '').replace(/\/$/, '');
       if (!origin) {
         return new Response(JSON.stringify({ error: 'backend_not_configured', message: 'Bitey backend is not configured.' }), {
           status: 503,
