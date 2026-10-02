@@ -407,6 +407,19 @@ def _execution_state(
     }
 
 
+def _has_general_domain_specialized_drift(answer: str) -> bool:
+    """Detect specialized trading/SBT language leaking into a general request."""
+    normalized = " ".join(str(answer or "").casefold().split())
+    if not normalized:
+        return False
+    markers = (
+        "sbt ejecut", "smart money concepts", "bos/choch", "fvg",
+        "order blocks", "backtest determinista", "señal técnica",
+        "no se enviaron órdenes", "sbt_market", "ejecutar una orden",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def _is_degraded_answer(answer: str) -> bool:
     """Detect provider-level non-answers that should not become the user-facing result."""
     normalized = " ".join(str(answer or "").casefold().split())
@@ -1816,6 +1829,22 @@ def create_chat_v2_router(
                 "evidence_source_count": evidence_source_count,
             }
             answer = await providers.generate(messages=messages, context=provider_context)
+
+            # Enforce the executive domain boundary after generation as well as
+            # before generation. External models are untrusted and can still
+            # drift into specialized modules even when the router classified a
+            # request as general. Prefer the deterministic native answer when
+            # it is available; otherwise force a bounded re-synthesis path.
+            if brain_state.task_class == "general" and _has_general_domain_specialized_drift(answer):
+                if native_answer and native_context.get("native_grounded") and native_context.get("native_grounded_type") == "stable_concept":
+                    answer = native_answer
+                    provider_context["provider_selected"] = "bitey-native-cognitive-v1"
+                    provider_context["provider_recovery"] = True
+                    emit("↻ Corregí una desviación de dominio antes de presentar la respuesta.")
+                else:
+                    answer = "Responderé únicamente a la pregunta general solicitada, sin activar módulos especializados que no sean necesarios."
+                    provider_context["provider_recovery"] = True
+                    emit("↻ Apliqué el límite de dominio general antes de presentar la respuesta.")
 
             # A provider can return a transport-safe fallback even when the
             # request itself is answerable. Recover only stable requests; current,
