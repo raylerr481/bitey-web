@@ -35,13 +35,13 @@ jobs:
 
           diag=$(curl -L -fsS --retry 5 --retry-delay 3 --max-time 30 "$BASE/api/diagnostics/providers")
           echo "$diag" | grep -q '"ok":true'
-          echo "$diag" | grep -q '"policy":"groq-primary-free-only"'
+          echo "$diag" | grep -q '"policy":"groq-openrouter-free-only-no-paid-fallback"'
           echo "$diag" | grep -q '"configured":true'
           echo "$diag" | grep -q '"enabled":true'
 
           edge=$(curl -L -fsS --retry 5 --retry-delay 3 --max-time 60 "$BASE/api/diagnostics/edge-ai")
-          echo "$edge" | grep -q '"selected_provider":"groq"'
-          echo "$edge" | grep -q '"policy":"groq-primary-free-only"'
+          echo "$edge" | grep -Eq '"selected_provider":"(groq|openrouter)"'
+          echo "$edge" | grep -q '"policy":"groq-openrouter-free-only-no-paid-fallback"'
           echo "$edge" | grep -q '"answer"'
 
           conversation=$(curl -L -fsS --retry 5 --retry-delay 3 --max-time 30 \
@@ -75,4 +75,4 @@ jobs:
           PY
 
           echo "CERTIFICATION PROVIDER CHECKS PASSED"
-          echo "CERTIFICATION PASSED: Bitey IA Web public provider policy is Groq-primary free-only"
+          echo "CERTIFICATION PASSED: Bitey IA Web public provider policy is Groq/OpenRouter free-only"
