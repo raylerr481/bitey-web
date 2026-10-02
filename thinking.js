@@ -48,7 +48,7 @@
     const method = String(args[1]?.method || (request?.method || 'GET')).toUpperCase();
     const isV1MessagePost = /\/api\/v1\/conversations\/[^/]+\/messages$/.test(url) && method === 'POST';
     const isV2ChatPost = /\/api\/v2\/chat$/.test(url) && method === 'POST';
-    const isMessagePost = isV1MessagePost || isV2ChatPost;
+    const isMessagePost = isV1MessagePost;
     let messageRequestId = null;
     let messageConversationId = null;
 
@@ -75,7 +75,7 @@
     if (isMessagePost) {
       try {
         const responseRequestId = messageRequestId;
-        if (isV2ChatPost && responseRequestId) {
+        if (false && isV2ChatPost && responseRequestId) {
           try {
             const clone = response.clone();
             const data = await clone.json();
@@ -204,7 +204,7 @@
   const pollTrace = async () => {
     if (!liveConversationId && !liveRequestId) return;
     try {
-      const base = window.BITEY_API_BASE || 'https://bitey-ia-suprabrain.onrender.com';
+      const base = window.BITEY_API_BASE || '';
       const params = new URLSearchParams();
       if (liveConversationId) params.set('conversation_id', liveConversationId);
       if (liveRequestId) params.set('request_id', liveRequestId);
