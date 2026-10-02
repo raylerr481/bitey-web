@@ -75,14 +75,7 @@
     if (isMessagePost) {
       try {
         const responseRequestId = messageRequestId;
-        if (false && isV2ChatPost && responseRequestId) {
-          try {
-            const clone = response.clone();
-            const data = await clone.json();
-            const responseConversationId = data?.conversation_id || messageConversationId;
-            if (responseConversationId) startLive(responseConversationId, responseRequestId);
-          } catch (_) {}
-        } else if (messageConversationId && responseRequestId && liveRequestId !== responseRequestId) {
+        if (messageConversationId && responseRequestId && liveRequestId !== responseRequestId) {
           startLive(messageConversationId, responseRequestId);
         }
       } catch (_) {}
