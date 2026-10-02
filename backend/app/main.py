@@ -117,6 +117,17 @@ async def web_research_tool(message: str, context: dict | None = None) -> dict:
         "conflict_candidates": conflicts[:12],
     }
 async def workspace_files_tool(message: str, context: dict | None = None) -> dict: return {"ok": True, "available": True, "note": "Project files are handled through the general workspace layer."}
+def _has_general_domain_specialized_drift(answer: str) -> bool:
+    """Detect SBT/trading language leaking into a general-domain answer."""
+    normalized = " ".join(str(answer or "").casefold().split())
+    markers = (
+        "sbt ejecutó", "smart money concepts", "bos/choch", "fvg",
+        "order blocks", "backtest determinista", "señal técnica",
+        "no se enviaron órdenes", "sbt_market", "ejecutar una orden",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 async def calculator_tool(message: str, context: dict | None = None) -> dict:
     import re
     matches = re.findall(r"(?<![\w.])[-+]?\d+(?:\.\d+)?(?:\s*[+\-*/%^]\s*[-+]?\d+(?:\.\d+)?)+", message)
@@ -432,6 +443,31 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         emit_activity("Seleccionando la mejor IA disponible…")
         provider_context={**bounded_context,"conversation_id":conversation_id,"selected_tools":selected,"evidence":evidence,"evidence_source_count":len(re.findall(r"(?m)^SOURCE \d+:", evidence)) + tool_source_count,"tool_results":{k:{key:val for key,val in v.items() if key != "evidence"} if isinstance(v,dict) else v for k,v in tool_results.items()},"research_required":research_required,"evidence_attempted":evidence_attempted,"research_failure":research_failure,"failed_tools":failed_tools,"cost_mode":"free_only"}
         answer=await providers.generate(messages=messages,context=provider_context)
+        # External model output is untrusted. Enforce the general-domain
+        # boundary after generation too, including the legacy /api/v1 path.
+        # If a deterministic native definition exists, use it instead of
+        # allowing specialized SBT/trading content to reach the user.
+        if domain == "general" and _has_general_domain_specialized_drift(answer):
+            try:
+                native_context = {
+                    "current_message": payload.message,
+                    "conversation_id": conversation_id,
+                    "conversation_only": False,
+                    "evidence_required": bool(brain_state.evidence_required),
+                    "research_required": bool(research_required),
+                    "evidence": evidence,
+                }
+                recovered = await NativeReasoningModel().generate(
+                    messages=[{"role": "user", "content": payload.message}],
+                    context=native_context,
+                )
+                if recovered and not _has_general_domain_specialized_drift(recovered):
+                    answer = recovered
+                    provider_context["provider_selected"] = "bitey-native-cognitive-v1"
+                    provider_context["provider_recovery"] = True
+                    emit_activity("↻ Corregí una desviación de dominio antes de presentar la respuesta.")
+            except Exception:
+                pass
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
         evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence,conflict_detected=conflict_detected); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
         if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
