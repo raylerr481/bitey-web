@@ -107,8 +107,9 @@ class BiteyBrain:
             tools = ["web_research"]
         if isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy:
             tools = []
+            ambiguity = max(ambiguity, 0.55)
         verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
-        mode = "guarded_decision" if risk == "critical" else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
+        mode = "guarded_decision" if risk == "critical" else "evidence_first" if evidence and (domain == "research" or intent_family == "research") else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         prior_execution = ctx.get("active_task", {}).get("previous_execution_state") if isinstance(ctx.get("active_task"), dict) else {}
         plan_steps = self._build_plan(domain=domain, evidence_required=evidence, freshness_required=freshness, complexity=complexity, verification_required=verification, tools=tools, risk=risk, prior_execution=prior_execution)
@@ -281,7 +282,7 @@ class BiteyBrain:
         # The planner keeps specialized current-data tools first, then adds
         # research/reasoning/calculation capabilities required by the request.
         if "external_evidence" in capabilities and domain not in {"weather"} and not (domain == "trading" and intent_family == "current_info"):
-            t.append("web_research")
+            t.append("search") if domain == "research" else t.append("web_research")
         if "code_reasoning" in capabilities:
             t.append("code_reasoning")
         if math_cues:
