@@ -1,5 +1,5 @@
 (()=>{
-const API_BASE=window.BITEY_API_BASE||'https://bitey-ia-suprabrain.onrender.com';
+const API_BASE=window.BITEY_API_BASE||'';
 const KEY='bitey_web_conversations_v2';
 const $=s=>document.querySelector(s);
 const messages=$('#messages'),form=$('#chat-form'),input=$('#prompt'),send=$('#send'),activity=$('#activity'),activityText=$('#activity-text'),activityElapsed=$('#activity-elapsed'),eventsBox=$('#activity-events'),history=$('#history');
