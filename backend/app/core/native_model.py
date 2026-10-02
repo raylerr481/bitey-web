@@ -37,7 +37,16 @@ class NativeReasoningModel:
         # Stable concepts with a deterministic native definition are safe to answer
         # immediately even when the broader cognitive plan allows evidence. Mark the
         # provenance so the executive gate can distinguish this from hallucinated fallback.
-        direct = self._direct_general_answer(user_message, frame)
+        # Native deterministic knowledge is a safe fallback only when the
+        # executive contract does not require external evidence. Never let a
+        # built-in definition bypass an explicit evidence/research gate.
+        evidence_required = bool(
+            context.get("evidence_required")
+            or context.get("research_required")
+            or decision.get("evidence_required")
+            or decision.get("freshness_required")
+        )
+        direct = self._direct_general_answer(user_message, frame) if not evidence_required else ""
         if direct:
             context["native_grounded"] = True
             context["native_grounded_type"] = "stable_concept"
