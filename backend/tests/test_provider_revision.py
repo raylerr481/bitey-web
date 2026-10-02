@@ -40,7 +40,7 @@ class BoundedProviderRevisionTests(unittest.IsolatedAsyncioTestCase):
         ordered = gateway._order_for_role(providers, "synthesis")
         self.assertEqual(
             [p.name for p in ordered],
-            ["groq-free", "deepseek-free", "openrouter-free-test", "ollama-local", "bitey-native-cognitive-v1"],
+            ["ollama-local", "groq-free", "deepseek-free", "openrouter-free-test", "bitey-native-cognitive-v1"],
         )
 
     async def test_revision_is_bounded_to_one_attempt(self):
