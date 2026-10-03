@@ -97,7 +97,6 @@ jobs:
           assert answer.strip(), "Follow-up certification returned an empty answer"
           print("CERTIFICATION FOLLOW-UP RESPONSE PRESENT")
           PY
-          PY
 
           echo "CERTIFICATION PROVIDER CHECKS PASSED"
           echo "CERTIFICATION PASSED: Bitey IA Web public provider policy is Groq/OpenRouter free-only"
