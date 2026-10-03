@@ -72,6 +72,11 @@ class BiteyBrain:
         question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
         evidence = explicit_evidence or question_requires_evidence or freshness
         conceptual_fallback = (domain == "general" and not evidence_available and any(cue in low for cue in ("qué es", "que es", "qué son", "que son", "qué significa", "que significa", "definición", "definicion", "define", "concepto", "what is", "what are", "qual é", "o que é")))
+        # Unknown conceptual questions use evidence-first routing. A small stable set remains local-native.
+        conceptual_subject_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", low, re.I)
+        conceptual_subject = re.sub(r"\s+", " ", conceptual_subject_match.group(1)).strip(" ?¿!¡.").casefold() if conceptual_subject_match else ""
+        if conceptual_fallback and conceptual_subject and conceptual_subject not in {"nasa", "adn", "dna", "cohete", "cohete espacial", "docker"}:
+            evidence = True
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
@@ -109,7 +114,7 @@ class BiteyBrain:
             tools = []
             ambiguity = max(ambiguity, 0.55)
         verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
-        mode = "guarded_decision" if risk == "critical" else "evidence_first" if evidence and (domain == "research" or intent_family == "research") else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
+        mode = "guarded_decision" if risk == "critical" else "evidence_first" if evidence and (domain == "research" or intent_family == "research" or lexical_research) else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         prior_execution = ctx.get("active_task", {}).get("previous_execution_state") if isinstance(ctx.get("active_task"), dict) else {}
         plan_steps = self._build_plan(domain=domain, evidence_required=evidence, freshness_required=freshness, complexity=complexity, verification_required=verification, tools=tools, risk=risk, prior_execution=prior_execution)
@@ -278,8 +283,8 @@ class BiteyBrain:
         # Evidence, reasoning, and deterministic tools may be composed.
         # The planner keeps specialized current-data tools first, then adds
         # research/reasoning/calculation capabilities required by the request.
-        if "external_evidence" in capabilities and domain not in {"weather"} and not (domain == "trading" and intent_family == "current_info"):
-            t.append("search") if domain == "research" else t.append("web_research")
+        if "external_evidence" in capabilities and domain not in {"weather", "trading"}:
+            t.append("search")
         if "code_reasoning" in capabilities:
             t.append("code_reasoning")
         if math_cues:
