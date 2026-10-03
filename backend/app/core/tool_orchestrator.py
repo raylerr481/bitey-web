@@ -584,7 +584,7 @@ class ToolOrchestrator:
         ][:8]
         evidence_blocks = []
         for i, item in enumerate(evidence_candidates, 1):
-            evidence_blocks.append
+            evidence_blocks.append(
                 f"SOURCE {i}: {item.get('url')}\n"
                 f"TITLE: {item.get('title', '')}\n"
                 f"SOURCE QUALITY: {item.get('source_quality', 0.0):.2f} ({item.get('source_category', 'unknown')})\n"
