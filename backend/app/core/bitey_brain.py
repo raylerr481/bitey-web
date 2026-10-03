@@ -39,7 +39,7 @@ class BiteyBrain:
     """Executive cognition. It decides WHAT must happen before model selection."""
     HIGH_RISK = ("password", "contraseña", "api key", "secret", "token", "dinero real", "real money")
     ACTION_WORDS = ("ejecuta", "ejecutar", "compra", "comprar", "vende", "vender", "borra", "elimina", "deploy", "envía", "envia")
-    FRESHNESS_WORDS = ("ahora", "actualmente", "hoy", "último", "ultimo", "reciente", "latest", "current", "recent", "en vivo", "tiempo real")
+    FRESHNESS_WORDS = ("ahora", "actual", "actualmente", "hoy", "último", "ultimo", "reciente", "latest", "current", "recent", "en vivo", "tiempo real")
     RESEARCH_WORDS = ("investiga", "investigar", "investigación", "investigacion", "fuentes", "compara", "comparar", "verifica", "verificar", "evidencia", "research")
 
     def _fingerprint(self, message: str, context: dict[str, Any], evidence_available: bool) -> str:
