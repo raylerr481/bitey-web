@@ -13,12 +13,12 @@ class EvaluationEngineExecutiveIntegrationTests(unittest.TestCase):
         context["cognition"] = cognition.as_dict()
         brain_state = BiteyBrain().think(message, {**context, "evidence_available": True})
         context["bitey_brain"] = brain_state.as_dict()
-        context["selected_tools"] = ["search"]
+        context["selected_tools"] = ["web_research"]
         result = EvaluationEngine().evaluate(
             user_message=message,
-            answer="He contrastado las opciones con evidencia disponible y separo los hechos de las inferencias.",
+            answer="He contrastado las opciones con evidencia disponible y separo los hechos de las inferencias. [S1] [S2]",
             context=context,
-            evidence="SOURCE A: documentation; SOURCE B: provider information",
+            evidence="SOURCE 1: https://docs.example\nCONTENT: documentation for API options\n\nSOURCE 2: https://provider.example\nCONTENT: provider information about API options",
         )
         self.assertIn("executive", result.as_dict())
         self.assertTrue(result.executive["passed"])
