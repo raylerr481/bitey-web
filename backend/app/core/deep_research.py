@@ -389,10 +389,7 @@ class DeepResearchEngine:
             # otherwise unusable. For knowledge questions, recover by querying
             # Wikipedia directly instead of treating discovery metadata as
             # verified evidence.
-            if (
-                "knowledge_request" in plan.reasons
-                and not any(e.ok and e.content for e in plan.evidence)
-            ):
+            if not any(e.ok and e.content for e in plan.evidence) and ("knowledge_request" in plan.reasons or plan.verification_required):
                 fallback_urls: list[str] = []
                 for variant in plan.query_variants or [plan.query]:
                     for url in await self._search_wikipedia(client, variant, limit=3):
