@@ -63,7 +63,7 @@ class CognitiveModel:
     )
 
     _IDENTITY_PATTERNS = (
-        r"^(?:[¿?\s]*)qu[ií]e?n\s+eres[?!.,¡¿\s]*$",
+        r"^(?:[¿?\s]*)qui[eé]n\s+eres[?!.,¡¿\s]*$",
         r"^(?:[¿?\s]*)qu[eé]\s+eres[?!.,¡¿\s]*$",
         r"^(?:[¿?\s]*)qu[eé]\s+puedes\s+hacer[?!.,¡¿\s]*$",
         r"^(?:[¿?\s]*)qu[eé]\s+haces[?!.,¡¿\s]*$",
@@ -84,7 +84,7 @@ class CognitiveModel:
 
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "allí", "alli", "ahí", "ahi", "mañana", "manana", "ayer", "antes", "después", "despues", "otra", "otro", "anterior", "siguiente", "precio", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
     _MARKET_INSTRUMENT_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|XAUUSD|XAGUSD)\b", re.I)
-    _MARKET_ACTION_CUES = ("precio", "cotización", "cotizacion", "valor", "cuánto vale", "cuanto vale", "cómo está", "como esta", "ahora", "ahora mismo", "cotiza")
+    _MARKET_ACTION_CUES = ("precio", "cotización", "cotizacion", "valor", "cuánto vale", "cuanto vale", "cómo está", "como esta", "ahora", "ahora mismo", "cotiza", "compra", "comprar", "vende", "vender", "ejecuta", "ejecutar")
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
@@ -124,6 +124,8 @@ class CognitiveModel:
             text,
             flags=re.I,
         )
+        text = re.sub(r"\b(?:que|qué)\s+e\s+s(?:un|el|la|los|las)\s+", lambda m: "qué es " + m.group(0).split()[-1] + " ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+s\s+(un|el|la|los|las)\s+", r"qué es \1 ", text, flags=re.I)
         text = re.sub(
             r"\b(?:que|qué)\s+e\s+la\s+",
             "qué es la ",
