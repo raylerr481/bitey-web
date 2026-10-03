@@ -619,7 +619,7 @@ class CognitiveModel:
         conceptual_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", lower_message, re.I)
         if conceptual_match:
             conceptual_subject = re.sub(r"\s+", " ", conceptual_match.group(1)).strip(" ?¿!¡.").casefold()
-        if conceptual and conceptual_subject and conceptual_subject not in cls._STABLE_NATIVE_CONCEPTS:
+        if conceptual and conceptual_subject and conceptual_subject not in self._STABLE_NATIVE_CONCEPTS:
             evidence = True
 
         if comparison_task:
