@@ -77,6 +77,8 @@ class BiteyBrain:
         conceptual_subject = re.sub(r"\s+", " ", conceptual_subject_match.group(1)).strip(" ?¿!¡.").casefold() if conceptual_subject_match else ""
         if conceptual_fallback and conceptual_subject and conceptual_subject not in {"nasa", "adn", "dna", "cohete", "cohete espacial", "docker"}:
             evidence = True
+        if intent_family == "conversation":
+            evidence = False
         risk = "low"
         if domain == "trading" and any(x in low for x in self.ACTION_WORDS): risk = "critical"
         elif any(x in low for x in self.HIGH_RISK): risk = "high"
