@@ -43,7 +43,7 @@ jobs:
           printf '%s' "$body" | grep -q "Bitey IA"
           printf '%s' "$body" | grep -q "Hola, soy Bitey."
           printf '%s' "$body" | grep -q "workspace-entry"
-          printf '%s' "$body" | grep -q "app.js"
+          printf '%s' "$body" | grep -q "app_v2.js"
           echo "DEPLOYMENT SMOKE TEST PASSED"
 
 # Keep the deployment workflow active for every main-branch application change.
