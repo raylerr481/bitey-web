@@ -483,7 +483,7 @@ class CognitiveModel:
         return {
             "score": round(min(1.0, score), 3),
             "signals": signals,
-            "requires_clarification": score >= 0.55,
+            "requires_clarification": score >= 0.30,
         }
 
     @classmethod
