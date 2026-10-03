@@ -34,7 +34,7 @@ class CognitiveModel:
         "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
         "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
         "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair"),
-        "programming": ("código", "codigo", "python", "javascript", "api", "bug", "programar"),
+        "programming": ("código", "codigo", "python", "javascript", "bug", "programar"),
         "marketing": ("marketing", "ventas", "campaña", "publicidad", "seo"),
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
         "local_search": ("cerca de mí", "cerca de mi", "cercano", "cercana", "near me", "nearby", "en mi zona"),
