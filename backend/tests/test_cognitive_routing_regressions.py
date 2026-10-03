@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from app.core.cognitive_architecture import BiteyCognitiveArchitecture
 from app.core.provider_gateway import ProviderGateway, ProviderHealth
+from app.core.cognitive_model import CognitiveModel
 
 
 def test_malformed_nasa_question_reaches_conceptual_path():
