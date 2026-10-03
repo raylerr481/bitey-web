@@ -124,7 +124,11 @@ class CognitiveModel:
             text,
             flags=re.I,
         )
-        text = re.sub(r"\b(?:que|qué)\s+e\s+s(?:un|el|la|los|las)\s+", lambda m: "qué es " + m.group(0).split()[-1] + " ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+sun\s+", "qué es un ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+sel\s+", "qué es el ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+sla\s+", "qué es la ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+slos\s+", "qué es los ", text, flags=re.I)
+        text = re.sub(r"\b(?:que|qué)\s+e\s+slas\s+", "qué es las ", text, flags=re.I)
         text = re.sub(r"\b(?:que|qué)\s+e\s+s\s+(un|el|la|los|las)\s+", r"qué es \1 ", text, flags=re.I)
         text = re.sub(
             r"\b(?:que|qué)\s+e\s+la\s+",
