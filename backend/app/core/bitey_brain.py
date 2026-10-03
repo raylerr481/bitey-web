@@ -271,12 +271,9 @@ class BiteyBrain:
             return ["weather"]
         # Specialized current-data tools come first.
         if domain == "trading":
-            # Current market-information requests need generic web evidence;
-            # explicit trading analysis may use SBT.
-            if intent_family == "current_info":
-                t.append("web_research")
-            else:
-                t.append("sbt_market")
+            # The trading domain owns its market operations through SBT;
+            # finance/general domains remain on generic web research.
+            t.append("sbt_market")
 
         # Evidence, reasoning, and deterministic tools may be composed.
         # The planner keeps specialized current-data tools first, then adds
