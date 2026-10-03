@@ -68,7 +68,7 @@ jobs:
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --no-tags origin "${BEFORE_SHA}" "${AFTER_SHA}"
           changed="$(git diff --name-only "${BEFORE_SHA}" "${AFTER_SHA}")"
-          if ! printf '%s\n' "$changed" | grep -Eq '(^src/|^app/|^pages/|^components/|^public/|^package|^vite\.config|^next\.config|^\.github/workflows/)'; then exit 0; fi
+          # Workflow-only edits cannot be pushed as backup refs by the default Actions token.\n          # Keep the guard active for application changes and let workflow changes remain recoverable in Git history.\n          if ! printf '%s\n' "$changed" | grep -Eq '(^src/|^app/|^pages/|^components/|^public/|^package|^vite\.config|^next\.config)'; then exit 0; fi
           name="backup/pre-change-${AFTER_SHA:0:12}"
           git checkout --detach "${BEFORE_SHA}"
           git push --force origin "HEAD:refs/heads/${name}"
