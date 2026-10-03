@@ -237,7 +237,7 @@ class BiteyBrain:
 
         if domain == "programming" or any(x in low for x in (
             "código", "codigo", "debug", "depura", "error", "exception",
-            "traceback", "stack trace", "api", "endpoint", "backend",
+            "traceback", "stack trace", "endpoint", "backend",
             "frontend", "python", "javascript", "typescript", "sql",
             "docker", "github", "fastapi", "react"
         )):
