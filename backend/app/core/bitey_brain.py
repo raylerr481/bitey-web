@@ -151,36 +151,25 @@ class BiteyBrain:
 
     @staticmethod
     def _build_plan(*, domain: str, evidence_required: bool, freshness_required: bool, complexity: float, verification_required: bool, tools: list[str], risk: str, prior_execution: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        prior = prior_execution or {}
+        prior_tools = {str(tool) for tool in prior.get("executed_tools", []) if str(tool).strip()}
+        prior_has_evidence = bool(prior.get("evidence_count"))
+        effective_tools = list(tools) or (["web_research"] if domain in {"research", "finance"} and (evidence_required or freshness_required) else [])
         steps = [{"id": "understand", "action": "understand_request", "status": "required"}]
-        steps.append({"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(tools), "status": "required" if (evidence_required or freshness_required or domain != "general") else "available"})
-        if freshness_required or evidence_required or domain != "general":
-            prior_tools = set(str(tool) for tool in (prior_execution or {}).get("executed_tools", []) if str(tool).strip())
-            effective_tools = list(tools) or (["web_research"] if domain in {"research", "finance"} else [])
-            steps.append({"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": effective_tools, "status": "required"})
-            prior_has_evidence = bool((prior_execution or {}).get("evidence_count"))
-            # Fresh/current requests must refresh evidence; older evidence may only be
-            # reused as continuity context for stable requests.
-            if (
-                prior_tools
-                and set(effective_tools).issubset(prior_tools)
-                and prior_has_evidence
-                and not freshness_required
-            ):
-                steps[-1]["action"] = "reuse_or_refresh_evidence"
-            elif prior_has_evidence and freshness_required:
-                steps[-1]["action"] = "refresh_current_evidence"
+        retrieve_action = "prepare_evidence_retrieval"
+        if prior_tools and set(effective_tools).issubset(prior_tools) and prior_has_evidence and not freshness_required:
+            retrieve_action = "reuse_or_refresh_evidence"
+        elif prior_has_evidence and freshness_required:
+            retrieve_action = "refresh_current_evidence"
+        steps.append({"id": "retrieve", "action": retrieve_action, "tools": effective_tools, "status": "required" if (evidence_required or freshness_required or domain != "general") else "available"})
         if complexity >= 0.60:
             steps.append({"id": "decompose", "action": "decompose_multi_step_task", "status": "required"})
-        # The execution circuit is deliberately canonical:
-        # prepare retrieval -> execute tools -> promote evidence -> gate -> synthesize.
-        # Comparison happens only after the evidence gate so unverified material
-        # can never become part of the synthesis plan.
-        if tools and (evidence_required or freshness_required):
-            steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": list(effective_tools), "status": "required"})
+        if effective_tools and (evidence_required or freshness_required):
+            steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": effective_tools, "status": "required"})
             steps.append({"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
-            if domain == "research" or tools:
+            if domain == "research" or effective_tools:
                 steps.append({"id": "compare", "action": "compare_verified_evidence", "status": "required"})
-        elif evidence_required or freshness_required or domain in {"research", "weather", "trading"}:
+        elif evidence_required or freshness_required:
             steps.append({"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
         steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
         if verification_required:
@@ -189,7 +178,6 @@ class BiteyBrain:
             steps.append({"id": "risk_gate", "action": "apply_risk_gate", "status": "required"})
         steps.append({"id": "respond", "action": "respond_to_user", "status": "required"})
         return steps
-
     @staticmethod
     def _verification_profile(text: str, domain: str, evidence: bool, freshness: bool, complexity: float) -> list[str]:
         low = text.lower(); profile: list[str] = ["fact"]
