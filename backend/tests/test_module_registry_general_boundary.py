@@ -7,6 +7,7 @@ def test_general_domain_never_resolves_specialized_modules():
         ModuleSpec(
             "sbt",
             "Trading module",
+            endpoint="https://sbt.example",
             capabilities=("trading", "market_intelligence"),
             enabled=True,
         )
