@@ -35,11 +35,20 @@ class BrainState:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
 
     def __post_init__(self) -> None:
-        if not any(step.get("id") == "retrieve" for step in self.plan_steps):
-            self.plan_steps.insert(1, {"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(self.tool_priority), "status": "required" if self.evidence_required or self.freshness_required else "available"})
+        retrieve = next((step for step in self.plan_steps if step.get("id") == "retrieve"), None)
+        if retrieve is None:
+            retrieve = {"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(self.tool_priority), "status": "required" if self.evidence_required or self.freshness_required else "available"}
+            self.plan_steps.insert(1, retrieve)
+        if self.freshness_required:
+            retrieve["action"] = "refresh_current_evidence"
+        elif self.evidence_required and self.tool_priority:
+            retrieve["action"] = "reuse_or_refresh_evidence"
         if self.evidence_required and self.tool_priority and not any(step.get("id") == "tool_execute" for step in self.plan_steps):
-            self.plan_steps.insert(2, {"id": "tool_execute", "action": "execute_selected_tools", "tools": list(self.tool_priority), "status": "required"})
-            self.plan_steps.insert(3, {"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
+            idx = next((i for i, step in enumerate(self.plan_steps) if step.get("id") == "synthesize"), len(self.plan_steps))
+            self.plan_steps.insert(idx, {"id": "tool_execute", "action": "execute_selected_tools", "tools": list(self.tool_priority), "status": "required"})
+            self.plan_steps.insert(idx + 1, {"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
+        if not any(step.get("id") == "synthesize" for step in self.plan_steps):
+            self.plan_steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
 
 
 class BiteyBrain:
