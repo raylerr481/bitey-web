@@ -53,11 +53,11 @@ def test_chat_v2_internal_failure_returns_safe_response():
     response = asyncio.run(run())
 
     assert isinstance(response, ChatV2Response)
-    assert response.answer_validation["decision"] == "recoverable_error"
-    assert response.answer_validation["internal_error"] is True
+    assert response.answer_validation["decision"] == "accept"
+    assert response.answer_validation["provenance"] == "bitey_native_recovery"
     assert response.execution_state["recoverable"] is True
     assert "SECRET_INTERNAL_PROVIDER_FAILURE" not in response.answer
-    assert response.tools_used == []
+    assert response.tools_used == ["bitey-native-recovery"]
     assert response.sources == []
 
 
