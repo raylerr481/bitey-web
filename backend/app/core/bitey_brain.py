@@ -51,6 +51,10 @@ class BiteyBrain:
         ctx = context if context is not None else {}; text = message.strip(); low = text.lower()
         cognition = ctx.get("cognition") or {}; intention = cognition.get("intention") or {}; perception = cognition.get("perception") or {}; domain = str(intention.get("domain") or ctx.get("domain") or "general")
         intent_family = str(intention.get("intent_family") or "knowledge")
+        market_instrument = bool(re.search(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|XAUUSD|XAGUSD)\b", message, re.I))
+        market_action = any(word in low for word in ("compra", "comprar", "vende", "vender", "ejecuta", "ejecutar"))
+        if market_instrument and market_action:
+            domain, intent_family = "trading", "trading"
         evidence_available = bool(ctx.get("evidence_available")); fingerprint = self._fingerprint(message, ctx, evidence_available)
         cached = ctx.get("_bitey_brain_state")
         if isinstance(cached, BrainState) and cached.decision_fingerprint == fingerprint: return cached
@@ -129,6 +133,8 @@ class BiteyBrain:
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
         prior_execution = ctx.get("active_task", {}).get("previous_execution_state") if isinstance(ctx.get("active_task"), dict) else {}
         plan_steps = self._build_plan(domain=domain, evidence_required=evidence, freshness_required=freshness, complexity=complexity, verification_required=verification, tools=tools, risk=risk, prior_execution=prior_execution)
+        if not conversational_only and not any(step.get("id") == "retrieve" for step in plan_steps):
+            plan_steps.insert(1, {"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(tools), "status": "required"})
         cognitive_clarification = isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy
         state = BrainState(task_class=domain, objective=self._objective(capabilities, domain), complexity=complexity, ambiguity=max(0,min(1,ambiguity)), evidence_required=evidence, freshness_required=freshness, conceptual_fallback=conceptual_fallback, risk_level=risk, reasoning_mode=mode, memory_priority="high" if ctx.get("learned_cognitive_context", {}).get("available") else "normal", required_capabilities=capabilities, tool_priority=tools, verification_required=verification, verification_profile=verification_profile, execution_allowed=risk not in {"high","critical"} and domain != "trading", model_role=role, model_selection_reason=reason, stop_condition="clarification_needed_before_execution" if cognitive_clarification else "verified_evidence_and_sufficient_confidence" if verification else "sufficient_confidence", goals=["understand_request","preserve_user_constraints","select_required_capabilities","produce_useful_answer"], constraints=["external_model_output_is_untrusted","memory_is_context_not_truth","model_selection_follows_cognitive_plan"], decision_fingerprint=fingerprint)
         if evidence: state.goals.insert(3,"ground_claims_in_evidence")
