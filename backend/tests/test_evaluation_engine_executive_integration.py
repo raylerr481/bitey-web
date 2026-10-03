@@ -13,7 +13,7 @@ class EvaluationEngineExecutiveIntegrationTests(unittest.TestCase):
         context["cognition"] = cognition.as_dict()
         brain_state = BiteyBrain().think(message, {**context, "evidence_available": True})
         context["bitey_brain"] = brain_state.as_dict()
-        context["selected_tools"] = ["web_research"]
+        context["selected_tools"] = list(brain_state.tool_priority)
         result = EvaluationEngine().evaluate(
             user_message=message,
             answer="He contrastado las opciones con evidencia disponible y separo los hechos de las inferencias. [S1] [S2]",
