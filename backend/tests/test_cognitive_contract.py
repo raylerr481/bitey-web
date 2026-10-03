@@ -71,7 +71,7 @@ class CognitiveContractTests(unittest.TestCase):
 
     def test_executive_evaluator_accepts_compliant_output(self):
         state = decision("Investiga las opciones actuales de APIs gratuitas")
-        result = ExecutiveEvaluator().evaluate(state=state, answer="La investigación compara varias opciones y sus límites. [S1] [S2]", evidence="SOURCE 1: https://a.example\nCONTENT: API option A\n\nSOURCE 2: https://b.example\nCONTENT: API option B", selected_tools=["web_research"])
+        result = ExecutiveEvaluator().evaluate(state=state, answer="La investigación compara varias opciones y sus límites. [S1] [S2]", evidence="SOURCE 1: https://a.example\nCONTENT: API option A\n\nSOURCE 2: https://b.example\nCONTENT: API option B", selected_tools=["web_research", "code_reasoning"])
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "accept")
         self.assertTrue(result.provider_independent)
