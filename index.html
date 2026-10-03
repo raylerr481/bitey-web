@@ -26,4 +26,20 @@
   }
   window.BiteyLocalOllama={detect,generate,endpoint};
 })();
-</script><script src="./app_v2.js?v=20261003-chatfix2"></script><script src="./auth.js"></script><script src="./features.js"></script><script src="./thinking.js?v=20260924-1"></script><script src="./workspace_hub.js?v=20260904-2"></script></body></html>
+</script><script src="./app_v2.js?v=20261003-chatfix2"></script><script>
+(()=>{if(window.BiteyChatV2)return;
+  const input=document.querySelector('#prompt'),form=document.querySelector('#chat-form'),messages=document.querySelector('#messages');
+  if(!input||!form||!messages)return;
+  let conversationId=null,busy=false;
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const add=(role,text)=>{const row=document.createElement('article');row.className='message '+role;const body=document.createElement('div');body.className='message-content';body.innerHTML=role==='assistant'?esc(text).replace(/\n/g,'<br>'):esc(text).replace(/\n/g,'<br>');row.appendChild(body);messages.appendChild(row);row.scrollIntoView({behavior:'smooth',block:'end'});};
+  const send=async()=>{const text=String(input.value||'').trim();if(!text||busy)return;busy=true;add('user',text);input.value='';try{
+    const r=await fetch('/api/v2/chat',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({conversation_id:conversationId,message:text,mode:'auto',metadata:{channel:'web',interface:'bitey-web-fallback',language:navigator.language||'es'}})});
+    const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.detail||d.error||('HTTP '+r.status));conversationId=d.conversation_id||conversationId;add('assistant',String(d.answer||'No recibí una respuesta válida.'));
+  }catch(e){add('assistant','No pude conectar con Bitey en este momento. Intenta nuevamente.');console.error('[Bitey fallback]',e)}finally{busy=false;input.focus()}};
+  form.addEventListener('submit',e=>{e.preventDefault();void send()});
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void send()}});
+  window.BiteyChatV2={sendMessage:send,reset:()=>{conversationId=null;messages.innerHTML='';input.focus()}};
+  console.warn('[Bitey] app_v2.js no quedó disponible; fallback de chat activado');
+})();
+</script><script src="./auth.js"></script><script src="./features.js"></script><script src="./thinking.js?v=20260924-1"></script><script src="./workspace_hub.js?v=20260904-2"></script></body></html>
