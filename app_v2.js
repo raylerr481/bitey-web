@@ -69,26 +69,49 @@ function regenerateMessage(row,prompt){if(!row||!prompt||state.busy)return;row.r
 function bindStarters(){document.querySelectorAll('[data-starter]').forEach(b=>b.onclick=()=>{input.value=b.dataset.starter;form.requestSubmit()})}
 function installModeSelector(){if(!input||$('#bitey-mode'))return;const wrap=document.createElement('select');wrap.id='bitey-mode';wrap.title='Modo de Bitey IA';[['auto','Auto'],['chat','Chat'],['research','Investigación'],['math','Matemática'],['code','Código']].forEach(([v,t])=>{const o=document.createElement('option');o.value=v;o.textContent=t;wrap.appendChild(o)});wrap.onchange=()=>{state.mode=wrap.value;input.focus()};wrap.className='bitey-mode';$('.composer')?.appendChild(wrap)}
 function installChatSubmitGuard(){
-  if(!form||!input)return;
-  form.setAttribute('novalidate','');
-  form.addEventListener('submit',e=>{
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const value=input.value;
-    if(value.trim())void sendMessage(value);
+  const getInput=()=>document.querySelector('#prompt,textarea[name="message"],textarea[name="prompt"],input[name="message"],input[name="prompt"],.composer textarea,.composer input[type="text"]');
+  const submit=()=>{
+    const el=getInput();
+    if(!el)return;
+    const value=String(el.value||'').trim();
+    if(!value)return;
+    if(typeof window.BiteyChatV2?.sendMessage==='function'){
+      void window.BiteyChatV2.sendMessage(value);
+    }else{
+      void sendMessage(value);
+    }
+  };
+  document.addEventListener('submit',e=>{
+    const formEl=e.target;
+    if(formEl instanceof HTMLFormElement){
+      const el=getInput();
+      if(el&&formEl.contains(el)){
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        submit();
+      }
+    }
   },true);
-  send?.addEventListener('click',e=>{
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const value=input.value;
-    if(value.trim())void sendMessage(value);
+  document.addEventListener('click',e=>{
+    const target=e.target;
+    const button=target?.closest?.('button,[role="button"],input[type="submit"]');
+    if(!button)return;
+    const el=getInput();
+    if(!el)return;
+    const isSend=button.id==='send'||button.type==='submit'||button.matches('.send-button,[data-send],.composer button');
+    if(isSend){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      submit();
+    }
   },true);
-  input.addEventListener('keydown',e=>{
+  document.addEventListener('keydown',e=>{
+    const el=getInput();
+    if(!el||e.target!==el)return;
     if(e.key==='Enter'&&!e.shiftKey){
       e.preventDefault();
       e.stopImmediatePropagation();
-      const value=input.value;
-      if(value.trim())void sendMessage(value);
+      submit();
     }
   },true);
 }
