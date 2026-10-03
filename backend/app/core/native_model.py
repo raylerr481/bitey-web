@@ -86,8 +86,19 @@ class NativeReasoningModel:
             if language == "en": return "Bitcoin is a decentralized digital currency introduced in 2009. It operates on a distributed blockchain network where transactions are recorded and validated by the network. It is not issued by a central bank and can be highly volatile."
             return "Bitcoin es una moneda digital descentralizada introducida en 2009. Funciona sobre una red distribuida llamada blockchain, donde las transacciones se registran y validan en la red. No es emitido por un banco central y su precio puede ser muy volátil."
         concept = re.match(r"^(?:[¿?]\s*)?(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(.+?)[?¿!¡.\s]*$", q, re.I)
+        # Short standalone concept follow-ups (for example "un cohete") are
+        # common in conversation. Answer them only for high-confidence native
+        # concepts; do not turn the native model into a fuzzy encyclopedia.
+        standalone_subject = ""
+        if not concept:
+            standalone = re.match(r"^(?:un|una|el|la)\s+(.+?)\s*[?¿!¡.]*$", q, re.I)
+            if standalone:
+                candidate = re.sub(r"\s+", " ", standalone.group(1)).strip(" ?¿!¡.")
+                if candidate.casefold() in self._STABLE_NATIVE_CONCEPTS:
+                    standalone_subject = candidate
+                    concept = standalone
         if concept:
-            subject = re.sub(r"\s+", " ", concept.group(1)).strip(" ?¿!¡.")
+            subject = standalone_subject or re.sub(r"\s+", " ", concept.group(1)).strip(" ?¿!¡.")
             # Normalize harmless articles so "qué es la NASA" and "qué es NASA"
             # resolve to the same stable concept without broad fuzzy guessing.
             subject = re.sub(r"^(?:la|el|los|las|un|una)\s+", "", subject, flags=re.I).strip()
