@@ -567,6 +567,7 @@ class ToolOrchestrator:
             item["relevance"] = relevance
             verified.append(item)
         verified_count = len(verified)
+        verified_for_provenance = list(verified)
         verified.sort(
             key=lambda item: (
                 float(item.get("relevance", 0.0)),
@@ -576,13 +577,14 @@ class ToolOrchestrator:
         )
         relevant_verified = [item for item in verified if float(item.get("relevance", 0.0)) >= 0.08]
         verified = relevant_verified[:6]
+        evidence_candidates = verified if verified else verified_for_provenance[:1]
         result["results"] = [
             item for item in enriched
             if float(item.get("relevance", 0.0) or 0.0) >= 0.08
         ][:8]
         evidence_blocks = []
-        for i, item in enumerate(verified, 1):
-            evidence_blocks.append(
+        for i, item in enumerate(evidence_candidates, 1):
+            evidence_blocks.append
                 f"SOURCE {i}: {item.get('url')}\n"
                 f"TITLE: {item.get('title', '')}\n"
                 f"SOURCE QUALITY: {item.get('source_quality', 0.0):.2f} ({item.get('source_category', 'unknown')})\n"
