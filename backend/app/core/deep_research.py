@@ -410,7 +410,7 @@ class DeepResearchEngine:
                         if "html" not in ct:
                             plan.evidence.append(Evidence(url=url, error="unsupported_content_type"))
                             continue
-                        text = r.content[:max_bytes].decode(r.encoding or "utf-8", errors="replace")
+                        text = r.content[:max_bytes].decode(getattr(r, "encoding", None) or "utf-8", errors="replace")
                         title_match = re.search(r"<title[^>]*>(.*?)</title>", text, re.I | re.S)
                         title = re.sub(r"\s+", " ", title_match.group(1)).strip() if title_match else ""
                         text = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", " ", text, flags=re.I | re.S)
