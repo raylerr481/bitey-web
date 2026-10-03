@@ -83,7 +83,7 @@ class CognitiveModel:
     )
 
     _FOLLOWUP_WORDS = ("eso", "esto", "ello", "ese", "esa", "allí", "alli", "ahí", "ahi", "mañana", "manana", "ayer", "antes", "después", "despues", "otra", "otro", "anterior", "siguiente", "precio", "seguir", "continúa", "continua", "analízalo", "analizalo", "hazlo", "explícalo", "explicalo")
-    _MARKET_INSTRUMENT_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b", re.I)
+    _MARKET_INSTRUMENT_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|XAUUSD|XAGUSD)\b", re.I)
     _MARKET_ACTION_CUES = ("precio", "cotización", "cotizacion", "valor", "cuánto vale", "cuanto vale", "cómo está", "como esta", "ahora", "ahora mismo", "cotiza")
 
     _ROUTING_ALIASES = {
