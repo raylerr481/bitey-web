@@ -94,7 +94,7 @@ class NativeReasoningModel:
             standalone = re.match(r"^(?:un|una|el|la)\s+(.+?)\s*[?¿!¡.]*$", q, re.I)
             if standalone:
                 candidate = re.sub(r"\s+", " ", standalone.group(1)).strip(" ?¿!¡.")
-                if candidate.casefold() in self._STABLE_NATIVE_CONCEPTS:
+                if candidate.casefold() in {"nasa", "adn", "dna", "cohete", "cohete espacial", "docker"}:
                     standalone_subject = candidate
                     concept = standalone
         if concept:
