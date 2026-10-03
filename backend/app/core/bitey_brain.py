@@ -67,7 +67,7 @@ class BiteyBrain:
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
         lexical_research = any(x in low for x in self.RESEARCH_WORDS)
         perception_question = bool(perception.get("question"))
-        conversational_only = bool(perception.get("greeting") or perception.get("identity_request"))
+        conversational_only = bool(perception.get("greeting") or perception.get("identity_request") or intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"})
         explicit_evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research)
         question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
         evidence = explicit_evidence or question_requires_evidence or freshness
