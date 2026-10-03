@@ -64,6 +64,9 @@ class ExecutiveEvaluator:
         evidence_required = bool(self._get(state, "evidence_required", False))
         conceptual_fallback = bool(self._get(state, "conceptual_fallback", False))
         native_grounded = bool(self._get(state, "native_grounded", False))
+        risk_level = str(self._get(state, "risk_level", "low"))
+        execution_allowed_state = bool(self._get(state, "execution_allowed", False))
+        safe_refusal_contract = risk_level == "critical" and not execution_allowed_state and any(term in lower_text for term in ("no se ejecut", "bloquead", "no puedo ejecutar", "cannot execute"))
 
         def evidence_has_provenance(value: str) -> bool:
             # Evidence must contain a traceable source marker, not merely a
