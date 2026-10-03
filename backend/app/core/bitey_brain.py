@@ -34,6 +34,13 @@ class BrainState:
     def as_dict(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
 
+    def __post_init__(self) -> None:
+        if not any(step.get("id") == "retrieve" for step in self.plan_steps):
+            self.plan_steps.insert(1, {"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(self.tool_priority), "status": "required" if self.evidence_required or self.freshness_required else "available"})
+        if self.evidence_required and self.tool_priority and not any(step.get("id") == "tool_execute" for step in self.plan_steps):
+            self.plan_steps.insert(2, {"id": "tool_execute", "action": "execute_selected_tools", "tools": list(self.tool_priority), "status": "required"})
+            self.plan_steps.insert(3, {"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
+
 
 class BiteyBrain:
     """Executive cognition. It decides WHAT must happen before model selection."""
