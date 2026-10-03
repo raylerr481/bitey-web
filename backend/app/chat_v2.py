@@ -1149,6 +1149,10 @@ def create_chat_v2_router(
                 },
             )
             executed_tools.extend(name for name in result.keys() if name not in executed_tools)
+            plan_step("tool_execute", "completed" if any(name in result for name in selected) else "failed")
+            for step in brain_state.plan_steps:
+                if isinstance(step, dict) and step.get("id") == "tool_execute":
+                    step["status"] = "completed" if any(name in result for name in selected) else "failed"
             evidence_parts = []
             raw_sources = []
             for tool_name, tool_payload in result.items():
