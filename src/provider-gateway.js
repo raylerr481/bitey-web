@@ -22,12 +22,13 @@ export async function runFreeProviderChain(env, input = {}) {
   const maxTokens = Number(input.max_tokens || 512);
   const maxCompletionTokens = Number(input.max_completion_tokens || maxTokens);
   const temperature = Number.isFinite(Number(input.temperature)) ? Number(input.temperature) : 0.2;
+  const reasoningEffort = ["none","minimal","low","medium","high"].includes(String(input.reasoning_effort)) ? String(input.reasoning_effort) : "low";
   const order = String(env.BITEY_PROVIDER_ORDER || 'groq,openrouter')
     .split(',').map(value => value.trim().toLowerCase())
     .filter(provider => FREE_PROVIDERS.has(provider));
   const errors = [];
   for (const provider of order) {
-    const result = await callProvider(provider, env, { messages, maxTokens, maxCompletionTokens, temperature });
+    const result = await callProvider(provider, env, { messages, maxTokens, maxCompletionTokens, temperature, reasoningEffort });
     if (result.ok) return result;
     errors.push(result.error);
   }
@@ -143,7 +144,7 @@ function providerUnavailable(errors) {
   return error;
 }
 
-async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages, maxTokens, maxCompletionTokens, temperature }) {
+async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages, maxTokens, maxCompletionTokens, temperature, reasoningEffort = "low" }) {
   if (!apiKey) return { ok: false, error: { provider, status: 0, message: 'api_key_not_configured' } };
   if (!baseUrl) return { ok: false, error: { provider, status: 0, message: 'base_url_not_configured' } };
   if (provider === 'openrouter' && !String(model).endsWith(':free')) {
@@ -160,7 +161,7 @@ async function callOpenAiCompatible({ provider, apiKey, baseUrl, model, messages
     }
     const response = await fetch(endpoint, {
       method: 'POST', signal: controller.signal, headers,
-      body: JSON.stringify({ model, messages, max_completion_tokens: Number(maxCompletionTokens || maxTokens || 512), temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: 'low', include_reasoning: false } : {}) })
+      body: JSON.stringify({ model, messages, max_completion_tokens: Number(maxCompletionTokens || maxTokens || 512), temperature, ...(provider === 'groq' && String(model).startsWith('openai/gpt-oss-') ? { reasoning_effort: reasoningEffort, include_reasoning: false } : {}) })
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) return { ok: false, error: { provider, status: response.status, message: String(body?.error?.message || body?.message || 'provider_error') } };
