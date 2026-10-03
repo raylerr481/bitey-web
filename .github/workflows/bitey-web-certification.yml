@@ -73,6 +73,30 @@ jobs:
           leaked = [item for item in forbidden if item.lower() in answer.lower()]
           assert not leaked, f"General Bitcoin question drifted into SBT: {leaked}"
           print("CERTIFICATION GENERAL-DOMAIN BOUNDARY PASSED")
+
+          current_response=$(curl -L -fsS --retry 3 --retry-delay 2 --max-time 120 \\
+            -H 'Content-Type: application/json' \\
+            -d '{"message":"¿Cuál es el precio actual de Bitcoin en USD?","metadata":{}}' \\
+            "$BASE/api/v1/conversations/$conversation_id/messages")
+          CURRENT_RESPONSE="$current_response" python - <<'PY'
+          import json, os
+          payload = json.loads(os.environ["CURRENT_RESPONSE"])
+          answer = payload.get("answer", "")
+          assert answer.strip(), "Current-information certification returned an empty answer"
+          print("CERTIFICATION CURRENT-INFORMATION RESPONSE PRESENT")
+          PY
+
+          followup=$(curl -L -fsS --retry 3 --retry-delay 2 --max-time 90 \\
+            -H 'Content-Type: application/json' \\
+            -d '{"message":"¿Y qué significa ese precio?","metadata":{}}' \\
+            "$BASE/api/v1/conversations/$conversation_id/messages")
+          FOLLOWUP_RESPONSE="$followup" python - <<'PY'
+          import json, os
+          payload = json.loads(os.environ["FOLLOWUP_RESPONSE"])
+          answer = payload.get("answer", "")
+          assert answer.strip(), "Follow-up certification returned an empty answer"
+          print("CERTIFICATION FOLLOW-UP RESPONSE PRESENT")
+          PY
           PY
 
           echo "CERTIFICATION PROVIDER CHECKS PASSED"
