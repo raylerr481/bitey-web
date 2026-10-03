@@ -140,7 +140,7 @@ class BiteyBrain:
     @staticmethod
     def _build_plan(*, domain: str, evidence_required: bool, freshness_required: bool, complexity: float, verification_required: bool, tools: list[str], risk: str, prior_execution: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         steps = [{"id": "understand", "action": "understand_request", "status": "required"}]
-        if freshness_required or evidence_required or domain in {"research", "weather", "trading"}:
+        if freshness_required or evidence_required or domain in {"research", "weather", "trading", "finance"}:
             prior_tools = set(str(tool) for tool in (prior_execution or {}).get("executed_tools", []) if str(tool).strip())
             steps.append({"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(tools) or (["web_research"] if domain == "research" else []), "status": "required"})
             prior_has_evidence = bool((prior_execution or {}).get("evidence_count"))
