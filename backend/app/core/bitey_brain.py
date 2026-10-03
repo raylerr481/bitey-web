@@ -67,7 +67,7 @@ class BiteyBrain:
         freshness = bool(ctx.get("freshness_required") or cognition.get("plan", {}).get("freshness_required")) or any(x in low for x in self.FRESHNESS_WORDS)
         lexical_research = any(x in low for x in self.RESEARCH_WORDS)
         perception_question = bool(perception.get("question"))
-        conversational_only = bool(perception.get("greeting") or perception.get("identity_request") or intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"})
+        conversational_only = bool(perception.get("greeting") or perception.get("identity_request") or intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"} or re.fullmatch(r"(?:hola|hol[aá]|buenos días|buenas tardes|buenas noches|quién eres|quien eres|qué eres|que eres|qué puedes hacer|que puedes hacer)[!.?\s]*", low, re.I))
         explicit_evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research)
         question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
         evidence = False if conversational_only else (explicit_evidence or question_requires_evidence or freshness)
@@ -114,6 +114,9 @@ class BiteyBrain:
             tools = ["weather"]
         elif domain == "trading" and intent_family == "current_info":
             tools = ["web_research"]
+        if not conversational_only and (lexical_research or freshness or bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research"))):
+            if domain not in {"weather", "trading"}:
+                tools = list(dict.fromkeys(["web_research"] + tools))
         if isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy:
             if not evidence:
                 tools = []
