@@ -2123,6 +2123,9 @@ def create_chat_v2_router(
                 and bool(answer_verification.get("valid"))
             )
         )
+        for step in brain_state.plan_steps:
+            if isinstance(step, dict) and step.get("id") == "evidence_gate":
+                step["status"] = "completed" if evidence_gate_ready else "failed"
         final_contract["ready"] = (
             final_contract["answer_present"]
             and final_contract["question_present"]
