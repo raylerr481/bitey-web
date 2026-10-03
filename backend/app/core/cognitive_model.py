@@ -305,6 +305,9 @@ class CognitiveModel:
         if market_instrument and market_action:
             strong_scores["trading"] = strong_scores.get("trading", 0) + 2
 
+        if market_instrument and market_action:
+            return {"domain": "trading", "intent": "execute_or_analyze_trade", "intent_family": "trading", "entities": self._extract_entities(message), "scores": {**scores, "trading": max(strong_scores.get("trading", 0), 2)}, "confidence": 0.96, "source": "structured_trading_action_intent", "response_guidance": "block_live_execution_and_keep_trading_analysis_bounded"}
+
         if greeting:
             return {"domain": "general", "intent": "greeting", "intent_family": "conversation", "entities": self._extract_entities(message), "scores": {**scores, "general": 1}, "confidence": 0.98, "source": "structured_greeting_intent", "response_guidance": "acknowledge_the_user_greeting_naturally_and_continue_the_conversation"}
 
