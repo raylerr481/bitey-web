@@ -28,6 +28,43 @@ export default {
       });
     }
 
+    // Keep legacy /api/v1 conversation endpoints backend-authoritative too.
+    // This prevents the edge compatibility router from bypassing the same
+    // cognitive, evidence, provider, and domain-boundary controls used by v2.
+    if (url.pathname.startsWith('/api/v1/')) {
+      const origin = String(env.BITEY_BACKEND_ORIGIN || '').replace(/\/$/, '');
+      if (!origin) {
+        return new Response(JSON.stringify({ error: 'backend_not_configured', message: 'Bitey backend is not configured.' }), {
+          status: 503,
+          headers: JSON_HEADERS,
+        });
+      }
+      const target = new URL(origin + url.pathname + url.search);
+      const headers = new Headers(request.headers);
+      headers.set('cache-control', 'no-store');
+      headers.delete('host');
+      try {
+        const upstream = await fetch(new Request(target.toString(), {
+          method: request.method,
+          headers,
+          body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+          redirect: 'follow',
+        }));
+        const responseHeaders = new Headers(upstream.headers);
+        responseHeaders.set('cache-control', 'no-store');
+        return new Response(upstream.body, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers: responseHeaders,
+        });
+      } catch (_) {
+        return new Response(JSON.stringify({
+          error: 'backend_unreachable',
+          message: 'Bitey no pudo conectar con el backend.',
+        }), { status: 503, headers: JSON_HEADERS });
+      }
+    }
+
     // Bitey IA Web v2 chat is backend-authoritative. Proxy the v2 endpoints
     // to the Render backend instead of sending them through the legacy v1 worker router.
     if (url.pathname === '/api/v2/chat' || url.pathname.startsWith('/api/v2/chat/activity/')) {
