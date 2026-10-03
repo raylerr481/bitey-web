@@ -172,7 +172,7 @@ class BiteyBrain:
         low = text.lower(); profile: list[str] = ["fact"]
         calculation_signal = any(x in low for x in ("calcula", "calcular", "cálculo", "porcentaje", "interés", "ecuación", "derivada", "integral", "estadística", "probabilidad", "cuánto es")) or bool(re.search(r"\d\s*[+\-*/=]\s*\d", low))
         inference_signal = any(x in low for x in ("por qué", "porque", "causa", "consecuencia", "significa", "implica", "sugiere", "probable", "podría", "por que", "why", "cause", "implies"))
-        opinion_signal = any(x in low for x in ("opinión", "opinion", "qué piensas", "que piensas", "crees que", "mejor", "peor", "recomienda", "recomiéndame", "recommend", "opinión", "opinion", "qué piensas", "que piensas", "crees que"))
+        opinion_signal = any(x in low for x in ("opinión", "opinion", "opinas", "qué piensas", "que piensas", "crees que", "mejor", "peor", "recomienda", "recomiéndame", "recommend"))
         if calculation_signal: profile.append("calculation")
         if inference_signal: profile.append("inference")
         if opinion_signal: profile.append("opinion")
