@@ -70,7 +70,7 @@ class BiteyBrain:
         conversational_only = bool(perception.get("greeting") or perception.get("identity_request") or intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"})
         explicit_evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research)
         question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
-        evidence = explicit_evidence or question_requires_evidence or freshness
+        evidence = False if conversational_only else (explicit_evidence or question_requires_evidence or freshness)
         conceptual_fallback = (domain == "general" and not evidence_available and any(cue in low for cue in ("qué es", "que es", "qué son", "que son", "qué significa", "que significa", "definición", "definicion", "define", "concepto", "what is", "what are", "qual é", "o que é")))
         # Unknown conceptual questions use evidence-first routing. A small stable set remains local-native.
         conceptual_subject_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", low, re.I)
