@@ -142,13 +142,14 @@ class BiteyBrain:
         steps = [{"id": "understand", "action": "understand_request", "status": "required"}]
         if freshness_required or evidence_required or domain in {"research", "weather", "trading", "finance"}:
             prior_tools = set(str(tool) for tool in (prior_execution or {}).get("executed_tools", []) if str(tool).strip())
-            steps.append({"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(tools) or (["web_research"] if domain == "research" else []), "status": "required"})
+            effective_tools = list(tools) or (["web_research"] if domain in {"research", "finance"} else [])
+            steps.append({"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": effective_tools, "status": "required"})
             prior_has_evidence = bool((prior_execution or {}).get("evidence_count"))
             # Fresh/current requests must refresh evidence; older evidence may only be
             # reused as continuity context for stable requests.
             if (
                 prior_tools
-                and set(tools).issubset(prior_tools)
+                and set(effective_tools).issubset(prior_tools)
                 and prior_has_evidence
                 and not freshness_required
             ):
@@ -162,7 +163,7 @@ class BiteyBrain:
         # Comparison happens only after the evidence gate so unverified material
         # can never become part of the synthesis plan.
         if tools and (evidence_required or freshness_required):
-            steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": list(tools), "status": "required"})
+            steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": list(effective_tools), "status": "required"})
             steps.append({"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
             if domain == "research" or tools:
                 steps.append({"id": "compare", "action": "compare_verified_evidence", "status": "required"})
