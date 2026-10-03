@@ -102,6 +102,8 @@ class BiteyBrain:
             cognitive_tools = [strategy_map[item] for item in cognitive_strategy if item in strategy_map]
             if cognitive_tools:
                 tools = list(dict.fromkeys(cognitive_tools + tools))
+        if evidence and not tools and domain not in {"weather", "trading"} and not conversational_only:
+            tools = ["web_research"]
         # "clarify" is a cognitive stop decision, not a tool. Never execute
         # fallback tools when the request is explicitly underspecified.
         # Specialized domain ownership is authoritative. Generic helper capabilities
@@ -111,8 +113,11 @@ class BiteyBrain:
         elif domain == "trading" and intent_family == "current_info":
             tools = ["web_research"]
         if isinstance(cognitive_strategy, list) and "clarify" in cognitive_strategy:
-            tools = []
-            ambiguity = max(ambiguity, 0.55)
+            if not evidence:
+                tools = []
+                ambiguity = max(ambiguity, 0.55)
+            else:
+                cognitive_strategy = [item for item in cognitive_strategy if item != "clarify"]
         verification = evidence_available or complexity >= .60 or risk in {"high", "critical"}; verification_profile = self._verification_profile(text, domain, evidence, freshness, complexity)
         mode = "guarded_decision" if risk == "critical" else "evidence_first" if evidence and (domain == "research" or intent_family == "research" or lexical_research) else "research_decompose_verify_synthesize" if evidence and complexity >= .60 else "evidence_first" if evidence else "decompose_verify_synthesize" if complexity >= .60 else "structured_reasoning" if complexity >= .42 else "direct"
         role, reason = self._model_policy(domain=domain, complexity=complexity, evidence_required=evidence, required_capabilities=capabilities, verification_required=verification)
