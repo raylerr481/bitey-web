@@ -13,7 +13,7 @@ class EvidenceFirstLoopTests(unittest.TestCase):
     def test_substantive_general_question_selects_web_search(self):
         context = {}
         result = self.orchestrator.cognitive_selection("¿Qué es blockchain?", context)
-        self.assertIn("search", result["selected_tools"])
+        self.assertIn("web_research", result["selected_tools"])
         self.assertTrue(result["brain"]["evidence_required"])
 
     def test_greeting_does_not_select_web_search(self):
