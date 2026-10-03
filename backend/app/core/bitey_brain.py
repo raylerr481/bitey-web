@@ -141,8 +141,7 @@ class BiteyBrain:
         steps = [{"id": "understand", "action": "understand_request", "status": "required"}]
         if freshness_required or evidence_required:
             prior_tools = set(str(tool) for tool in (prior_execution or {}).get("executed_tools", []) if str(tool).strip())
-            steps.append({"id": "retrieve", "action": "retrieve_evidence", "tools": list(tools), "status": "required"})
-            steps.append({"id": "compare", "action": "compare_evidence", "status": "required" if domain == "research" or tools else "conditional"})
+            steps.append({"id": "retrieve", "action": "prepare_evidence_retrieval", "tools": list(tools), "status": "required"})
             prior_has_evidence = bool((prior_execution or {}).get("evidence_count"))
             # Fresh/current requests must refresh evidence; older evidence may only be
             # reused as continuity context for stable requests.
@@ -152,15 +151,21 @@ class BiteyBrain:
                 and prior_has_evidence
                 and not freshness_required
             ):
-                steps[-2]["action"] = "reuse_or_refresh_evidence"
+                steps[-1]["action"] = "reuse_or_refresh_evidence"
             elif prior_has_evidence and freshness_required:
-                steps[-2]["action"] = "refresh_current_evidence"
+                steps[-1]["action"] = "refresh_current_evidence"
         if complexity >= 0.60:
             steps.append({"id": "decompose", "action": "decompose_multi_step_task", "status": "required"})
+        # The execution circuit is deliberately canonical:
+        # prepare retrieval -> execute tools -> promote evidence -> gate -> synthesize.
+        # Comparison happens only after the evidence gate so unverified material
+        # can never become part of the synthesis plan.
         if tools and (evidence_required or freshness_required):
             steps.append({"id": "tool_execute", "action": "execute_selected_tools", "tools": list(tools), "status": "required"})
-        # Synthesis should consume tool results, not run ahead of retrieval.
-        if tools and (evidence_required or freshness_required):
+            steps.append({"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
+            if domain == "research" or tools:
+                steps.append({"id": "compare", "action": "compare_verified_evidence", "status": "required"})
+        elif evidence_required or freshness_required:
             steps.append({"id": "evidence_gate", "action": "gate_evidence_before_synthesis", "status": "required"})
         steps.append({"id": "synthesize", "action": "synthesize_answer", "status": "required"})
         if verification_required:
