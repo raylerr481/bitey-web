@@ -145,7 +145,7 @@ class ExecutiveEvaluator:
             if not conflict_acknowledged:
                 reasons.append("source_conflict_not_acknowledged")
 
-        required_tools = list(self._get(state, "tool_priority", []) or [])
+        required_tools = [str(tool) for tool in (self._get(state, "tool_priority", []) or []) if str(tool) in {"web_research", "search", "weather", "time", "calculator", "local_search", "file_context", "sbt_market", "url_fetch"}]
         tool_ok = True if safe_refusal_contract else (True if not tools_known else all((tool in tools) or (tool == "search" and "web_research" in tools) or (tool == "web_research" and "search" in tools) for tool in required_tools))
         if tools_known and required_tools and not tool_ok:
             reasons.append("required_tool_not_executed")
