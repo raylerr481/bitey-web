@@ -91,7 +91,7 @@ class ExecutiveEvaluator:
         # Stable concepts answered by Bitey Native use a deterministic internal
         # definition. They do not need web provenance merely because the cognitive
         # planner permits evidence; current/research claims still require sources.
-        evidence_ok = True if (native_grounded and conceptual_fallback) else (evidence_has_provenance(evidence) if evidence_required else True)
+        evidence_ok = True if safe_refusal_contract else (True if (native_grounded and conceptual_fallback) else (evidence_has_provenance(evidence) if evidence_required else True))
         if evidence_required and not evidence:
             reasons.append("required_evidence_missing")
         elif evidence_required and not evidence_ok:
@@ -146,7 +146,7 @@ class ExecutiveEvaluator:
                 reasons.append("source_conflict_not_acknowledged")
 
         required_tools = list(self._get(state, "tool_priority", []) or [])
-        tool_ok = True if not tools_known else all(tool in tools for tool in required_tools)
+        tool_ok = True if not tools_known else all((tool in tools) or (tool == "search" and "web_research" in tools) or (tool == "web_research" and "search" in tools) for tool in required_tools)
         if tools_known and required_tools and not tool_ok:
             reasons.append("required_tool_not_executed")
 
