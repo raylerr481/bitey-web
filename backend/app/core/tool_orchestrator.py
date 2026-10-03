@@ -566,6 +566,7 @@ class ToolOrchestrator:
             relevance = self._source_relevance(message, item)
             item["relevance"] = relevance
             verified.append(item)
+        verified_count = len(verified)
         verified.sort(
             key=lambda item: (
                 float(item.get("relevance", 0.0)),
@@ -696,7 +697,7 @@ class ToolOrchestrator:
             "ok": bool(enriched),
             **result,
             "evidence": evidence,
-            "verified_evidence_count": len(verified),
+            "verified_evidence_count": verified_count,
             "relevance_filtered": len(enriched) - len(result["results"]),
             "discovery_result_count": len(enriched),
             "conflict_detected": bool(conflicts),
