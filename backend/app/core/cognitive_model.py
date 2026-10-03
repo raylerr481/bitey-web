@@ -631,6 +631,9 @@ class CognitiveModel:
                 steps.insert(0, "retrieve_evidence")
             if "analyze" not in steps:
                 steps.append("analyze")
+        if family in {"conversation", "creative", "translation", "summarization"}:
+            reasoning_required = False
+
         if reasoning_required and "analyze" not in steps and family not in {"conversation", "translation"}:
             steps.append("analyze")
         if evidence and "retrieve_evidence" not in steps:
