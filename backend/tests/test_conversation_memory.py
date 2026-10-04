@@ -248,3 +248,25 @@ def test_active_task_does_not_treat_unrelated_word_as_continuation():
     state = _active_conversation_state(history, {}, "consulta sobre Bitcoin")
     task = _active_task_state(history, "consulta sobre Bitcoin", state)
     assert task["continuation_detected"] is False
+
+
+def test_active_task_marks_persisted_work_as_available_on_continuation():
+    history = [
+        {"role": "user", "content": "Quiero mejorar el flujo de Bitey IA"},
+        {"role": "assistant", "content": "Hay una mejora pendiente.", "metadata": {
+            "active_task_state": {
+                "active": True,
+                "goal": ["Quiero mejorar el flujo de Bitey IA"],
+                "progress": {"completed": 2, "total": 4, "ratio": 0.5},
+                "plan_steps": [
+                    {"id": "analyze", "status": "completed"},
+                    {"id": "verify", "status": "pending"},
+                ],
+            }
+        }},
+    ]
+    state = _active_conversation_state(history, {}, "continúa")
+    task = _active_task_state(history, "continúa", state)
+    assert task["continuation_detected"] is True
+    assert task["persisted_task_available"] is True
+    assert task["active"] is True
