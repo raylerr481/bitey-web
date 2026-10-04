@@ -72,7 +72,13 @@ class OpenAICompatibleProvider:
     async def health(self) -> bool: return bool(self.api_key or self.endpoint.startswith("http://127.0.0.1") or self.endpoint.startswith("http://localhost"))
     async def generate(self, *, messages: list[dict[str, str]], context: dict[str, Any]) -> str:
         if not await self.health(): raise RuntimeError("provider_not_configured")
-        payload={"model":self.model,"messages":messages,"temperature":0.2,"max_tokens":int(os.getenv("AI_MAX_OUTPUT_TOKENS","1200"))}
+        max_output_tokens = int(os.getenv("AI_MAX_OUTPUT_TOKENS","1200"))
+        # Groq GPT-OSS follows the newer completion-token parameter. Keep the
+        # legacy max_tokens form for other OpenAI-compatible providers.
+        if self.name == "groq-free" and self.model.startswith("openai/gpt-oss-"):
+            payload={"model":self.model,"messages":messages,"temperature":0.2,"max_completion_tokens":max_output_tokens}
+        else:
+            payload={"model":self.model,"messages":messages,"temperature":0.2,"max_tokens":max_output_tokens}
         headers={"Content-Type":"application/json"}
         if self.api_key: headers["Authorization"]=f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT","45"))) as client:
