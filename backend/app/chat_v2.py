@@ -18,6 +18,7 @@ from .core.mathematics import analyze as math_analyze, calculate as math_calcula
 from .core.provider_gateway import ProviderGateway
 from .core.tool_orchestrator import ToolOrchestrator
 from .core.native_model import NativeReasoningModel
+from .core.conversation_context import build_conversation_context
 
 
 class ChatV2Request(BaseModel):
@@ -165,7 +166,7 @@ def _active_conversation_state(
     current_query: str,
     limit: int = 4,
 ) -> dict[str, Any]:
-    """Build a compact explicit session state for continuity; never infer hidden intent."""
+    """Build explicit generic session state; continuity guides interpretation, never evidence."""
     structured = _structured_conversation_memory(history, memory_updates, limit=limit)
 
     def active(bucket: str) -> list[str]:
@@ -185,14 +186,17 @@ def _active_conversation_state(
         for item in history
         if item.get("role") == "assistant" and str(item.get("content", "")).strip()
     ]
-    previous_result_context: dict[str, Any] = {}
-    for item in reversed(history):
-        if item.get("role") != "assistant":
-            continue
-        metadata = item.get("metadata")
-        if isinstance(metadata, dict) and isinstance(metadata.get("reference_context"), dict):
-            previous_result_context = metadata["reference_context"]
-            break
+    context = build_conversation_context(
+        history,
+        current_query,
+        active_state={
+            "current_goal": active("goals")[-1:] or [],
+            "active_constraints": active("constraints"),
+            "active_preferences": active("preferences"),
+            "latest_decisions": active("decisions"),
+        },
+        limit=max(limit, 4),
+    )
 
     return {
         "current_request": " ".join(current_query.split())[:1000],
@@ -202,13 +206,13 @@ def _active_conversation_state(
         "latest_decisions": active("decisions"),
         "last_user_request": (recent_user[-1][:1000] if recent_user else ""),
         "last_assistant_answer": (recent_assistant[-1][:1800] if recent_assistant else ""),
-        "previous_result_context": previous_result_context,
+        "previous_result_context": context.get("previous_result_context") or {},
+        "conversation_context": context,
         "override_detected": bool((memory_updates or {}).get("current_overrides")),
         "superseded_count": len((memory_updates or {}).get("supersedes", [])),
-        "priority": "current_request_then_explicit_active_state",
+        "priority": "current_request_then_explicit_active_state_then_recent_context",
         "trust": "continuity_only_not_evidence",
     }
-
 
 def _friendly_status(intent_family: str, stage: str, locations: list[str] | None = None, source_count: int = 0) -> str:
     """Create concise, human-facing progress text from the detected request family."""
