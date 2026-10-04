@@ -120,3 +120,34 @@ def test_conversation_context_preserves_urls_as_references_not_evidence():
     assert "esa" in context["references"]
     assert context["entities"]
     assert context["evidence_source"] is False
+
+
+def test_conversation_context_is_generic_across_domains_and_tracks_recent_topic():
+    from backend.app.core.conversation_context import build_conversation_context
+
+    history = [
+        {"role": "user", "content": "Busca información sobre Python"},
+        {"role": "assistant", "content": "Encontré información sobre Python."},
+        {"role": "user", "content": "¿Y JavaScript?"},
+        {"role": "assistant", "content": "También puedo comparar JavaScript."},
+    ]
+    context = build_conversation_context(history, "¿Y el segundo?", limit=4)
+    assert context["continuation"] is True
+    assert context["continuity_confidence"] in {"high", "medium"}
+    assert context["topic"] in {"programming", "comparison"}
+    assert "JavaScript" in context["recent_entities"] or "JAVASCRIPT" in context["recent_entities"]
+    assert context["trust"] == "continuity_only_not_evidence"
+    assert context["evidence_source"] is False
+
+
+def test_conversation_context_keeps_current_request_above_old_topic():
+    from backend.app.core.conversation_context import build_conversation_context
+
+    history = [
+        {"role": "user", "content": "¿Qué clima hay en Cuba?"},
+        {"role": "assistant", "content": "Consulta meteorológica."},
+    ]
+    context = build_conversation_context(history, "Explícame Docker", limit=4)
+    assert context["topic"] == "programming"
+    assert context["topic_source"] == "current_request"
+    assert context["evidence_source"] is False
