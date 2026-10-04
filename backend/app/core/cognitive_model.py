@@ -24,7 +24,7 @@ class CognitiveModel:
     """Domain-neutral structured cognition used before model routing."""
 
     _INTENT_FAMILIES = ("knowledge", "current_info", "weather", "time", "math", "programming", "file_analysis", "local_search", "comparison", "recommendation", "translation", "summarization", "planning", "creative", "research", "conversation")
-    _KNOWN_LOCATIONS = ("esteio", "porto alegre", "são leopoldo", "novo hamburgo", "canoas", "gramado", "caxias do sul", "são paulo", "rio de janeiro", "brasília", "curitiba", "florianópolis", "belo horizonte", "salvador", "lisboa", "madrid", "barcelona", "miami", "new york", "london")
+    _KNOWN_LOCATIONS = ("brasil", "cuba", "esteio", "porto alegre", "são leopoldo", "novo hamburgo", "canoas", "gramado", "caxias do sul", "são paulo", "rio de janeiro", "brasília", "curitiba", "florianópolis", "belo horizonte", "salvador", "lisboa", "madrid", "barcelona", "miami", "new york", "london")
     # High-confidence concepts with explicit deterministic native definitions.
     # Unknown conceptual topics remain evidence-first to avoid silent factual fallback.
     _STABLE_NATIVE_CONCEPTS = ("nasa", "adn", "dna", "cohete", "cohete espacial", "docker")
@@ -339,6 +339,10 @@ class CognitiveModel:
         prior_request = str(context.get("last_user_request") or "").strip()
         prior_answer = str(context.get("last_assistant_answer") or "").strip()
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
+        prior_weather = any(term in prior_request for term in ("tiempo", "clima", "temperatura", "weather", "previsión", "pronóstico")) if prior_request else False
+        location_followup = bool(re.search(r"\\b(?:y\\s+)?(?:en|em|in)\\s+(?:brasil|brazil|braisl)\\b", text, re.I)) and bool(self._extract_entities(text).get("locations"))
+        if prior_weather and location_followup:
+            is_followup = True
         prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
         if is_followup and prior_normalized:
             prior_scores = {domain: sum(1 for hint in hints if hint in prior_normalized) for domain, hints in self._DOMAIN_HINTS.items()}
@@ -362,7 +366,7 @@ class CognitiveModel:
                 for domain, score in prior_scores.items():
                     if score:
                         scores[domain] = max(scores.get(domain, 0), min(2, score))
-            if any(term in prior_normalized for term in weather_terms):
+            if any(term in prior_normalized for term in weather_terms) or (prior_weather and location_followup):
                 scores["weather"] = max(scores.get("weather", 0), 2)
         explicit_domain = str(context.get("domain") or "").strip().lower()
         current_signal = max(scores.values(), default=0)
