@@ -339,6 +339,11 @@ class CognitiveModel:
         prior_request = str(context.get("last_user_request") or "").strip()
         prior_answer = str(context.get("last_assistant_answer") or "").strip()
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
+        conversational_connector = bool(re.match(r"^(?:y|e|and|então|entao|then)\b", text, re.I))
+        reference_connector = any(
+            token in text for token in ("eso", "esto", "ello", "esa", "ese", "aquello", "allí", "alli", "ahí", "ahi",
+                                        "anterior", "siguiente", "lo mismo", "otra", "otro", "opción", "opcion")
+        )
         prior_weather = any(
             term in prior_request or term in prior_answer.lower()
             for term in ("tiempo", "clima", "temperatura", "weather", "previsión", "pronóstico")
@@ -349,14 +354,17 @@ class CognitiveModel:
         ) and bool(current_locations)
         if prior_weather and location_followup:
             is_followup = True
-        prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
-        if is_followup and prior_normalized:
+        if prior_request and (conversational_connector or reference_connector):
+            is_followup = True
+        continuity_turn = bool(prior_request or prior_answer) and (is_followup or conversational_connector or location_followup)
+        prior_normalized = self._normalize_for_routing(prior_request).lower() if continuity_turn and prior_request else ""
+        if continuity_turn and prior_normalized:
             prior_scores = {domain: sum(1 for hint in hints if hint in prior_normalized) for domain, hints in self._DOMAIN_HINTS.items()}
             # A reference such as "the other option" may carry little lexical
             # signal itself, so use the immediately previous answer as a
             # bounded semantic bridge. It is continuity context, never evidence.
-            reference_followup = bool(prior_answer) and any(
-                token in text for token in ("otra", "otro", "anterior", "siguiente", "esa", "ese", "eso")
+            reference_followup = bool(prior_answer) and (
+                reference_connector or conversational_connector
             )
             if reference_followup:
                 prior_answer_normalized = self._normalize_for_routing(prior_answer).lower()
