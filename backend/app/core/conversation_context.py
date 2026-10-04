@@ -72,6 +72,87 @@ def _extract_entities(text: str) -> list[str]:
     return found[:12]
 
 
+
+def _reference_resolution(
+    *,
+    text: str,
+    references: list[str],
+    current_entities: list[str],
+    recent_entities: list[str],
+    prior_user: str,
+    prior_answer: str,
+    previous_result: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve conversational references without promoting memory to evidence.
+
+    The resolver only identifies likely referents. It never asserts that the
+    referenced object is true, current, or authoritative.
+    """
+    normalized = text.casefold()
+    options = previous_result.get("options") if isinstance(previous_result, dict) else None
+    candidates: list[dict[str, Any]] = []
+    target: dict[str, Any] | None = None
+
+    ordinal_map = {
+        "primero": 0, "primera": 0,
+        "segundo": 1, "segunda": 1,
+        "tercero": 2, "tercera": 2,
+        "cuarto": 3, "cuarta": 3,
+        "quinto": 4, "quinta": 4,
+    }
+    ordinal = next((word for word in ordinal_map if re.search(rf"\\b{re.escape(word)}\\b", normalized)), None)
+    if ordinal and isinstance(options, list):
+        index = ordinal_map[ordinal]
+        if index < len(options):
+            value = options[index]
+            target = {
+                "kind": "previous_result_option",
+                "index": index + 1,
+                "value": _clean(value, 500),
+                "source": "previous_result_context",
+            }
+            candidates.append(target)
+
+    # A demonstrative/pronominal reference points to the nearest conversational
+    # object, but the answer text remains only context, never evidence.
+    if target is None and references:
+        if any(word in references for word in ("esto", "eso", "ello", "aquello", "esa", "ese", "este", "esta", "lo", "la")):
+            referent = current_entities[-1:] or recent_entities[-1:]
+            target = {
+                "kind": "recent_entity" if referent else "previous_turn",
+                "value": referent[0] if referent else (prior_user or prior_answer)[:500],
+                "source": "conversation_context",
+            }
+            candidates.append(target)
+
+    if target is None and references and ("anterior" in references or "previo" in references):
+        target = {
+            "kind": "previous_turn",
+            "value": prior_user[:500] or prior_answer[:500],
+            "source": "conversation_context",
+        }
+        candidates.append(target)
+
+    if target is None and references and ("otro" in references or "otra" in references):
+        candidates.append({
+            "kind": "contrast_with_recent",
+            "value": recent_entities[-1] if recent_entities else "",
+            "source": "conversation_context",
+        })
+
+    confidence = "high" if target and target.get("kind") == "previous_result_option" else (
+        "medium" if target else "low"
+    )
+    return {
+        "resolved": bool(target),
+        "target": target,
+        "candidates": candidates[:4],
+        "confidence": confidence,
+        "uses_previous_result": bool(target and target.get("source") == "previous_result_context"),
+        "trust": "continuity_only_not_evidence",
+        "evidence_source": False,
+    }
+
 def build_conversation_context(
     history: list[dict[str, Any]],
     current_query: str,
