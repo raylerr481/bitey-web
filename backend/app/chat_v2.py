@@ -800,7 +800,10 @@ def _last_persisted_task_state(history: list[dict[str, Any]]) -> dict[str, Any] 
         if not isinstance(metadata, dict):
             continue
         state = metadata.get("active_task_state")
-        if isinstance(state, dict) and state.get("active"):
+        if isinstance(state, dict) and (
+            state.get("active")
+            or state.get("task_status") in {"pending", "running", "blocked", "completed"}
+        ):
             return state
     return None
 
@@ -2566,7 +2569,13 @@ def create_chat_v2_router(
         }
         assistant_metadata = {
             "reference_context": reference_context,
-            **({"active_task_state": active_task} if active_task.get("active") else {}),
+            # Persist terminal task states too, so "continúa" can recognize that
+            # the workflow is completed instead of reviving an older active state.
+            **(
+                {"active_task_state": active_task}
+                if active_task.get("task_status") in {"pending", "running", "blocked", "completed"}
+                else {}
+            ),
         }
         await memory.append(
             cid,
