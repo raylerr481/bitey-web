@@ -91,8 +91,22 @@ def build_conversation_context(
     temporal = sorted(tokens.intersection(_TIME_WORDS))
     current_topic = _topic(text)
     prior_topic = _topic(prior_user) or _topic(prior_answer)
+    # Search a short recent window for the last stable topic/entity signal. This
+    # keeps continuity generic instead of making it dependent on one domain.
+    recent_user_turns = users[-max(3, limit):]
+    recent_topics = [topic for topic in (_topic(item) for item in recent_user_turns) if topic]
+    recent_topic = recent_topics[-1] if recent_topics else prior_topic
     entities = _extract_entities(text)
     prior_entities = _extract_entities(prior_user)
+    recent_entities: list[str] = []
+    for item in reversed(recent_user_turns):
+        for entity in _extract_entities(item):
+            if entity.casefold() not in {value.casefold() for value in recent_entities}:
+                recent_entities.append(entity)
+            if len(recent_entities) >= 12:
+                break
+        if len(recent_entities) >= 12:
+            break
     continuity_signal = bool(
         prior_user
         and (
@@ -114,15 +128,23 @@ def build_conversation_context(
             break
 
     return {
-        "topic": current_topic or prior_topic,
-        "topic_source": "current_request" if current_topic else ("prior_turn" if prior_topic else "unknown"),
+        "topic": current_topic or recent_topic,
+        "topic_source": "current_request" if current_topic else ("recent_turns" if recent_topic else "unknown"),
+        "topic_history": list(dict.fromkeys(recent_topics))[-4:],
         "continuation": continuity_signal,
+        "continuity_confidence": (
+            "high" if (connector and (prior_user or recent_entities)) or (reference_tokens and recent_entities)
+            else "medium" if continuity_signal
+            else "low"
+        ),
         "connector": connector,
         "references": reference_tokens[:8],
         "temporal_context": temporal[:8],
-        "entities": entities[:12] or prior_entities[:12],
+        "entities": entities[:12] or recent_entities[:12] or prior_entities[:12],
         "current_entities": entities[:12],
         "prior_entities": prior_entities[:12],
+        "recent_entities": recent_entities[:12],
+        "entity_continuity": bool(entities or prior_entities or recent_entities),
         "last_user_request": prior_user[:1000],
         "last_assistant_answer": prior_answer[:1800],
         "previous_result_context": previous_result,
