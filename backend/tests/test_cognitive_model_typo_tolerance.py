@@ -36,3 +36,22 @@ def test_weather_location_followup_keeps_weather_domain():
     assert "esteio" in state.intention["entities"]["locations"]
     assert "porto alegre" in state.intention["entities"]["locations"]
     assert state.plan["needs_evidence"] is True
+
+
+def test_weather_followup_chain_preserves_context_across_turns():
+    model = CognitiveModel()
+    first = model.process("que clima hay en Cuba")
+    second = model.process("y mañana?", {
+        "last_user_request": "que clima hay en Cuba",
+        "last_assistant_answer": "Clima en Cuba",
+    })
+    third = model.process("y en Esteio?", {
+        "last_user_request": "y mañana?",
+        "last_assistant_answer": "Pronóstico para mañana en Cuba",
+    })
+    assert first.intention["domain"] == "weather"
+    assert second.intention["domain"] == "weather"
+    assert second.plan["needs_evidence"] is True
+    assert third.intention["domain"] == "weather"
+    assert "esteio" in third.intention["entities"]["locations"]
+    assert third.plan["needs_evidence"] is True
