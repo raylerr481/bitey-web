@@ -567,7 +567,11 @@ class CognitiveModel:
         weather_location_request = domain == "weather" and bool(re.search(r"\b(?:tiempo|clima|temperatura|weather)\b.*\b(?:en|in|em)\b", lower_message))
         weather_state_request = domain == "weather" and bool(re.search(r"\b(?:como|cómo)\s+(?:esta|está)\s+(?:el\s+)?(?:tiempo|clima)\b", lower_message))
         prior_request = str(context.get("last_user_request") or "").lower()
-        prior_weather_context = domain == "weather" and any(term in prior_request for term in ("tiempo", "clima", "temperatura", "weather", "previsión", "pronóstico"))
+        prior_answer = str(context.get("last_assistant_answer") or "").lower()
+        prior_weather_context = domain == "weather" and (
+            any(term in prior_request for term in ("tiempo", "clima", "temperatura", "weather", "previsión", "pronóstico"))
+            or any(term in prior_answer for term in ("tiempo", "clima", "temperatura", "weather", "previsión", "pronóstico"))
+        )
         weather_followup = domain == "weather" and prior_weather_context and bool(intention.get("has_reference_context") or intention.get("entities", {}).get("locations"))
         freshness = (
             bool(context.get("freshness_required"))
