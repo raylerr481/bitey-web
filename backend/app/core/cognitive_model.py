@@ -340,7 +340,7 @@ class CognitiveModel:
         prior_answer = str(context.get("last_assistant_answer") or "").strip()
         is_followup = any(token in text for token in self._FOLLOWUP_WORDS)
         prior_weather = any(term in prior_request for term in ("tiempo", "clima", "temperatura", "weather", "previsión", "pronóstico")) if prior_request else False
-        location_followup = bool(re.search(r"\\b(?:y\\s+)?(?:en|em|in)\\s+(?:brasil|brazil|braisl)\\b", text, re.I)) and bool(self._extract_entities(text).get("locations"))
+        location_followup = bool(re.search(r"\b(?:y\s+)?(?:en|em|in)\s+(?:brasil|brazil|braisl)\b", text, re.I)) and bool(self._extract_entities(text).get("locations"))
         if prior_weather and location_followup:
             is_followup = True
         prior_normalized = self._normalize_for_routing(prior_request).lower() if is_followup and prior_request else ""
