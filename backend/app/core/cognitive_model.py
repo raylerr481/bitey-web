@@ -382,8 +382,28 @@ class CognitiveModel:
                         scores[domain] = max(scores.get(domain, 0), min(2, score))
             if any(term in prior_normalized for term in weather_terms) or (prior_weather and location_followup):
                 scores["weather"] = max(scores.get("weather", 0), 2)
+        # Generic continuity bridge: short follow-ups may contain almost no domain vocabulary.
+        # Conversation state is a routing hint only; it is never treated as current evidence.
+        continuity = context.get("conversation_context")
+        continuity_topic = ""
+        continuity_entities = []
+        if isinstance(continuity, dict):
+            continuity_topic = str(continuity.get("topic") or "").strip().lower()
+            continuity_entities = list(continuity.get("entities") or [])
+        topic_to_domain = {
+            "weather": "weather", "finance": "finance", "programming": "programming",
+            "research": "research", "trading": "trading",
+        }
         explicit_domain = str(context.get("domain") or "").strip().lower()
         current_signal = max(scores.values(), default=0)
+        continuity_marker = is_followup or conversational_connector or reference_connector or bool(
+            re.match(r"^(?:y|e|and|então|entao|también|tambien)\b", text, re.I)
+        )
+        continuity_domain = topic_to_domain.get(continuity_topic, "")
+        if continuity_marker and continuity_domain and (current_signal == 0 or current_signal <= 1):
+            scores[continuity_domain] = max(scores.get(continuity_domain, 0), 2)
+            if continuity_entities and isinstance(entities, dict) and not entities.get("locations") and continuity_topic == "weather":
+                entities["locations"] = [str(value) for value in continuity_entities if str(value).strip()][:8]
         if explicit_domain in scores and current_signal == 0 and is_followup:
             scores[explicit_domain] += 1
 
