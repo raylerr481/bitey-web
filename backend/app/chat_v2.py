@@ -255,13 +255,20 @@ def _active_task_state(
     ]
     conversation_context = active_state.get("conversation_context", {}) if isinstance(active_state, dict) else {}
     reference_resolution = conversation_context.get("reference_resolution", {}) if isinstance(conversation_context, dict) else {}
+    normalized_query = " ".join(str(current_query).casefold().split())
+    # Accept only a small, explicit set of common continuation typos. Avoid
+    # fuzzy matching so an unrelated word cannot accidentally resume old work.
+    continuation_typo = bool(re.search(
+        r"\b(?:conitnua|conotua|conotnia|conitua|contiua|conitnua|contonua)\b",
+        normalized_query,
+    ))
     continuation = bool(re.search(
         r"\b(?:continua|continúa|continuemos|sigue|seguimos|avanza|aplica|hazlo|"
-        r"hazlo|implementa|termina|retoma|procede|revisa|mejora|corrige|verifica|"
+        r"implementa|termina|retoma|procede|revisa|mejora|corrige|verifica|"
         r"continue|keep going|go ahead)\b",
-        current_query,
+        normalized_query,
         re.I,
-    )) or bool(
+    )) or continuation_typo or bool(
         conversation_context.get("continuation")
         and (
             reference_resolution.get("resolved")
