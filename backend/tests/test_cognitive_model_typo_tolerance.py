@@ -25,3 +25,14 @@ def test_original_message_is_preserved_for_generation():
     model = CognitiveModel()
     state = model.process("hoka")
     assert state.context["_cognitive_message"] == "hoka"
+
+
+def test_weather_location_followup_keeps_weather_domain():
+    model = CognitiveModel()
+    first = model.process("que clima hay en Cuba")
+    state = model.process("y en braisl esteio porto alegre?", {"last_user_request": "que clima hay en Cuba", "last_assistant_answer": "Clima en Cuba"})
+    assert first.intention["domain"] == "weather"
+    assert state.intention["domain"] == "weather"
+    assert "esteio" in state.intention["entities"]["locations"]
+    assert "porto alegre" in state.intention["entities"]["locations"]
+    assert state.plan["needs_evidence"] is True
