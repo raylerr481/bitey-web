@@ -884,6 +884,7 @@ def create_chat_v2_router(
             "last_user_request": active_state.get("last_user_request", ""),
             "last_assistant_answer": active_state.get("last_assistant_answer", ""),
             "previous_result_context": active_state.get("previous_result_context", {}),
+            "conversation_context": active_state.get("conversation_context", {}),
         }
 
         # The context must exist before any dynamic status is rendered.
