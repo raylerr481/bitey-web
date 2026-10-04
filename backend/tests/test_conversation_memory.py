@@ -96,3 +96,27 @@ def test_active_conversation_state_exposes_generic_context_without_promoting_it_
     assert state["conversation_context"]["trust"] == "continuity_only_not_evidence"
     assert state["conversation_context"]["evidence_source"] is False
     assert "evidence" not in state["conversation_context"]
+
+
+def test_conversation_context_detects_connector_and_entities_reliably():
+    history = [
+        {"role": "user", "content": "Investiga OpenAI y compara sus modelos con Anthropic."},
+        {"role": "assistant", "content": "La comparación debe basarse en fuentes actuales."},
+    ]
+    context = build_conversation_context(history, "Y en Porto Alegre, ¿cuál conviene?")
+    assert context["connector"] is True
+    assert context["continuation"] is True
+    assert any("Porto Alegre" in entity for entity in context["entities"])
+    assert context["topic"] == "comparison"
+
+
+def test_conversation_context_preserves_urls_as_references_not_evidence():
+    history = [
+        {"role": "user", "content": "Revisa https://example.com/docs y dime qué ofrece."},
+        {"role": "assistant", "content": "La documentación describe varias funciones."},
+    ]
+    context = build_conversation_context(history, "¿Y esa página?")
+    assert context["continuation"] is True
+    assert "esa" in context["references"]
+    assert context["entities"]
+    assert context["evidence_source"] is False
