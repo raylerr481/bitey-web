@@ -253,12 +253,22 @@ def _active_task_state(
         for item in history
         if item.get("role") == "user" and str(item.get("content", "")).strip()
     ]
+    conversation_context = active_state.get("conversation_context", {}) if isinstance(active_state, dict) else {}
+    reference_resolution = conversation_context.get("reference_resolution", {}) if isinstance(conversation_context, dict) else {}
     continuation = bool(re.search(
-        r"\b(?:continua|continuemos|sigue|seguimos|avanza|aplica|hazlo|"
-        r"implementa|termina|retoma|procede|continue|keep going|go ahead)\b",
+        r"\b(?:continua|continúa|continuemos|sigue|seguimos|avanza|aplica|hazlo|"
+        r"hazlo|implementa|termina|retoma|procede|revisa|mejora|corrige|verifica|"
+        r"continue|keep going|go ahead)\b",
         current_query,
         re.I,
-    ))
+    )) or bool(
+        conversation_context.get("continuation")
+        and (
+            reference_resolution.get("resolved")
+            or conversation_context.get("temporal_context")
+            or conversation_context.get("references")
+        )
+    )
     task_like = bool(re.search(
         r"\b(?:quiero|necesito|objetivo|meta|proyecto|implementar|mejorar|"
         r"configurar|crear|corregir|revisar|desarrollar|construir|investigar)\b",
