@@ -100,7 +100,7 @@ def _reference_resolution(
         "cuarto": 3, "cuarta": 3,
         "quinto": 4, "quinta": 4,
     }
-    ordinal = next((word for word in ordinal_map if re.search(rf"\\b{re.escape(word)}\\b", normalized)), None)
+    ordinal = next((word for word in ordinal_map if re.search(rf"\b{re.escape(word)}\b", normalized)), None)
     if ordinal and isinstance(options, list):
         index = ordinal_map[ordinal]
         if index < len(options):
