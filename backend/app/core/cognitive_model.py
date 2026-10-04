@@ -631,6 +631,20 @@ class CognitiveModel:
         if conceptual and conceptual_subject and conceptual_subject not in self._STABLE_NATIVE_CONCEPTS:
             evidence = True
 
+        # Short noun-phrase knowledge requests are still factual requests.
+        # Keep stable native concepts local, but send unknown concepts such as
+        # "la ameba" to web research instead of falling into an unhelpful
+        # generic refusal.
+        standalone_match = re.match(r"^\s*(?:un|una|el|la)\s+([^?!.]{2,80})\s*[?!.]?\s*$", lower_message, re.I)
+        if standalone_match:
+            standalone_subject = re.sub(r"\s+", " ", standalone_match.group(1)).strip(" ?¿!¡.").casefold()
+            if standalone_subject not in self._STABLE_NATIVE_CONCEPTS:
+                evidence = True
+                if "retrieve_evidence" not in steps:
+                    steps.insert(0, "retrieve_evidence")
+                if "verify" not in steps:
+                    steps.append("verify")
+
         if comparison_task:
             evidence = True
             if "retrieve_evidence" not in steps:
