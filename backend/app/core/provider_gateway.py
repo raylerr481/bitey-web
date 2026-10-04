@@ -202,6 +202,7 @@ class ProviderHealth:
     ewma_latency_ms: float = 0.0
     last_success_at: float = 0.0
     last_failure_at: float = 0.0
+    consecutive_failures: int = 0
 
     @property
     def attempts(self) -> int:
@@ -320,9 +321,11 @@ class ProviderGateway:
         if success:
             health.successes += 1
             health.last_success_at = now
+            health.consecutive_failures = 0
         else:
             health.failures += 1
             health.last_failure_at = now
+            health.consecutive_failures += 1
         self._routing_epoch = getattr(self, '_routing_epoch', 0) + 1
 
     def routing_snapshot(self) -> dict[str, dict[str, Any]]:
@@ -336,6 +339,7 @@ class ProviderGateway:
                 "success_rate": round(health.success_rate, 3),
                 "latency_ms": round(health.ewma_latency_ms, 1),
                 "score": round(health.reliability_score, 3),
+                "consecutive_failures": health.consecutive_failures,
             }
             for name, health in health_map.items()
         }
@@ -456,7 +460,10 @@ class ProviderGateway:
                 # A transient outage must not poison the conversation's sticky
                 # provider choice. Cool down the failed provider briefly so the
                 # next request naturally starts with another eligible provider.
-                cooldown_seconds=max(15.0, float(os.getenv("AI_PROVIDER_FAILURE_COOLDOWN_SECONDS","60")))
+                base_cooldown=max(10.0, float(os.getenv("AI_PROVIDER_FAILURE_COOLDOWN_SECONDS","60")))
+                failure_count=self._health_for(provider.name).consecutive_failures
+                cooldown_cap=max(base_cooldown, float(os.getenv("AI_PROVIDER_FAILURE_COOLDOWN_MAX_SECONDS","300")))
+                cooldown_seconds=min(cooldown_cap, base_cooldown * (2 ** max(0, min(failure_count - 1, 3))))
                 self._provider_cooldowns[provider.name]=time.monotonic()+cooldown_seconds
                 if conversation_id and self._conversation_provider.get(conversation_id)==provider.name:
                     self._conversation_provider.pop(conversation_id,None)
