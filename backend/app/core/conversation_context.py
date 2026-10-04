@@ -57,15 +57,15 @@ def _extract_entities(text: str) -> list[str]:
     # Conservative entity continuity: capitalized multi-word names, URLs,
     # tickers/technical identifiers, and explicit "en/de X" location phrases.
     found: list[str] = []
-    for match in re.findall(r"https?://[^\\s<>()]+", text):
+    for match in re.findall(r"https?://[^\s<>()]+", text):
         found.append(match.rstrip(".,;"))
-    for match in re.findall(r"\\b(?:[A-ZÁÉÍÓÚÜÑ][\\wÁÉÍÓÚÜÑ-]+(?:\\s+[A-ZÁÉÍÓÚÜÑ][\\wÁÉÍÓÚÜÑ-]+){0,3})\\b", text):
+    for match in re.findall(r"\b(?:[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]+(?:\s+[A-ZÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ-]+){0,3})\b", text):
         if len(match) > 2 and match not in found:
             found.append(match)
-    for match in re.findall(r"\\b[A-Z]{2,6}(?:/[A-Z]{2,6})?\\b", text):
+    for match in re.findall(r"\b[A-Z]{2,6}(?:/[A-Z]{2,6})?\b", text):
         if match not in found:
             found.append(match)
-    for match in re.findall(r"\\b(?:en|em|in|de|from|para|to)\\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][\\wÁÉÍÓÚÜÑáéíóúüñ-]*(?:\\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ][\\wÁÉÍÓÚÜÑáéíóúüñ-]*){0,2})", text, re.I):
+    for match in re.findall(r"\b(?:en|em|in|de|from|para|to)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9][\wÁÉÍÓÚÜÑáéíóúüñ-]*(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ][\wÁÉÍÓÚÜÑáéíóúüñ-]*){0,2})", text, re.I):
         value = _clean(match, 120)
         if value and value.casefold() not in {"el", "la", "los", "las", "un", "una"} and value not in found:
             found.append(value)
@@ -87,7 +87,7 @@ def build_conversation_context(
     text = _clean(current_query)
     tokens = set(_tokens(text))
     reference_tokens = sorted(tokens.intersection(_REFERENCE_WORDS))
-    connector = bool(re.match(r"^(?:y|e|and|then|então|entao|también|tambien)\\b", text, re.I))
+    connector = bool(re.match(r"^(?:y|e|and|then|então|entao|también|tambien)\b", text, re.I))
     temporal = sorted(tokens.intersection(_TIME_WORDS))
     current_topic = _topic(text)
     prior_topic = _topic(prior_user) or _topic(prior_answer)
