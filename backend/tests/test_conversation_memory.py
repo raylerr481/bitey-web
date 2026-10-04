@@ -1,5 +1,5 @@
 from backend.app.chat_v2 import _detect_memory_updates, _structured_conversation_memory, _active_conversation_state
-from backend.app.core.conversation_context import build_conversation_context\nfrom backend.app.chat_v2 import _active_task_state
+from backend.app.core.conversation_context import build_conversation_context\nfrom backend.app.chat_v2 import _active_task_state, _classify_task_lifecycle
 
 
 def test_superseded_preference_becomes_inactive():
@@ -270,3 +270,63 @@ def test_active_task_marks_persisted_work_as_available_on_continuation():
     assert task["continuation_detected"] is True
     assert task["persisted_task_available"] is True
     assert task["active"] is True
+
+
+
+def test_task_lifecycle_pending_selects_first_real_action():
+    lifecycle = _classify_task_lifecycle([
+        {"id": "analyze", "action": "Analizar", "status": "completed"},
+        {"id": "verify", "action": "Verificar resultados", "status": "pending"},
+        {"id": "respond", "action": "Responder", "status": "pending"},
+    ])
+    assert lifecycle["task_status"] == "pending"
+    assert lifecycle["next_action"]["id"] == "verify"
+    assert lifecycle["next_action"]["kind"] == "next_pending"
+    assert lifecycle["completed_phases"] == ["analyze"]
+
+
+def test_task_lifecycle_running_continues_current_phase():
+    lifecycle = _classify_task_lifecycle([
+        {"id": "retrieve", "action": "Consultar fuentes", "status": "running"},
+        {"id": "verify", "action": "Verificar", "status": "pending"},
+    ])
+    assert lifecycle["task_status"] == "running"
+    assert lifecycle["current_phase"] == "retrieve"
+    assert lifecycle["next_action"]["id"] == "retrieve"
+    assert lifecycle["next_action"]["kind"] == "continue_running"
+
+
+def test_task_lifecycle_blocked_selects_unblock_action():
+    lifecycle = _classify_task_lifecycle([
+        {
+            "id": "deploy",
+            "action": "Desplegar",
+            "status": "blocked",
+            "blockers": ["Falta una variable de entorno"],
+            "unblock_action": "Configurar la variable de entorno",
+        },
+        {"id": "verify", "action": "Verificar despliegue", "status": "pending"},
+    ])
+    assert lifecycle["task_status"] == "blocked"
+    assert lifecycle["next_action"]["kind"] == "unblock"
+    assert lifecycle["next_action"]["id"] == "deploy"
+    assert "Falta una variable de entorno" in lifecycle["blockers"]
+
+
+def test_task_lifecycle_completed_never_selects_old_analysis_again():
+    lifecycle = _classify_task_lifecycle([
+        {"id": "analyze", "action": "Analizar", "status": "completed"},
+        {"id": "verify", "action": "Verificar", "status": "completed"},
+        {"id": "respond", "action": "Responder", "status": "completed"},
+    ])
+    assert lifecycle["task_status"] == "completed"
+    assert lifecycle["next_action"] is None
+    assert lifecycle["progress_ratio"] == 1.0
+
+
+def test_task_lifecycle_is_not_evidence():
+    lifecycle = _classify_task_lifecycle([
+        {"id": "verify", "action": "Verificar", "status": "pending"},
+    ])
+    assert lifecycle["trust"] == "continuity_only_not_evidence"
+    assert lifecycle["evidence_source"] is False
