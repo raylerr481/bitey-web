@@ -208,6 +208,16 @@ def build_conversation_context(
             previous_result = metadata["reference_context"]
             break
 
+    reference_resolution = _reference_resolution(
+        text=text,
+        references=reference_tokens[:8],
+        current_entities=entities[:12],
+        recent_entities=recent_entities[:12],
+        prior_user=prior_user,
+        prior_answer=prior_answer,
+        previous_result=previous_result,
+    )
+
     return {
         "topic": current_topic or recent_topic,
         "topic_source": "current_request" if current_topic else ("recent_turns" if recent_topic else "unknown"),
