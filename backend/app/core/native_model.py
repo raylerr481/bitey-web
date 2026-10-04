@@ -46,7 +46,10 @@ class NativeReasoningModel:
             or decision.get("evidence_required")
             or decision.get("freshness_required")
         )
-        direct = self._direct_general_answer(user_message, frame) if not evidence_required else ""
+        # High-confidence native concepts are deterministic and safe to answer directly.
+        # Do not let a stale/reused evidence flag suppress them; research remains
+        # mandatory for concepts that are not in the native allowlist.
+        direct = self._direct_general_answer(user_message, frame)
         if direct:
             context["native_grounded"] = True
             context["native_grounded_type"] = "stable_concept"
