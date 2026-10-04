@@ -884,6 +884,21 @@ def create_chat_v2_router(
                 if isinstance(active_task["previous_execution_state"], dict)
                 else None
             )
+            previous_progress = active_task.get("previous_progress") or {}
+            previous_execution = active_task.get("previous_execution_state") or {}
+            previous_next = previous_execution.get("next_step") if isinstance(previous_execution, dict) else None
+            # Never restart a completed workflow merely because the user says
+            # "continúa". A completed task is a terminal continuity state.
+            if (
+                isinstance(previous_progress, dict)
+                and float(previous_progress.get("ratio", 0.0) or 0.0) >= 1.0
+                and not previous_next
+            ):
+                active_task["completed"] = True
+                active_task["active"] = False
+                active_task["continuation_completed"] = True
+                active_task["resumed_step"] = None
+                active_task["resumed_action"] = None
         if history:
             emit("↻ Revisando el contexto necesario de la conversación…")
         learning_context: list[dict[str, Any]] = []
