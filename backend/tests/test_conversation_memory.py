@@ -227,3 +227,24 @@ def test_active_task_resumes_from_reference_followup():
     task = _active_task_state(history, "¿Y la segunda?", state)
     assert task["active"] is True
     assert task["continuation_detected"] is True
+
+
+def test_active_task_accepts_common_continuation_typo_without_fuzzy_matching():
+    history = [
+        {"role": "user", "content": "Quiero mejorar Bitey IA"},
+        {"role": "assistant", "content": "Detecté una mejora pendiente."},
+    ]
+    state = _active_conversation_state(history, {}, "conotua")
+    task = _active_task_state(history, "conotua", state)
+    assert task["continuation_detected"] is True
+    assert task["active"] is True
+
+
+def test_active_task_does_not_treat_unrelated_word_as_continuation():
+    history = [
+        {"role": "user", "content": "Quiero mejorar Bitey IA"},
+        {"role": "assistant", "content": "Detecté una mejora pendiente."},
+    ]
+    state = _active_conversation_state(history, {}, "consulta sobre Bitcoin")
+    task = _active_task_state(history, "consulta sobre Bitcoin", state)
+    assert task["continuation_detected"] is False
