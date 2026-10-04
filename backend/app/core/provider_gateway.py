@@ -377,7 +377,10 @@ class ProviderGateway:
         context["provider_routing"] = self.routing_snapshot()
         # Keep the native model available as the final fallback. Real inference providers remain first.
         providers=[p for p in self._providers.values() if not free_only_mode() or p.free_only]
-        if not providers: return "Ahora mismo no puedo completar esta consulta. Inténtalo nuevamente en unos momentos." if hard_stop() and free_only_mode() else "Bitey IA no tiene un proveedor disponible en este momento."
+        if not providers:
+            # Deterministic emergency response is handled upstream; never manufacture
+            # current/research facts here when no inference provider is available.
+            return "Bitey IA sigue disponible, pero no hay un motor de generación disponible en este momento. Para una consulta actual, volveré a intentarlo cuando haya un proveedor operativo."
         conversation_id=str(context.get("conversation_id") or "").strip(); brain=context.get("bitey_brain") or {}; role=str(brain.get("model_role") or context.get("model_role") or "synthesis")
         ordered=self._order_for_role(providers,role)
         # Validated historical outcomes are weak routing hints only. They can
