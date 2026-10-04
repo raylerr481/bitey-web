@@ -82,7 +82,12 @@ class OpenAICompatibleProvider:
         headers={"Content-Type":"application/json"}
         if self.api_key: headers["Authorization"]=f"Bearer {self.api_key}"
         async with httpx.AsyncClient(timeout=float(os.getenv("AI_REQUEST_TIMEOUT","45"))) as client:
-            response=await client.post(f"{self.endpoint}/chat/completions",headers=headers,json=payload); response.raise_for_status(); data=response.json()
+            response=await client.post(f"{self.endpoint}/chat/completions",headers=headers,json=payload)
+            data=response.json() if response.content else {}
+            if not response.is_success:
+                error_obj = data.get("error")
+                detail = error_obj.get("message") if isinstance(error_obj, dict) else data.get("message")
+                raise RuntimeError(f"http_{response.status_code}:{str(detail or 'provider_error')[:180]}")
         choices=data.get("choices") or []
         if not choices or not choices[0].get("message",{}).get("content"): raise RuntimeError("empty_response")
         return str(choices[0]["message"]["content"]).strip()
