@@ -49,7 +49,12 @@ class NativeReasoningModel:
         # High-confidence native concepts are deterministic and safe to answer directly.
         # Do not let a stale/reused evidence flag suppress them; research remains
         # mandatory for concepts that are not in the native allowlist.
-        direct = self._direct_general_answer(user_message, frame)
+        # Only the explicit stable-concept allowlist may bypass an external evidence gate.
+        # Other built-in definitions remain available after evidence is present, but they
+        # must never silently satisfy a request that explicitly requires research.
+        direct = ""
+        if not evidence_required or self._is_stable_native_concept(user_message):
+            direct = self._direct_general_answer(user_message, frame)
         if direct:
             context["native_grounded"] = True
             context["native_grounded_type"] = "stable_concept"
@@ -60,6 +65,15 @@ class NativeReasoningModel:
             answer = self._reason_from_evidence(user_message, evidence, frame, decision)
             if answer: return answer
         return self._contextual_guarded_answer(user_message, frame, decision, context)
+
+    @staticmethod
+    def _is_stable_native_concept(question: str) -> bool:
+        q = re.sub(r"\s+", " ", str(question or "").strip().lower())
+        q = re.sub(r"^(?:¿|\?)\s*", "", q).strip()
+        q = re.sub(r"\s*[?!.¿!¡]+\s*$", "", q).strip()
+        q = re.sub(r"^(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+", "", q, flags=re.I).strip()
+        q = re.sub(r"^(?:la|el|los|las|un|una)\s+", "", q, flags=re.I).strip()
+        return q in {"nasa", "adn", "dna", "cohete", "cohete espacial", "docker"}
 
     @staticmethod
     def _direct_general_answer(question: str, frame: dict[str, Any]) -> str:
