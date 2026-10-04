@@ -1,4 +1,5 @@
 from backend.app.chat_v2 import _detect_memory_updates, _structured_conversation_memory, _active_conversation_state
+from backend.app.core.conversation_context import build_conversation_context
 
 
 def test_superseded_preference_becomes_inactive():
@@ -52,3 +53,46 @@ def test_active_conversation_state_is_not_evidence():
     assert state["trust"] == "continuity_only_not_evidence"
     assert state["last_user_request"]
     assert "evidence" not in state
+
+
+def test_conversation_context_generalizes_beyond_weather():
+    history = [
+        {"role": "user", "content": "Compara estos VPS gratuitos"},
+        {"role": "assistant", "content": "La opción B ofrece más recursos.", "metadata": {
+            "reference_context": {"options": ["A", "B", "C"], "sources": [{"index": 1, "title": "Fuente A"}]}
+        }},
+    ]
+    context = build_conversation_context(history, "¿Y la segunda?")
+    assert context["continuation"] is True
+    assert "segunda" in context["references"]
+    assert context["topic"] == "comparison"
+    assert context["previous_result_context"]["options"] == ["A", "B", "C"]
+    assert context["trust"] == "continuity_only_not_evidence"
+    assert context["evidence_source"] is False
+
+
+def test_conversation_context_preserves_topic_for_short_followup():
+    history = [
+        {"role": "user", "content": "Explícame Docker y sus contenedores"},
+        {"role": "assistant", "content": "Docker empaqueta aplicaciones en contenedores."},
+    ]
+    context = build_conversation_context(history, "¿Y la segunda parte?")
+    assert context["continuation"] is True
+    assert context["topic"] == "programming"
+    assert context["last_user_request"] == "Explícame Docker y sus contenedores"
+
+
+def test_active_conversation_state_exposes_generic_context_without_promoting_it_to_evidence():
+    state = _active_conversation_state(
+        [
+            {"role": "user", "content": "¿Cuál es el precio actual de Bitcoin?"},
+            {"role": "assistant", "content": "El precio actual debe verificarse."},
+        ],
+        {},
+        "¿Y Ethereum?",
+    )
+    assert state["conversation_context"]["topic"] == "finance"
+    assert state["conversation_context"]["continuation"] is True
+    assert state["conversation_context"]["trust"] == "continuity_only_not_evidence"
+    assert state["conversation_context"]["evidence_source"] is False
+    assert "evidence" not in state["conversation_context"]
