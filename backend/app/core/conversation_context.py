@@ -239,6 +239,7 @@ def build_conversation_context(
         "last_user_request": prior_user[:1000],
         "last_assistant_answer": prior_answer[:1800],
         "previous_result_context": previous_result,
+        "reference_resolution": reference_resolution,
         "recent_turns": [
             {
                 "role": str(item.get("role") or ""),
