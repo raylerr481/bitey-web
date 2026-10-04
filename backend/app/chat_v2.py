@@ -282,8 +282,13 @@ def _active_task_state(
         current_query,
         re.I,
     ))
+    # A persisted task is itself a continuity signal. It can reactivate the
+    # workflow only when the current message explicitly asks to continue or
+    # references the prior work; it never becomes evidence for the answer.
+    persisted_task_hint = _last_persisted_task_state(history)
+    persisted_active = isinstance(persisted_task_hint, dict) and bool(persisted_task_hint.get("active"))
     return {
-        "active": bool(continuation or task_like or active_state.get("current_goal")),
+        "active": bool(continuation or task_like or active_state.get("current_goal") or (persisted_active and continuation)),
         "current_request": current_query[:1000],
         "goal": (active_state.get("current_goal") or [])[-1:],
         "constraints": active_state.get("active_constraints", [])[-4:],
@@ -291,6 +296,7 @@ def _active_task_state(
         "last_decisions": active_state.get("latest_decisions", [])[-4:],
         "continuation_detected": continuation,
         "task_signal": task_like,
+        "persisted_task_available": persisted_active,
         "source": "explicit_conversation_context",
         "trust": "continuity_only_not_evidence",
     }
