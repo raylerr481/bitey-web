@@ -287,6 +287,11 @@ def _active_task_state(
     # references the prior work; it never becomes evidence for the answer.
     persisted_task_hint = _last_persisted_task_state(history)
     persisted_active = isinstance(persisted_task_hint, dict) and bool(persisted_task_hint.get("active"))
+    lifecycle = _classify_task_lifecycle(
+        (persisted_task_hint or {}).get("plan_steps") or [],
+        explicit_blockers=(persisted_task_hint or {}).get("blockers") or [],
+        current_phase=(persisted_task_hint or {}).get("execution_phase"),
+    )
     return {
         "active": bool(continuation or task_like or active_state.get("current_goal") or (persisted_active and continuation)),
         "current_request": current_query[:1000],
@@ -297,10 +302,131 @@ def _active_task_state(
         "continuation_detected": continuation,
         "task_signal": task_like,
         "persisted_task_available": persisted_active,
+        "task_lifecycle": lifecycle,
         "source": "explicit_conversation_context",
         "trust": "continuity_only_not_evidence",
+        "evidence_source": False,
     }
 
+
+
+
+def _classify_task_lifecycle(
+    plan_steps: list[dict[str, Any]] | None,
+    *,
+    explicit_blockers: list[str] | None = None,
+    current_phase: str | None = None,
+) -> dict[str, Any]:
+    """Classify task lifecycle deterministically from persisted workflow state.
+
+    Lifecycle is continuity metadata only; it is never treated as evidence.
+    """
+    steps = [dict(step) for step in (plan_steps or []) if isinstance(step, dict) and step.get("id")]
+    blockers = [
+        " ".join(str(item).split())[:300]
+        for item in (explicit_blockers or [])
+        if str(item).strip()
+    ]
+
+    completed = []
+    pending = []
+    running = []
+    blocked = []
+    for step in steps:
+        step_id = str(step.get("id") or "")
+        status = str(step.get("status") or "pending").casefold()
+        if status in {"completed", "done", "success", "skipped"}:
+            completed.append(step_id)
+        elif status in {"blocked", "failed", "waiting"}:
+            blocked.append(step)
+        elif status == "running":
+            running.append(step)
+        else:
+            pending.append(step)
+
+        step_blockers = step.get("blockers") or step.get("blocked_by") or []
+        if isinstance(step_blockers, str):
+            step_blockers = [step_blockers]
+        if status in {"blocked", "failed", "waiting"}:
+            blockers.extend(
+                " ".join(str(item).split())[:300]
+                for item in step_blockers
+                if str(item).strip()
+            )
+
+    total = len(steps)
+    completed_count = len(completed)
+    ratio = round((completed_count / total), 3) if total else 0.0
+
+    if total and completed_count >= total:
+        task_status = "completed"
+    elif blocked or blockers:
+        task_status = "blocked"
+    elif running:
+        task_status = "running"
+    elif pending:
+        task_status = "pending"
+    else:
+        task_status = "completed" if total else "pending"
+
+    # A blocked task gets an explicit unblock action when one is available.
+    next_action = None
+    if task_status == "blocked":
+        unblock = next(
+            (
+                step for step in blocked
+                if step.get("unblock_action") or step.get("action")
+            ),
+            None,
+        )
+        if unblock:
+            next_action = {
+                "id": str(unblock.get("id") or ""),
+                "action": str(
+                    unblock.get("unblock_action")
+                    or unblock.get("action")
+                    or "Resolver el bloqueo"
+                ),
+                "kind": "unblock",
+            }
+        elif blockers:
+            next_action = {
+                "id": "unblock",
+                "action": f"Resolver el bloqueo: {blockers[0]}",
+                "kind": "unblock",
+            }
+    elif running:
+        step = running[0]
+        next_action = {
+            "id": str(step.get("id") or ""),
+            "action": str(step.get("action") or ""),
+            "kind": "continue_running",
+        }
+    elif pending:
+        step = pending[0]
+        next_action = {
+            "id": str(step.get("id") or ""),
+            "action": str(step.get("action") or ""),
+            "kind": "next_pending",
+        }
+
+    return {
+        "task_status": task_status,
+        "current_phase": current_phase or (
+            str((running[0] if running else pending[0]).get("id") or "")
+            if (running or pending) else None
+        ),
+        "completed_phases": completed[-12:],
+        "pending_phases": [
+            str(step.get("id") or "") for step in pending
+        ][-12:],
+        "blockers": list(dict.fromkeys(blockers))[-8:],
+        "progress_ratio": ratio,
+        "progress_summary": f"{completed_count}/{total} fases completadas" if total else "Sin fases registradas",
+        "next_action": next_action,
+        "trust": "continuity_only_not_evidence",
+        "evidence_source": False,
+    }
 
 
 
@@ -430,7 +556,7 @@ def _execution_state(
             }
             if next_step else None
         ),
-        "state_version": "1.1",
+        "state_version": "1.2",
     }
 
 
@@ -1042,22 +1168,34 @@ def create_chat_v2_router(
                     and str(step.get("status") or "") in {"pending", "conditional", "required", "running"}
                 ):
                     step["status"] = "completed"
-            pending = next(
-                (
-                    step for step in brain_state.plan_steps
-                    if isinstance(step, dict)
-                    and str(step.get("status", "pending")) in {"pending", "conditional", "required"}
-                ),
-                None,
+            previous_lifecycle = _classify_task_lifecycle(
+                previous,
+                explicit_blockers=persisted_task.get("blockers") or [],
+                current_phase=persisted_task.get("execution_phase"),
             )
-            if pending:
-                emit("↻ Retomando el punto pendiente de la conversación…")
+            active_task["previous_lifecycle"] = previous_lifecycle
+            pending = previous_lifecycle.get("next_action")
+            # The continuation command selects the next real action from persisted
+            # lifecycle state. It does not repeat the last completed analysis.
+            if pending and previous_lifecycle.get("task_status") != "completed":
+                emit("↻ Retomando la siguiente acción pendiente…")
                 active_task["resumed_step"] = str(pending.get("id") or "")
                 active_task["resumed_action"] = str(pending.get("action") or "")
+                active_task["task_status"] = previous_lifecycle.get("task_status")
+                active_task["next_action"] = pending
             else:
                 active_task["resumed_step"] = None
                 active_task["resumed_action"] = None
+                active_task["task_status"] = previous_lifecycle.get("task_status")
+                active_task["next_action"] = None
         ctx["active_task"] = active_task
+        ctx["task_lifecycle"] = _classify_task_lifecycle(
+            brain_state.plan_steps,
+            explicit_blockers=active_task.get("blockers") or [],
+            current_phase=active_task.get("execution_phase"),
+        )
+        active_task.update(ctx["task_lifecycle"])
+        active_task["active"] = active_task.get("task_status") != "completed"
         trace_store.set_plan(trace, brain_state.plan_steps)
 
         def plan_step(step_id: str, status: str) -> None:
@@ -2332,6 +2470,13 @@ def create_chat_v2_router(
             answer_verification=answer_verification,
             next_step=next_step,
         )
+        final_lifecycle = _classify_task_lifecycle(
+            reconciled_plan,
+            explicit_blockers=active_task.get("blockers") or [],
+            current_phase=(next_step.get("id") if next_step else None),
+        )
+        active_task.update(final_lifecycle)
+        active_task["active"] = final_lifecycle["task_status"] != "completed"
         # Keep the execution snapshot internally consistent with the reconciled
         # workflow that is persisted for the next turn.
         active_task["execution_state"]["completed_phases"] = [
@@ -2367,6 +2512,13 @@ def create_chat_v2_router(
                 "total": total_steps,
                 "ratio": round((len(completed_steps) / total_steps), 3) if total_steps else 0.0,
             }
+            lifecycle = _classify_task_lifecycle(
+                persisted_plan,
+                explicit_blockers=active_task.get("blockers") or [],
+                current_phase=active_task.get("execution_phase"),
+            )
+            active_task.update(lifecycle)
+            active_task["active"] = lifecycle["task_status"] != "completed"
             active_task["plan_steps"] = [
                 {
                     "id": str(step.get("id") or ""),
