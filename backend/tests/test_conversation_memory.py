@@ -1,5 +1,5 @@
 from backend.app.chat_v2 import _detect_memory_updates, _structured_conversation_memory, _active_conversation_state
-from backend.app.core.conversation_context import build_conversation_context
+from backend.app.core.conversation_context import build_conversation_context\nfrom backend.app.chat_v2 import _active_task_state
 
 
 def test_superseded_preference_becomes_inactive():
@@ -204,3 +204,26 @@ def test_reference_resolution_does_not_resolve_stale_old_option_for_new_topic():
     assert context["topic"] == "programming"
     assert context["reference_resolution"]["resolved"] is False
     assert context["reference_resolution"]["uses_previous_result"] is False
+
+
+def test_active_task_resumes_from_reference_followup():
+    history = [
+        {"role": "user", "content": "Quiero comparar estos tres VPS"},
+        {"role": "assistant", "content": "Comparé tres opciones.", "metadata": {
+            "active_task_state": {
+                "active": True,
+                "goal": ["Quiero comparar estos tres VPS"],
+                "constraints": ["Sin opciones de pago"],
+                "last_decisions": ["Priorizar recursos"],
+                "progress": {"completed": ["retrieve"]},
+                "plan_steps": [{"id": "retrieve", "status": "completed"}, {"id": "verify", "status": "pending"}],
+                "execution_state": {"execution_phase": "verify"}
+            },
+            "reference_context": {"options": ["A", "B", "C"]}
+        }},
+    ]
+    updates = _detect_memory_updates(history, "¿Y la segunda?")
+    state = _active_conversation_state(history, updates, "¿Y la segunda?")
+    task = _active_task_state(history, "¿Y la segunda?", state)
+    assert task["active"] is True
+    assert task["continuation_detected"] is True
