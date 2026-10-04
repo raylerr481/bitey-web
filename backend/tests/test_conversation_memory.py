@@ -151,3 +151,56 @@ def test_conversation_context_keeps_current_request_above_old_topic():
     assert context["topic"] == "programming"
     assert context["topic_source"] == "current_request"
     assert context["evidence_source"] is False
+
+
+def test_reference_resolution_maps_second_option_without_treating_it_as_evidence():
+    history = [
+        {"role": "user", "content": "Compara estos VPS gratuitos"},
+        {"role": "assistant", "content": "Encontré tres opciones.", "metadata": {
+            "reference_context": {"options": ["A", "B", "C"]}
+        }},
+    ]
+    context = build_conversation_context(history, "¿Cuál es la segunda?")
+    resolved = context["reference_resolution"]
+    assert resolved["resolved"] is True
+    assert resolved["target"]["kind"] == "previous_result_option"
+    assert resolved["target"]["index"] == 2
+    assert resolved["target"]["value"] == "B"
+    assert resolved["evidence_source"] is False
+    assert resolved["trust"] == "continuity_only_not_evidence"
+
+
+def test_reference_resolution_handles_demonstrative_entity():
+    history = [
+        {"role": "user", "content": "Explícame Docker"},
+        {"role": "assistant", "content": "Docker usa contenedores."},
+    ]
+    context = build_conversation_context(history, "¿Y eso cómo funciona?")
+    resolved = context["reference_resolution"]
+    assert resolved["resolved"] is True
+    assert resolved["target"]["kind"] in {"recent_entity", "previous_turn"}
+    assert resolved["evidence_source"] is False
+
+
+def test_reference_resolution_handles_temporal_followup_without_changing_evidence_boundary():
+    history = [
+        {"role": "user", "content": "¿Qué clima hay en Cuba?"},
+        {"role": "assistant", "content": "Consulta meteorológica."},
+    ]
+    context = build_conversation_context(history, "¿Y mañana?")
+    assert context["temporal_context"] == ["mañana"]
+    assert context["continuation"] is True
+    assert context["reference_resolution"]["evidence_source"] is False
+
+
+def test_reference_resolution_does_not_resolve_stale_old_option_for_new_topic():
+    history = [
+        {"role": "user", "content": "Compara estos VPS gratuitos"},
+        {"role": "assistant", "content": "Encontré tres opciones.", "metadata": {
+            "reference_context": {"options": ["A", "B", "C"]}
+        }},
+    ]
+    context = build_conversation_context(history, "Explícame Python")
+    assert context["topic"] == "programming"
+    assert context["reference_resolution"]["resolved"] is False
+    assert context["reference_resolution"]["uses_previous_result"] is False
