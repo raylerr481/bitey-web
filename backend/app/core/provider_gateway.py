@@ -401,7 +401,7 @@ class ProviderGateway:
             ollama = next((p for p in ordered if p.name == "ollama-local"), None)
             if ollama is None:
                 ordered=[sticky]+[p for p in ordered if p.name!=sticky.name]
-        max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","4")))
+        max_providers=max(1,int(os.getenv("AI_COUNCIL_MAX_PROVIDERS","6")))
         now=time.monotonic()
         ordered=[p for p in ordered if getattr(self, '_provider_cooldowns', {}).get(p.name, 0.0) <= now or p.name=="bitey-native-cognitive-v1"]
         selected_providers=ordered[:max_providers]
