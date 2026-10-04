@@ -88,7 +88,7 @@ class CognitiveModel:
 
     _ROUTING_ALIASES = {
         "hoka": "hola", "holaa": "hola", "holla": "hola", "ola": "hola", "olaa": "hola",
-        "orto": "porto", "poto": "porto",
+        "orto": "porto", "poto": "porto", "braisl": "brasil", "brasil4": "brasil", "brazil": "brasil",
         "tienpo": "tiempo", "timepo": "tiempo", "timepoe": "tiempo", "temppo": "tiempo", "tiemp": "tiempo", "tiemp": "tiempo", "cllima": "clima", "climma": "clima",         "contiua": "continua", "contina": "continua", "continuaaa": "continua",
         "preico": "precio", "prceio": "precio", "cotizacon": "cotizacion", "accin": "accion",
     }
