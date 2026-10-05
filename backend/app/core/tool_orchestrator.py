@@ -40,7 +40,8 @@ class ToolOrchestrator:
     # still route to evidence.
     WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?)\b", re.I)
     TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
-    TURTLE_RE = re.compile(r"\b(?:turtle|tortuga|turtle trading|s1|s2|campa(?:gn|[ñn]a)|piramid(?:e|ing)|unidades?|n/?atr|risk gate|turtle controller)\b", re.I)\n    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
+    TURTLE_RE = re.compile(r"\b(?:turtle|tortuga|turtle trading|s1|s2|campa(?:gn|[ñn]a)|piramid(?:e|ing)|unidades?|n/?atr|risk gate|turtle controller)\b", re.I)
+    TURTLE_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?y\s+(?:el|la|los|las)\s+(?:equity|balance|señal|signal|riesgo|posición|posicion|trade|trades|turtle)|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces)\s*\??\s*$", re.I)\n    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
     NATURAL_MATH_RE = re.compile(r"^\s*(?:cu[aá]nto\s+es\s+)?[-+]?\d+(?:[.,]\d+)?\s*(?:%\s+de|por ciento de|\+|menos|m[aá]s|por|entre|dividido(?:\s+por)?|multiplicado(?:\s+por)?|x)\s+[-+]?\d+(?:[.,]\d+)?\s*\??\s*$", re.I)
 
     def __init__(self) -> None:
@@ -125,9 +126,16 @@ class ToolOrchestrator:
 
         # Calculator is an executable capability, not merely a label. Use it
         # for deterministic arithmetic only; symbolic math remains model work.
+        turtle_context = (
+            str(ctx.get("current_intent_domain") or ctx.get("intent_family") or "").lower() in {"trading", "turtle"}
+            or "sbt_turtle" in {str(name) for name in (ctx.get("selected_tools") or [])}
+            or "sbt_turtle" in {str(name) for name in ((ctx.get("previous_execution_state") or {}).get("executed_tools", []) if isinstance(ctx.get("previous_execution_state"), dict) else [])}
+        )
         if arithmetic_request:
             requested = ["calculator"]
-        elif self.TURTLE_RE.search(message):\n            requested = ["sbt_turtle"]\n        elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
+        elif self.TURTLE_RE.search(message) or (self.TURTLE_FOLLOWUP_RE.fullmatch(message) and turtle_context):
+            requested = ["sbt_turtle"]
+        elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
             requested = ["sbt_market"]
         elif self.WEATHER_RE.search(message) and (
             str(cognitive.intention.get("domain", "general")).lower() == "weather"
@@ -462,7 +470,7 @@ class ToolOrchestrator:
                 return {"ok": True, "available": True, "verified": False, "execution_enabled": False, "source": "sbt_turtle_context", "evidence_class": "NO_EVIDENCE", "observed": False, "context": payload, "evidence": "SBT Turtle Controller is reachable, but it has no current MT4 live snapshot. No Turtle state, signal, position, or trade result was inferred."}
             state = payload.get("state") or {}
             return {
-                "ok": True, "available": True, "verified": True, "execution_enabled": False,
+                "ok": True, "available": True, "verified": True, "evidence_verified": True, "execution_enabled": False,
                 "source": "sbt_turtle_context", "evidence_class": "MT4_LIVE_SNAPSHOT", "observed": True,
                 "state": state, "context": payload,
                 "evidence": (
