@@ -142,6 +142,7 @@ def create_trading_router(providers: ProviderGateway) -> APIRouter:
                 action = "HOLD"
             confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
             risk_allowed = bool(data.get("risk_allowed", False)) and action != "HOLD"
+            native = native_structured_analysis(snapshot)
             return TradingAnalysisResponse(
                 ok=True,
                 mode="analysis_only",
@@ -150,9 +151,13 @@ def create_trading_router(providers: ProviderGateway) -> APIRouter:
                 action=action,
                 confidence=confidence,
                 risk_allowed=risk_allowed,
-                strategy=str(data.get("strategy", "advisory"))[:120],
-                reason=str(data.get("reason", "No actionable analysis returned."))[:1000],
+                strategy=str(data.get("strategy", native["strategy"]))[:120],
+                reason=str(data.get("reason", native["reason"]))[:1000],
                 source=str(context.get("provider_selected") or "bitey_provider_gateway"),
+                execution_boundary="mt4_local_risk_gate",
+                regime=str(data.get("regime", native["regime"]))[:64],
+                next_test=str(data.get("next_test", native["next_test"]))[:120],
+                validation_required=True,
             )
         except Exception:
             return TradingAnalysisResponse(**native_structured_analysis(snapshot))
