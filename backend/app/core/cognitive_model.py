@@ -322,9 +322,14 @@ class CognitiveModel:
 
         if conceptual:
             current_conceptual_weather = any(x in text for x in ("actual", "ahora", "hoy", "pronóstico", "pronostico", "forecast"))
+            stable_programming_concept = any(
+                concept in text for concept in ("docker",)
+            )
             if not current_conceptual_weather:
                 scores = {domain: 0 for domain in scores}
                 scores["general"] = 1
+                if stable_programming_concept:
+                    scores["programming"] = 2
             for domain in strong_scores:
                 if domain != "weather" or not current_conceptual_weather:
                     strong_scores[domain] = 0
