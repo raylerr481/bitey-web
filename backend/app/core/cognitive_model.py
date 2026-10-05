@@ -34,7 +34,7 @@ class CognitiveModel:
         "finance": ("precio", "precios", "cotización", "cotizacion", "acción", "acciones", "stock", "dividendo", "dividendos", "finanzas"),
         "trading": ("trading", "trade", "forex", "stock", "tradingview", "mt5"),
         "support": ("ticket", "soporte", "error", "incidencia", "reparación", "repair"),
-        "programming": ("código", "codigo", "python", "javascript", "bug", "programar"),
+        "programming": ("código", "codigo", "python", "javascript", "bug", "programar", "docker"),
         "marketing": ("marketing", "ventas", "campaña", "publicidad", "seo"),
         "research": ("investiga", "investigar", "research", "evidencia", "fuentes", "estudio"),
         "local_search": ("cerca de mí", "cerca de mi", "cercano", "cercana", "near me", "nearby", "en mi zona"),
@@ -418,6 +418,11 @@ class CognitiveModel:
             confidence += min(0.25, (top_score - second_score) * 0.08)
         family, family_confidence = self._intent_family(message, top_domain)
         entities = self._extract_entities(message)
+        # Reapply continuity entities after extracting the current request so a
+        # short weather follow-up can inherit the prior location without losing
+        # the original display casing (for example, "Cuba").
+        if continuity_marker and continuity_topic == "weather" and continuity_entities and not entities.get("locations"):
+            entities["locations"] = [str(value).strip() for value in continuity_entities if str(value).strip()][:8]
         if is_followup and prior_request:
             prior_entities = self._extract_entities(prior_request)
             if not entities.get("locations") and prior_entities.get("locations"):
