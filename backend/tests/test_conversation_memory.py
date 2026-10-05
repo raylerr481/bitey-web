@@ -1,5 +1,6 @@
 from backend.app.chat_v2 import _detect_memory_updates, _structured_conversation_memory, _active_conversation_state
-from backend.app.core.conversation_context import build_conversation_context\nfrom backend.app.chat_v2 import _active_task_state, _classify_task_lifecycle, _task_controller_decision
+from backend.app.core.conversation_context import build_conversation_context
+from backend.app.chat_v2 import _active_task_state, _classify_task_lifecycle, _task_controller_decision
 
 
 def test_superseded_preference_becomes_inactive():
