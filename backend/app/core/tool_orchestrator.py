@@ -41,7 +41,8 @@ class ToolOrchestrator:
     WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?)\b", re.I)
     TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
     TURTLE_RE = re.compile(r"\b(?:turtle|tortuga|turtle trading|s1|s2|campa(?:gn|[ñn]a)|piramid(?:e|ing)|unidades?|n/?atr|risk gate|turtle controller)\b", re.I)
-    TURTLE_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?y\s+(?:el|la|los|las)\s+(?:equity|balance|señal|signal|riesgo|posición|posicion|trade|trades|turtle)|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces)\s*\??\s*$", re.I)\n    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
+    TURTLE_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?y\s+(?:el|la|los|las)\s+(?:equity|balance|señal|signal|riesgo|posición|posicion|trade|trades|turtle)|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces)\s*\??\s*$", re.I)
+    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
     NATURAL_MATH_RE = re.compile(r"^\s*(?:cu[aá]nto\s+es\s+)?[-+]?\d+(?:[.,]\d+)?\s*(?:%\s+de|por ciento de|\+|menos|m[aá]s|por|entre|dividido(?:\s+por)?|multiplicado(?:\s+por)?|x)\s+[-+]?\d+(?:[.,]\d+)?\s*\??\s*$", re.I)
 
     def __init__(self) -> None:
