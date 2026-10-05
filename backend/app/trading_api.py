@@ -46,6 +46,9 @@ class TradingAnalysisResponse(BaseModel):
     reason: str
     source: str
     execution_boundary: str = "mt4_local_risk_gate"
+    regime: str = "UNKNOWN"
+    next_test: str | None = None
+    validation_required: bool = True
 
 
 def create_trading_router(providers: ProviderGateway) -> APIRouter:
@@ -61,6 +64,33 @@ def create_trading_router(providers: ProviderGateway) -> APIRouter:
             "live_order_execution": False,
             "execution_boundary": "mt4_local_risk_gate",
             "providers": providers.available(),
+        }
+
+    def native_structured_analysis(snapshot: TradingSnapshot) -> dict[str, Any]:
+        metadata = snapshot.metadata or {}
+        turtle = metadata.get("turtle_controller") if isinstance(metadata.get("turtle_controller"), dict) else {}
+        signal = str(turtle.get("signal") or metadata.get("signal") or "").upper()
+        regime = str(turtle.get("regime") or snapshot.regime or "UNKNOWN").upper()
+        strategy = str(turtle.get("strategy") or metadata.get("strategy") or "TURTLE").upper()
+        mode = str(metadata.get("mt4_reported_mode") or metadata.get("mt4_account_mode") or "UNKNOWN").upper()
+        if signal in {"BUY", "SELL"}:
+            action = signal
+            confidence = 0.70 if regime not in {"UNKNOWN", "RANGING"} else 0.55
+            reason = f"MT4/SBT Turtle Controller reports an actionable {signal} signal. Regime={regime}; mode={mode}. Advisory only; the local MT4 Risk Gate remains authoritative."
+        else:
+            action = "HOLD"
+            confidence = 0.35 if regime != "UNKNOWN" else 0.20
+            reason = f"No actionable Turtle signal is currently reported by MT4/SBT. Regime={regime}; mode={mode}. Continue observing and validate the next research candidate."
+        next_test = "TURTLE_S1_M30" if snapshot.timeframe.upper() == "H1" else "TURTLE_S1_H1"
+        return {
+            "ok": True, "mode": "analysis_only", "symbol": snapshot.symbol,
+            "timeframe": snapshot.timeframe, "action": action,
+            "confidence": confidence, "risk_allowed": False,
+            "strategy": strategy[:120], "reason": reason[:1000],
+            "source": "bitey_native_trading_reasoner",
+            "execution_boundary": "mt4_local_risk_gate",
+            "regime": regime[:64], "next_test": next_test,
+            "validation_required": True,
         }
 
     @router.post("/analyze", response_model=TradingAnalysisResponse)
@@ -125,17 +155,6 @@ def create_trading_router(providers: ProviderGateway) -> APIRouter:
                 source=str(context.get("provider_selected") or "bitey_provider_gateway"),
             )
         except Exception:
-            return TradingAnalysisResponse(
-                ok=False,
-                mode="analysis_only",
-                symbol=snapshot.symbol,
-                timeframe=snapshot.timeframe,
-                action="HOLD",
-                confidence=0.0,
-                risk_allowed=False,
-                strategy="none",
-                reason="Trading analysis unavailable; local MT4 Risk Gate must reject execution.",
-                source="safe_fallback",
-            )
+            return TradingAnalysisResponse(**native_structured_analysis(snapshot))
 
     return router
