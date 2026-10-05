@@ -1,5 +1,5 @@
 from backend.app.chat_v2 import _detect_memory_updates, _structured_conversation_memory, _active_conversation_state
-from backend.app.core.conversation_context import build_conversation_context\nfrom backend.app.chat_v2 import _active_task_state, _classify_task_lifecycle
+from backend.app.core.conversation_context import build_conversation_context\nfrom backend.app.chat_v2 import _active_task_state, _classify_task_lifecycle, _task_controller_decision
 
 
 def test_superseded_preference_becomes_inactive():
@@ -330,3 +330,87 @@ def test_task_lifecycle_is_not_evidence():
     ])
     assert lifecycle["trust"] == "continuity_only_not_evidence"
     assert lifecycle["evidence_source"] is False
+
+
+def test_task_controller_executes_the_next_action_instead_of_the_word_continua():
+    active_task = {
+        "continuation_detected": True,
+        "goal": ["Investiga las mejores opciones de VPS gratuitos"],
+        "task_lifecycle": {
+            "task_status": "pending",
+            "next_action": {
+                "id": "retrieve",
+                "action": "Consultar fuentes actuales",
+                "kind": "next_pending",
+            },
+        },
+        "previous_plan": [
+            {"id": "retrieve", "action": "Consultar fuentes actuales", "status": "pending"}
+        ],
+    }
+    decision = _task_controller_decision(active_task, type("Brain", (), {"plan_steps": []})(), "continúa")
+    assert decision["action"] == "start"
+    assert decision["step_id"] == "retrieve"
+    assert decision["execution_message"] == "Investiga las mejores opciones de VPS gratuitos"
+    assert decision["tool_override"] == ["web_research"]
+    assert decision["trust"] == "continuity_only_not_evidence"
+    assert decision["evidence_source"] is False
+
+
+def test_task_controller_resumes_running_step():
+    active_task = {
+        "continuation_detected": True,
+        "goal": ["Analiza el código de Bitey"],
+        "task_lifecycle": {
+            "task_status": "running",
+            "next_action": {
+                "id": "analyze",
+                "action": "Analizar código",
+                "kind": "continue_running",
+            },
+        },
+        "previous_plan": [
+            {"id": "analyze", "action": "Analizar código", "status": "running"}
+        ],
+    }
+    decision = _task_controller_decision(active_task, type("Brain", (), {"plan_steps": []})(), "conitua")
+    assert decision["action"] == "resume"
+    assert decision["tool_override"] == ["code_reasoning"]
+
+
+def test_task_controller_does_not_restart_completed_task():
+    active_task = {
+        "continuation_detected": True,
+        "task_lifecycle": {"task_status": "completed", "next_action": None},
+        "previous_plan": [],
+    }
+    decision = _task_controller_decision(active_task, type("Brain", (), {"plan_steps": []})(), "continúa")
+    assert decision["action"] == "complete"
+    assert decision["tool_override"] == []
+
+
+def test_task_controller_blocked_step_uses_unblock_action_without_promoting_it_to_evidence():
+    active_task = {
+        "continuation_detected": True,
+        "goal": ["Desplegar la aplicación"],
+        "task_lifecycle": {
+            "task_status": "blocked",
+            "next_action": {
+                "id": "deploy",
+                "action": "Resolver el bloqueo",
+                "kind": "unblock",
+            },
+        },
+        "previous_plan": [
+            {
+                "id": "deploy",
+                "action": "Desplegar",
+                "status": "blocked",
+                "unblock_action": "Revisar la configuración",
+            }
+        ],
+    }
+    decision = _task_controller_decision(active_task, type("Brain", (), {"plan_steps": []})(), "continúa")
+    assert decision["action"] == "unblock"
+    assert decision["execution_message"] == "Revisar la configuración"
+    assert decision["evidence_source"] is False
