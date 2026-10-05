@@ -327,6 +327,8 @@ function buildSpecializedToolAnswer(evidence, route, message) {
     const equity = get('equity');
     const openTrades = get('open_trades');
     const timestamp = get('timestamp');
+    const normalizedQuestion = String(message || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+    const asksWhyEntered = /(por que entro|porque entro|por que entro el|porque entro el|motivo de entrada|razon de entrada|why.*enter|why.*entered)/i.test(normalizedQuestion);
     const isHistory = /TURTLE HISTORY FROM BITEY SBT/i.test(text);
     if (isHistory) {
       const blocks = text.split(/\n\nSNAPSHOT_\d+\n/i).slice(1);
@@ -356,6 +358,26 @@ function buildSpecializedToolAnswer(evidence, route, message) {
         '_Fuente: Bitey SBT · MT4 read-only · ejecución bloqueada._'
       ].join('\n');
     }
+    if (asksWhyEntered) {
+      const active = get('campaign_id') !== 'none' && units !== '0' && units !== '—';
+      const entry = get('campaign_last_entry');
+      const entryKnown = entry !== 'unknown' && entry !== '—';
+      return [
+        '### Turtle — motivo de entrada',
+        '',
+        active
+          ? 'Hay una campaña activa **' + get('campaign_id') + '** en dirección **' + direction + '**, sistema **' + system + '** y **' + units + ' unidades**.'
+          : 'No hay una campaña activa en este snapshot; no puedo confirmar una entrada vigente.',
+        entryKnown
+          ? '- Última entrada registrada: **' + entry + '**.'
+          : '- El snapshot no contiene el precio de la última entrada.',
+        system !== 'none'
+          ? '- La estrategia reportada es **Turtle Classic ' + system + '**. La telemetría confirma la campaña aceptada, pero **no registra todavía el nivel exacto del breakout que disparó la entrada**, por lo que no voy a inventarlo.'
+          : '- No hay sistema S1/S2 disponible en el snapshot para atribuir la entrada.',
+        '',
+        '_Fuente: Bitey SBT · MT4 read-only. Esta explicación es una atribución basada únicamente en la telemetría disponible._'
+      ].join('\\n');
+    }
     return [
       '### Turtle — estado actual',
       '',
@@ -366,7 +388,7 @@ function buildSpecializedToolAnswer(evidence, route, message) {
       '- Snapshot: **' + timestamp + '**.',
       '',
       '_Datos obtenidos directamente de Bitey SBT. Solo lectura; no se envían órdenes a MT4._'
-    ].join('\n');
+    ].join('\\n');
   }
   if (successful.tool === 'time') {
     const location = evidenceText.match(/LOCATION:\s*(.+)/i)?.[1]?.trim() || 'la ubicación solicitada';
