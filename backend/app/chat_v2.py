@@ -2368,6 +2368,37 @@ def create_chat_v2_router(
             }
             answer = await providers.generate(messages=messages, context=provider_context)
 
+            # SBT/Turtle is evidence-first, but its answer must not depend on
+            # an external LLM being available. If the Turtle tool returned verified
+            # MT4 evidence, use the deterministic SBT renderer before any degraded
+            # provider/research fallback can block the response.
+            if (
+                any(name == "sbt_turtle" for name in selected)
+                and evidence
+            ):
+                try:
+                    sbt_recovery = await NativeReasoningModel().generate(
+                        messages=[{"role": "user", "content": query}],
+                        context={
+                            **ctx,
+                            "current_message": query,
+                            "conversation_id": cid,
+                            "evidence": evidence,
+                            "evidence_available": True,
+                            "evidence_attempted": True,
+                            "evidence_required": True,
+                            "research_required": research_required,
+                            "selected_tools": selected,
+                        },
+                    )
+                except Exception:
+                    sbt_recovery = ""
+                if sbt_recovery and not _is_degraded_answer(sbt_recovery):
+                    answer = sbt_recovery
+                    provider_context["provider_selected"] = "bitey-native-cognitive-v1"
+                    provider_context["provider_recovery"] = True
+                    provider_context["sbt_evidence_recovery"] = True
+                    emit("✓ Respuesta del Turtle construida directamente desde evidencia SBT/MT4.")
             # Enforce the executive domain boundary after generation as well as
             # before generation. External models are untrusted and can still
             # drift into specialized modules even when the router classified a
