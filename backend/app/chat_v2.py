@@ -430,6 +430,58 @@ def _classify_task_lifecycle(
 
 
 
+def _task_controller_decision(
+    active_task: dict[str, Any],
+    brain_state: Any,
+    query: str,
+) -> dict[str, Any]:
+    """Convert a continuation into one bounded executable action."""
+    if not active_task.get("continuation_detected"):
+        return {"action": "normal", "step_id": None, "execution_message": query,
+                "tool_override": [], "reason": "not_a_continuation",
+                "trust": "continuity_only_not_evidence", "evidence_source": False}
+    lifecycle = active_task.get("task_lifecycle") or {}
+    next_action = lifecycle.get("next_action") or active_task.get("next_action")
+    if not next_action:
+        return {"action": "complete" if lifecycle.get("task_status") == "completed" else "wait",
+                "step_id": None, "execution_message": query, "tool_override": [],
+                "reason": "no_actionable_task_step",
+                "trust": "continuity_only_not_evidence", "evidence_source": False}
+    step_id = str(next_action.get("id") or "")
+    persisted_plan = active_task.get("previous_plan") or []
+    step = next((x for x in persisted_plan if isinstance(x, dict) and str(x.get("id") or "") == step_id), None)
+    if step is None:
+        step = next((x for x in getattr(brain_state, "plan_steps", []) or []
+                     if isinstance(x, dict) and str(x.get("id") or "") == step_id), None)
+    raw_tools = step.get("tools") if isinstance(step, dict) else []
+    if isinstance(raw_tools, str):
+        raw_tools = [raw_tools]
+    tool_map = {
+        "retrieve": ["web_research"], "verify": ["web_research"],
+        "evidence_gate": ["web_research"], "compare": ["web_research"],
+        "research": ["web_research"], "analyze": ["code_reasoning"],
+        "code": ["code_reasoning"], "calculate": ["calculator"],
+        "math": ["calculator"], "weather": ["weather"],
+    }
+    tools = [str(x) for x in (raw_tools or []) if str(x).strip()]
+    if not tools:
+        tools = tool_map.get(step_id, [])
+    goal = active_task.get("goal") or []
+    execution_message = str(goal[-1] if goal else query).strip() or query
+    if str(next_action.get("kind") or "") == "unblock" and isinstance(step, dict):
+        execution_message = str(step.get("unblock_action") or execution_message).strip()
+    action = "unblock" if str(next_action.get("kind") or "") == "unblock" else (
+        "resume" if str(next_action.get("kind") or "") == "continue_running" else "start"
+    )
+    return {
+        "action": action, "step_id": step_id, "execution_message": execution_message[:5000],
+        "tool_override": list(dict.fromkeys(tools)),
+        "reason": str(next_action.get("action") or step_id)[:500],
+        "requires_confirmation": bool(isinstance(step, dict) and step.get("requires_confirmation")),
+        "trust": "continuity_only_not_evidence", "evidence_source": False,
+    }
+
+
 def _reconcile_task_plan(
     plan_steps: list[dict[str, Any]],
     *,
@@ -1191,6 +1243,15 @@ def create_chat_v2_router(
                 active_task["resumed_action"] = None
                 active_task["task_status"] = previous_lifecycle.get("task_status")
                 active_task["next_action"] = None
+        task_controller = _task_controller_decision(active_task, brain_state, query)
+        ctx["task_controller"] = task_controller
+        active_task["controller_action"] = task_controller.get("action")
+        active_task["controller_step"] = task_controller.get("step_id")
+        active_task["controller_reason"] = task_controller.get("reason")
+        if task_controller.get("action") in {"start", "resume", "unblock"}:
+            emit("↻ " + str(task_controller.get("reason") or "Ejecutando la siguiente acción") + "…")
+        elif task_controller.get("action") == "complete":
+            emit("✓ La tarea anterior ya está completada; no la reinicio.")
         ctx["active_task"] = active_task
         ctx["task_lifecycle"] = _classify_task_lifecycle(
             brain_state.plan_steps,
@@ -1274,6 +1335,20 @@ def create_chat_v2_router(
                 "requires_web_research": bool(research_required),
             }
             selected = tools.select(query, selection_context)
+            controller_tools = list(task_controller.get("tool_override") or [])
+            if (
+                active_task.get("continuation_detected")
+                and task_controller.get("action") in {"start", "resume", "unblock"}
+                and controller_tools
+            ):
+                available_names = {
+                    str(item.get("name")) if isinstance(item, dict) else str(item)
+                    for item in tools.available()
+                }
+                controller_selected = [name for name in controller_tools if name in available_names]
+                if controller_selected:
+                    selected = controller_selected
+                    emit("⌕ Ejecutando la capacidad necesaria para avanzar la tarea…")
 
             # On continuation, reuse already-executed tools only for stable tasks.
             # Current/fresh requests must always refresh their evidence.
@@ -1320,9 +1395,14 @@ def create_chat_v2_router(
                 emit("◉ Calculando y comprobando el resultado…")
             else:
                 emit(_friendly_status(ctx.get("intent_family"), "retrieve"))
+            execution_message = (
+                str(task_controller.get("execution_message") or query)
+                if active_task.get("continuation_detected")
+                else query
+            )
             result = await tools.execute(
                 selected,
-                message=query,
+                message=execution_message,
                 context={
                     **ctx,
                     "current_intent_domain": brain_state.task_class,
@@ -1330,6 +1410,8 @@ def create_chat_v2_router(
                     "requires_web_research": bool(research_required),
                     "agent_loop": True,
                     "max_tool_steps": 4,
+                    "task_controller": task_controller,
+                    "task_step_id": task_controller.get("step_id"),
                 },
             )
             executed_tools.extend(name for name in result.keys() if name not in executed_tools)
@@ -2561,6 +2643,11 @@ def create_chat_v2_router(
                 for index, source in enumerate(sources[:8], 1)
                 if isinstance(source, dict) and (source.get("title") or source.get("url"))
             ],
+            "task_controller": {
+                "action": str(task_controller.get("action") or ""),
+                "step_id": str(task_controller.get("step_id") or ""),
+                "reason": str(task_controller.get("reason") or "")[:500],
+            },
             "options": [
                 str(item).strip()[:180]
                 for item in re.findall(r"(?:^|\n)\s*(?:\[?\d+\]?|[-•])\s+([^\n]{3,180})", answer)
