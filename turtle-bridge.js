@@ -105,7 +105,7 @@
     return true;
   }
 
-  document.addEventListener('submit', e => {
+  // Main chat submission is handled by Bitey IA backend; this bridge stays read-only.\n  if (false)   document.addEventListener('submit', e => {
     const form=e.target;
     if(form?.id!=='chat-form') return;
     const input=document.querySelector('#prompt');
