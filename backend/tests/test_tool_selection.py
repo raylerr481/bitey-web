@@ -46,3 +46,13 @@ def test_code_reasoning_is_not_a_phantom_tool():
     selected = ToolOrchestrator().select("escribe una función Python para ordenar una lista", {})
     assert "code_reasoning" not in selected
     assert all(name in {"web_research", "weather", "sbt_market", "calculator"} for name in selected)
+
+
+def test_turtle_queries_route_to_sbt_turtle_read_model():
+    selected = ToolOrchestrator().select("¿Qué está haciendo el Turtle ahora?", {})
+    assert selected == ["sbt_turtle"]
+
+
+def test_turtle_risk_queries_route_to_sbt_turtle():
+    selected = ToolOrchestrator().select("¿Está bloqueado por el Risk Gate?", {})
+    assert selected == ["sbt_turtle"]
