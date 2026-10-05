@@ -56,3 +56,16 @@ def test_turtle_queries_route_to_sbt_turtle_read_model():
 def test_turtle_risk_queries_route_to_sbt_turtle():
     selected = ToolOrchestrator().select("¿Está bloqueado por el Risk Gate?", {})
     assert selected == ["sbt_turtle"]
+
+
+def test_turtle_follow_up_reuses_turtle_context():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {"current_intent_domain": "trading", "selected_tools": ["sbt_turtle"]},
+    )
+    assert selected == ["sbt_turtle"]
+
+
+def test_turtle_follow_up_without_context_does_not_hijack_general_chat():
+    selected = ToolOrchestrator().select("¿Y ahora?", {})
+    assert selected != ["sbt_turtle"]
