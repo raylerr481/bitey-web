@@ -1518,6 +1518,11 @@ def create_chat_v2_router(
             "do_not_override_tools": True,
         }
         ctx["current_intent_domain"] = brain_state.task_class
+        active_sbt_context = active_task.get("sbt_context") if isinstance(active_task, dict) else {}
+        if isinstance(active_sbt_context, dict) and active_sbt_context.get("active"):
+            ctx["sbt_context_active"] = True
+            ctx["sbt_context_kind"] = str(active_sbt_context.get("kind") or "general")
+            ctx["sbt_last_evidence_class"] = str(active_sbt_context.get("evidence_class") or "NO_EVIDENCE")
         trace.decision = {
             "task_class": brain_state.task_class,
             "reasoning_mode": brain_state.reasoning_mode,
@@ -1561,7 +1566,13 @@ def create_chat_v2_router(
         research_required = mode == "research" or (
             mode == "auto" and (brain_state.evidence_required or tools.needs_web_research(query, ctx))
         )
-        tool_execution_required = research_required or mode == "code"
+        sbt_followup_context = isinstance(active_task, dict) and isinstance(active_task.get("sbt_context"), dict) and bool(active_task.get("sbt_context", {}).get("active"))
+        sbt_followup_query = bool(re.fullmatch(
+            r"\s*(?:¿?y\s+ahora|ahora|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces)\s*\??\s*",
+            query,
+            re.I,
+        ))
+        tool_execution_required = research_required or mode == "code" or (sbt_followup_context and sbt_followup_query)
         if task_controller.get("action") == "complete":
             tool_execution_required = False
             research_required = False
@@ -1678,6 +1689,17 @@ def create_chat_v2_router(
                             conflict_candidates.append(candidate)
             evidence = "\\n\\n".join(evidence_parts)
 
+            sbt_executed = [name for name in executed_tools if name in {"sbt_turtle", "sbt_ai_context"}]
+            if sbt_executed:
+                last_sbt = sbt_executed[-1]
+                sbt_payload = result.get(last_sbt) if isinstance(result.get(last_sbt), dict) else {}
+                active_task["sbt_context"] = {
+                    "active": True,
+                    "kind": "turtle" if last_sbt == "sbt_turtle" else "general",
+                    "last_tool": last_sbt,
+                    "evidence_class": str(sbt_payload.get("evidence_class") or "NO_EVIDENCE"),
+                }
+
             # Normalize sources at the evidence boundary. Multiple tools can
             # return the same URL; expose each source once so source counts,
             # corroboration thresholds, and final citations remain accurate.
@@ -1715,6 +1737,7 @@ def create_chat_v2_router(
                 not sources
                 and mode in {"auto", "research"}
                 and "web_research" not in selected
+                and not any(name in {"sbt_turtle", "sbt_ai_context"} for name in executed_tools)
             ):
                 if ctx.get("intent_family") == "weather":
                     emit("⌕ Los datos meteorológicos no fueron suficientes; buscando una fuente meteorológica específica…")
