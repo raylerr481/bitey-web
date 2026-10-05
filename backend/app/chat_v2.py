@@ -390,10 +390,12 @@ def _classify_task_lifecycle(
                 "kind": "unblock",
             }
         elif blockers:
+            # A blocker alone is not permission or capability to act. Keep the
+            # task blocked until a concrete, safe recovery action is known.
             next_action = {
                 "id": "unblock",
                 "action": f"Resolver el bloqueo: {blockers[0]}",
-                "kind": "unblock",
+                "kind": "blocked_wait",
             }
     elif running:
         step = running[0]
@@ -470,8 +472,20 @@ def _task_controller_decision(
     execution_message = str(goal[-1] if goal else query).strip() or query
     if str(next_action.get("kind") or "") == "unblock" and isinstance(step, dict):
         execution_message = str(step.get("unblock_action") or execution_message).strip()
-    action = "unblock" if str(next_action.get("kind") or "") == "unblock" else (
-        "resume" if str(next_action.get("kind") or "") == "continue_running" else "start"
+    next_kind = str(next_action.get("kind") or "")
+    if next_kind == "blocked_wait":
+        return {
+            "action": "wait",
+            "step_id": step_id,
+            "execution_message": query,
+            "tool_override": [],
+            "reason": str(next_action.get("action") or "Bloqueo sin acción de recuperación segura")[:500],
+            "requires_confirmation": True,
+            "trust": "continuity_only_not_evidence",
+            "evidence_source": False,
+        }
+    action = "unblock" if next_kind == "unblock" else (
+        "resume" if next_kind == "continue_running" else "start"
     )
     return {
         "action": action, "step_id": step_id, "execution_message": execution_message[:5000],
