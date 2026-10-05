@@ -40,7 +40,7 @@ class ToolOrchestrator:
     # still route to evidence.
     WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?)\b", re.I)
     TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
-    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
+    TURTLE_RE = re.compile(r"\b(?:turtle|tortuga|turtle trading|s1|s2|campa(?:gn|[ñn]a)|piramid(?:e|ing)|unidades?|n/?atr|risk gate|turtle controller)\b", re.I)\n    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
     NATURAL_MATH_RE = re.compile(r"^\s*(?:cu[aá]nto\s+es\s+)?[-+]?\d+(?:[.,]\d+)?\s*(?:%\s+de|por ciento de|\+|menos|m[aá]s|por|entre|dividido(?:\s+por)?|multiplicado(?:\s+por)?|x)\s+[-+]?\d+(?:[.,]\d+)?\s*\??\s*$", re.I)
 
     def __init__(self) -> None:
@@ -51,7 +51,7 @@ class ToolOrchestrator:
         self.register(ToolSpec("search", "Compatibility alias for Bitey web research.", ("web", "search", "research", "evidence"), self._search))
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
         self.register(ToolSpec("sbt_market", "Consulta el mercado SBT y ejecuta inteligencia técnica únicamente con datos verificables; no ejecuta órdenes.", ("trading", "market_intelligence", "market_data", "risk"), self._sbt_market))
-        self.register(ToolSpec("calculator", "Calculadora local determinista para expresiones aritméticas simples; no requiere proveedor externo.", ("math", "calculation"), self._calculator))
+        self.register(ToolSpec("sbt_turtle", "Consulta el estado real del Turtle Controller en SBT; solo lectura y sin ejecución de órdenes.", ("trading", "turtle", "state", "risk", "evidence"), self._sbt_turtle, timeout_seconds=12.0, max_retries=1))\n        self.register(ToolSpec("calculator", "Calculadora local determinista para expresiones aritméticas simples; no requiere proveedor externo.", ("math", "calculation"), self._calculator))
         self.register(ToolSpec("time", "Hora actual para una ubicación explícita usando zonas horarias IANA.", ("time", "current"), self._time))
         self.register(ToolSpec("local_search", "Búsqueda localizada mediante el motor web de Bitey.", ("local_search", "web", "search"), self._local_search))
         self.register(ToolSpec("url_fetch", "Recuperación segura del contenido de una URL proporcionada por el usuario.", ("url", "web", "evidence"), self._url_fetch))
@@ -127,7 +127,7 @@ class ToolOrchestrator:
         # for deterministic arithmetic only; symbolic math remains model work.
         if arithmetic_request:
             requested = ["calculator"]
-        elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
+        elif self.TURTLE_RE.search(message):\n            requested = ["sbt_turtle"]\n        elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
             requested = ["sbt_market"]
         elif self.WEATHER_RE.search(message) and (
             str(cognitive.intention.get("domain", "general")).lower() == "weather"
@@ -448,6 +448,34 @@ class ToolOrchestrator:
             return {"ok": True, "value": value, "expression": message.strip(), "source": "local-calculator", "evidence": f"Local deterministic calculation: {message.strip()} = {rendered}"}
         except Exception as exc:
             return {"ok": False, "error": type(exc).__name__, "source": "local-calculator"}
+
+    async def _sbt_turtle(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Read the SBT Turtle Controller state without creating trading state."""
+        base_url = os.getenv("SBT_MODULE_URL", "https://bitey-system-bots-trading-api.onrender.com").strip().rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(f"{base_url}/api/v1/turtle/context", headers={"Accept": "application/json"})
+            if response.status_code >= 400:
+                return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_turtle_context_unavailable", "status_code": response.status_code, "evidence_class": "TOOL_FAILED", "evidence": f"SBT Turtle context returned HTTP {response.status_code}. No Turtle state was inferred."}
+            payload = response.json()
+            if str(payload.get("evidence_class") or "NO_EVIDENCE") != "MT4_LIVE_SNAPSHOT" or not bool(payload.get("observed")):
+                return {"ok": True, "available": True, "verified": False, "execution_enabled": False, "source": "sbt_turtle_context", "evidence_class": "NO_EVIDENCE", "observed": False, "context": payload, "evidence": "SBT Turtle Controller is reachable, but it has no current MT4 live snapshot. No Turtle state, signal, position, or trade result was inferred."}
+            state = payload.get("state") or {}
+            return {
+                "ok": True, "available": True, "verified": True, "execution_enabled": False,
+                "source": "sbt_turtle_context", "evidence_class": "MT4_LIVE_SNAPSHOT", "observed": True,
+                "state": state, "context": payload,
+                "evidence": (
+                    "SBT Turtle Controller verified from MT4 live snapshot. "
+                    f"Symbol: {state.get('symbol') or '—'}; timeframe: {state.get('timeframe') or '—'}; "
+                    f"signal: {state.get('signal') or 'NONE'}; next_action: {state.get('next_action') or 'WAIT'}; "
+                    f"position_count: {state.get('position_count', 0)}; risk_pct: {state.get('risk_pct', 0)}; "
+                    f"drawdown_pct: {state.get('drawdown_pct', 0)}; learning_status: {state.get('learning_status') or 'OBSERVING'}; "
+                    f"proposal_pending: {bool(state.get('proposal_pending'))}. Execution authority: SBT Risk Gate."
+                ),
+            }
+        except (httpx.HTTPError, ValueError) as exc:
+            return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_turtle_connection_error", "error": type(exc).__name__, "evidence_class": "TOOL_FAILED", "evidence": "Bitey IA could not reach SBT Turtle Controller. No Turtle state was inferred and no execution was attempted."}
 
     async def _sbt_market(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         context = context or {}
