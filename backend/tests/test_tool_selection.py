@@ -126,3 +126,19 @@ def test_turtle_follow_up_reuses_persisted_result_context():
         {"sbt_context_active": True, "sbt_context_kind": "turtle"},
     )
     assert selected == ["sbt_turtle"]
+
+
+def test_sbt_follow_up_reads_persisted_active_task_context():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {"active_task": {"sbt_context": {"active": True, "kind": "general"}}},
+    )
+    assert selected == ["sbt_ai_context"]
+
+
+def test_turtle_follow_up_reads_persisted_active_task_context():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {"active_task": {"sbt_context": {"active": True, "kind": "turtle"}}},
+    )
+    assert selected == ["sbt_turtle"]
