@@ -2550,6 +2550,37 @@ def create_chat_v2_router(
             answer_ready=bool(str(answer).strip()),
         )
         next_step = _next_task_step(reconciled_plan)
+
+        # Close the loop with the actual execution/verification outcome.
+        # A failed tool or failed verification must never become successful
+        # progress merely because the continuation controller selected it.
+        controller_step_id = str(task_controller.get("step_id") or "")
+        if controller_step_id:
+            controller_step = next(
+                (
+                    step for step in reconciled_plan
+                    if isinstance(step, dict) and str(step.get("id") or "") == controller_step_id
+                ),
+                None,
+            )
+            if controller_step is not None:
+                if bool(final_contract.get("ready")):
+                    controller_step["status"] = "completed"
+                else:
+                    controller_step["status"] = "blocked"
+                    blocker = (
+                        "verification_failed"
+                        if not bool(answer_verification.get("valid"))
+                        else "execution_or_evidence_incomplete"
+                    )
+                    controller_step["blockers"] = list(dict.fromkeys(
+                        list(controller_step.get("blockers") or []) + [blocker]
+                    ))
+                    active_task["blockers"] = list(dict.fromkeys(
+                        list(active_task.get("blockers") or []) + [blocker]
+                    ))[-8:]
+                next_step = _next_task_step(reconciled_plan)
+
         active_task["plan_steps"] = [
             {
                 "id": str(step.get("id") or ""),
