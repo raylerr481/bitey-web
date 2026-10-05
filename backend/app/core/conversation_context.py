@@ -194,6 +194,7 @@ def build_conversation_context(
             connector
             or reference_tokens
             or temporal
+            or (current_topic is not None and current_topic == prior_topic)
             or not current_topic
             or bool(active_state and active_state.get("current_goal"))
         )
