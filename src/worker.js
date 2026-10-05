@@ -166,7 +166,7 @@ async function tryRealAiFallback(upstream, request, env, requestId, origin) {
     // Provider metadata is diagnostic, not a requirement for a usable response.
     degraded = degraded || !answer || answer === NO_PROVIDER_ANSWER || answer === LEGACY_NO_PROVIDER_ANSWER || answer.includes(NO_PROVIDER_ANSWER) || answer.includes(LEGACY_NO_PROVIDER_ANSWER) || answer.startsWith('Ahora mismo no puedo completar esta consulta') || answer.startsWith('No pude obtener una respuesta de Bitey IA');
     if (!degraded) {
-      const enriched = await enrichSuccessfulResponse(upstream, request, requestId, env);
+      const enriched = await enrichSuccessfulResponse(upstream, request, requestId, env, origin);
       if (enriched) return enriched;
       // Enrichment is optional. Never discard a valid backend answer because
       // research/synthesis/metadata enrichment failed.
@@ -210,7 +210,7 @@ function preserveUpstreamResponse(upstream, requestId, source = 'backend-answer-
   });
 }
 
-async function enrichSuccessfulResponse(upstream, request, requestId, env) {
+async function enrichSuccessfulResponse(upstream, request, requestId, env, origin = '') {
   if (!request || !upstream.ok) return null;
   let payload;
   try { payload = await request.clone().json(); } catch (_) { return null; }
@@ -223,15 +223,33 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
 
   const specialized = String(body?.capability || body?.routing || '').trim();
   const mode = normalizeInteractionMode(payload?.mode);
-  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none', language, mode);
+  const conversationId = String(payload?.conversation_id || body?.conversation_id || String(request.url).match(/conversations\/([^/]+)\/messages/)?.[1] || '');
+  let history = [];
+  if (conversationId && origin) {
+    history = await loadConversationHistory(origin, conversationId, requestId);
+  }
+  const isolatedHistory = filterConversationHistory(history, specialized || 'general');
+  const contextualMemory = resolveContext(message, isolatedHistory);
+  const preliminaryRoute = planCognitiveRoute(message, specialized, [], 'none', language, mode, contextualMemory);
   const evidence = preliminaryRoute.research_required
-    ? await recoverToolEvidence(message, requestId)
+    ? await recoverToolEvidence(message, requestId, contextualMemory)
     : { text: '', sources: [], method: 'not-required' };
   const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
   if (evidence?.tool_execution) body.tool_execution = evidence.tool_execution;
   const evidenceText = String(evidence?.text || '').trim();
 
-  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none', language, mode);
+  const route = planCognitiveRoute(message, specialized, sources, evidence?.method || 'none', language, mode, contextualMemory);
+  route.conversation_context = {
+    references: contextualMemory.references,
+    inherited_locations: contextualMemory.inherited_locations,
+    inherited_domains: contextualMemory.inherited_domains,
+    inherited_entities: contextualMemory.inherited_entities,
+    inherited_values: contextualMemory.inherited_values,
+    recent_topic_terms: contextualMemory.recent_topic_terms,
+    context_turns: contextualMemory.context_turns,
+    confidence: contextualMemory.confidence,
+    contextual_query: contextualMemory.search_query || null
+  };
   if (evidence?.evidence_analysis) route.evidence_contradictions = Number(evidence.evidence_analysis.contradictions || 0);
   body.cognitive_route = { ...route, language: language.language, normalized_message: language.normalized, corrections: language.corrections };
   body.research_attempted = route.research_attempted;
