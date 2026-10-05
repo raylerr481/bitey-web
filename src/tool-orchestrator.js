@@ -15,6 +15,7 @@ const TOOL_DEFINITIONS = {
   time: { id:'time', kind:'specialized_data', domains:['time'], intents:['time','current_information'], priority:105, fallbacks:['web_search'] },
   weather: { id:'weather', kind:'specialized_data', domains:['weather'], intents:['weather','current_information'], priority:100, fallbacks:['web_search'] },
   web_search: { id:'web_search', kind:'research', domains:['research','finance','jobs','business','code','general'], intents:['research','current_information','comparison','question'], priority:80, fallbacks:[] },
+  turtle_sbt: { id:'turtle_sbt', kind:'specialized_data', domains:['trading','mt4','turtle','sbt'], intents:['turtle_state','turtle_history','current_information','question'], priority:125, fallbacks:[] },
   calculator: { id:'calculator', kind:'deterministic', domains:['math','finance','analysis','general'], intents:['calculation','question'], priority:110, fallbacks:['model_reasoning'] },
   code_reasoning: { id:'code_reasoning', kind:'reasoning', domains:['code'], intents:['code','question'], priority:90, fallbacks:['model_reasoning'] },
   model_reasoning: { id:'model_reasoning', kind:'generation', domains:['general'], intents:['conversation','question','comparison','research','current_information','code'], priority:10, fallbacks:[] }
@@ -33,6 +34,8 @@ const MULTI_TASK_RE = /\b(y además|y tambien|y también|además|también|tambie
 const PRICE_QUERY_RE = /\b(cu[aá]nto\s+(?:cuesta|vale|valen|costar[aá]?|sale)|precio(?:s)?|cotizaci[oó]n|cotiza|valor(?:\s+actual)?|how\s+much\s+(?:does|is)|price)\b/i;
 const EXPLICIT_CALCULATION_RE = /(?:cu[aá]nto\s+es|calcula(?:r)?|calculate|compute|porcentaje|roi|retorno|rentabilidad|suma|resta|multiplica|divide|operaci[oó]n\s+matem[aá]tica|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i;
 const QUANTITY_CALCULATION_RE = /\b(cu[aá]ntas?|how\s+many)\s+(?:acciones|unidades|meses|a[nñ]os|d[ií]as|porciones|lotes|unidades)\b/i;
+const TURTLE_SBT_RE = /\b(turtle|tortuga|mt4|metatrader\s*4|s1|s2|campaign|campa[nñ]a|breakout|piramid|piramidaci[oó]n|unidades?|n\s*(?:actual|atr)|equity|turtle\s*trading|entr[oó]|entrada)\b/i;
+const TURTLE_HISTORY_RE = /\b(historial|hist[oó]rico|[uú]ltim[oa]s?|evoluci[oó]n|cambios|ha hecho|hizo|desde|durante|horas?|sesiones?)\b/i;
 
 export function evaluateIntent({ language = {}, route = {}, message = '', context = {} } = {}) {
   const text = String(message || '').trim();
@@ -47,7 +50,9 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const contextLocations = Array.isArray(context?.inherited_locations) ? context.inherited_locations : [];
   const contextValues = Array.isArray(context?.inherited_values) ? context.inherited_values : [];
   const contextFollowup = contextReferences.includes('follow_up') || contextReferences.includes('prior_context');
+  const contextRecentTerms = Array.isArray(context?.recent_topic_terms) ? context.recent_topic_terms : [];
   const contextHasData = Boolean(contextEntities.length || contextLocations.length || contextValues.length);
+  const contextTurtle = [...contextEntities, ...contextRecentTerms].some(item => TURTLE_SBT_RE.test(String(item || '')));
 
   const signals = {
     current: FRESHNESS_RE.test(lower),
@@ -68,6 +73,9 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     context_has_values: contextValues.length > 0,
     context_has_entity: contextEntities.length > 0,
     context_has_location: contextLocations.length > 0,
+    turtle_sbt: TURTLE_SBT_RE.test(lower) || (contextFollowup && contextTurtle),
+    turtle_history: TURTLE_HISTORY_RE.test(lower) && (TURTLE_SBT_RE.test(lower) || contextTurtle),
+    context_turtle: contextTurtle,
     long_or_complex: text.length > 240 || DEEP_RE.test(lower),
     multi_task: MULTI_TASK_RE.test(lower) && text.length > 80
   };
@@ -104,6 +112,7 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   else if (signals.time) primaryIntent = 'time';
   else if (signals.weather) primaryIntent = 'weather';
   else if (signals.calculation) primaryIntent = 'calculation';
+  else if (signals.turtle_sbt) primaryIntent = 'turtle_state';
   else if (signals.code) primaryIntent = 'code';
   else if (signals.comparison) primaryIntent = 'comparison';
   else if (signals.research) primaryIntent = 'research';
@@ -134,7 +143,8 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   if (explicitResearchMode && reasoningLevel === 'fast') reasoningLevel = 'standard';
 
   let toolNeed = 'none';
-  if (explicitMathMode || signals.calculation) toolNeed = 'calculator';
+  if (signals.turtle_sbt) toolNeed = 'turtle_sbt';
+  else if (explicitMathMode || signals.calculation) toolNeed = 'calculator';
   else if (signals.time) toolNeed = 'time';
   else if (signals.weather) toolNeed = 'weather';
   else if (explicitCodeMode || signals.code) toolNeed = 'code_reasoning';
@@ -143,6 +153,7 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   if (explicitMathMode) toolNeed = 'calculator';
   if (explicitCodeMode) toolNeed = 'code_reasoning';
   if (explicitResearchMode) toolNeed = 'web_search';
+  if (signals.turtle_sbt) toolNeed = 'turtle_sbt';
 
   const activeSignals = Object.values(signals).filter(Boolean).length;
   const ambiguityReasons = [];
@@ -167,6 +178,8 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   if (signals.comparison) intentParts.push('comparison');
   if (signals.context_followup) intentParts.push('context_followup');
   if (signals.multi_task) intentParts.push('multi_task');
+  if (signals.turtle_sbt) intentParts.push('turtle_sbt');
+  if (signals.turtle_history) intentParts.push('turtle_history');
   if (!intentParts.length) intentParts.push(primaryIntent);
 
   const selectedIntentParts = [...new Set(intentParts)];
@@ -199,7 +212,7 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
       clarification_needed: ambiguityReasons.length > 0 && confidence < 0.72
     },
     should_research: toolNeed === 'web_search',
-    should_use_specialized_tool: ['time','weather','calculator','code_reasoning'].includes(toolNeed),
+    should_use_specialized_tool: ['time','weather','calculator','code_reasoning','turtle_sbt'].includes(toolNeed),
     fallback_to_model: true
   };
 }
@@ -234,6 +247,7 @@ export function selectTools({ language = {}, route = {}, message = '', context =
   const candidates = [];
   const parts = new Set(intentEval.intent_parts || [intent]);
 
+  if (intent === 'turtle_state' || parts.has('turtle_sbt')) candidates.push('turtle_sbt');
   if (intent === 'time' || domains.has('time') || parts.has('time')) candidates.push('time');
   if (intent === 'weather' || domains.has('weather') || parts.has('weather')) candidates.push('weather');
   if (isCalculation(message, intent, domains) || parts.has('calculation')) candidates.push('calculator');
@@ -297,6 +311,7 @@ export function buildToolActivity(plan) {
   const primary = TOOL_DEFINITIONS[plan?.primary];
   if (!primary) return 'Análisis directo seleccionado.';
   const labels = {
+    turtle_sbt:'Consultando el estado del Turtle en Bitey SBT (solo lectura).',
     time:'Consulta de hora actual iniciada mediante reloj determinista.',
     weather:'Consulta meteorológica verificada iniciada.',
     web_search:'Búsqueda web seleccionada para recopilar evidencia.',
@@ -308,7 +323,7 @@ export function buildToolActivity(plan) {
 }
 
 export function toolLabel(id) {
-  return ({time:'hora actual',weather:'meteorología',web_search:'búsqueda web',calculator:'cálculo',code_reasoning:'análisis de código',model_reasoning:'razonamiento'})[id] || String(id || 'herramienta');
+  return ({turtle_sbt:'Turtle/MT4 vía SBT',time:'hora actual',weather:'meteorología',web_search:'búsqueda web',calculator:'cálculo',code_reasoning:'análisis de código',model_reasoning:'razonamiento'})[id] || String(id || 'herramienta');
 }
 
 function isCalculation(message, intent, domains) {
@@ -318,6 +333,7 @@ function isCalculation(message, intent, domains) {
 }
 
 function buildReason(primary, intent, domains, intentEval = {}) {
+  if (primary === 'turtle_sbt') return 'turtle_sbt_read_only';
   if (primary === 'time') return 'time_intent';
   if (primary === 'weather') return 'weather_intent';
   if (primary === 'calculator') return 'deterministic_calculation';
@@ -347,6 +363,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
     if (!steps.some(step => step.tool === tool)) steps.push({order:steps.length+1,tool,purpose});
   };
 
+  if (base.primary === 'turtle_sbt') add('turtle_sbt', evalSignals.turtle_history ? 'consultar historial reciente del Turtle en SBT' : 'consultar estado actual del Turtle en SBT');
   if (base.primary === 'time') add('time','obtener la hora actual de la ubicación solicitada');
   if (reasoning.context_aware && contextData.entities.length) {
     // Preserve the inherited subject as planner metadata rather than silently
@@ -385,7 +402,7 @@ export function buildCompoundPlan({ language = {}, route = {}, message = '', con
 
   if (!steps.length) add('model_reasoning','sintetizar la respuesta con razonamiento directo');
 
-  const dependencyOrder = ['time','weather','web_search','calculator','code_reasoning','model_reasoning'];
+  const dependencyOrder = ['turtle_sbt','time','weather','web_search','calculator','code_reasoning','model_reasoning'];
   const orderedSteps = steps
     .slice()
     .sort((a,b)=>dependencyOrder.indexOf(a.tool)-dependencyOrder.indexOf(b.tool))
