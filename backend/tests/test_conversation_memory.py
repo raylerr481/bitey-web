@@ -414,3 +414,21 @@ def test_task_controller_blocked_step_uses_unblock_action_without_promoting_it_t
     assert decision["action"] == "unblock"
     assert decision["execution_message"] == "Revisar la configuración"
     assert decision["evidence_source"] is False
+
+
+def test_task_controller_failed_outcome_is_not_treated_as_progress():
+    # Controller decisions themselves are continuity metadata; a failed
+    # verification must be represented by the caller as blocked, never completed.
+    active_task = {
+        "continuation_detected": True,
+        "goal": ["Verifica una afirmación"],
+        "task_lifecycle": {
+            "task_status": "running",
+            "next_action": {"id": "verify", "action": "Verificar", "kind": "continue_running"},
+        },
+        "previous_plan": [{"id": "verify", "action": "Verificar", "status": "running"}],
+    }
+    decision = _task_controller_decision(active_task, type("Brain", (), {"plan_steps": []})(), "continúa")
+    assert decision["action"] == "resume"
+    assert decision["step_id"] == "verify"
+    assert decision["trust"] == "continuity_only_not_evidence"
