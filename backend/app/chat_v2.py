@@ -570,6 +570,23 @@ def _bounded_replan(
         if step_id and status_value in {"pending", "required", "conditional", "running"}:
             candidates.append(step)
 
+    # Enforce the retry budget before selecting another step. This keeps
+    # bounded replanning deterministic even when the pending step has not
+    # been marked as attempted yet.
+    if replan_count >= max_replans:
+        return {
+            "required": False,
+            "blocked": True,
+            "reason": "replan_limit_reached",
+            "next_action": {
+                "id": "unblock",
+                "action": "No repetir automáticamente la misma estrategia; se requiere una nueva condición o instrucción.",
+                "kind": "blocked_wait",
+            },
+            "replan_count": replan_count,
+            "attempted_actions": previous[-12:],
+        }
+
     # Prefer an unmet requirement that has not already been attempted.
     for step in candidates:
         action = " ".join(str(step.get("action") or step.get("id") or "").split())
