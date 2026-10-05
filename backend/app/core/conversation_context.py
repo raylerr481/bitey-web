@@ -28,7 +28,7 @@ _TIME_WORDS = {
 _TOPIC_HINTS = (
     ("weather", ("clima", "tiempo", "temperatura", "weather", "forecast", "previsión", "previsão")),
     ("finance", ("bitcoin", "ethereum", "btc", "eth", "acciones", "precio", "mercado", "stock")),
-    ("programming", ("código", "codigo", "python", "javascript", "typescript", "api", "bug", "error")),
+    ("programming", ("código", "codigo", "python", "javascript", "typescript", "api", "bug", "error", "docker")),
     ("research", ("investiga", "investigar", "busca", "fuentes", "investigación", "research")),
     ("comparison", ("comparar", "comparación", "mejor", "mejor opción", "diferencia", "versus", "vs")),
     ("shopping", ("comprar", "compra", "producto", "precio", "tienda", "oferta")),
@@ -168,7 +168,7 @@ def build_conversation_context(
     text = _clean(current_query)
     tokens = set(_tokens(text))
     reference_tokens = sorted(tokens.intersection(_REFERENCE_WORDS))
-    connector = bool(re.match(r"^(?:y|e|and|then|então|entao|también|tambien)\b", text, re.I))
+    connector = bool(re.match(r"^[¿?!.,\s]*(?:y|e|and|then|então|entao|también|tambien)\b", text, re.I))
     temporal = sorted(tokens.intersection(_TIME_WORDS))
     current_topic = _topic(text)
     prior_topic = _topic(prior_user) or _topic(prior_answer)
