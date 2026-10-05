@@ -5,6 +5,7 @@ from typing import Any
 import re
 
 from .cognitive_architecture import BiteyCognitiveArchitecture
+from .sbt_native_recovery import answer_from_sbt_evidence
 
 
 @dataclass
@@ -33,6 +34,11 @@ class NativeReasoningModel:
         frame = cognition["frame"]
         decision = cognition["decision"]
         evidence = str(context.get("evidence") or "").strip()
+        sbt_answer = answer_from_sbt_evidence(evidence)
+        if sbt_answer:
+            context["native_grounded"] = True
+            context["native_grounded_type"] = "sbt_live_evidence"
+            return sbt_answer
         # Substantive requests must honor evidence-first research; direct deterministic answers are conversational-only fallbacks.
         # Stable concepts with a deterministic native definition are safe to answer
         # immediately even when the broader cognitive plan allows evidence. Mark the
