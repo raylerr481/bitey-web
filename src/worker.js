@@ -11,6 +11,7 @@ const LEGACY_NO_PROVIDER_ANSWER = 'No pude obtener una respuesta de Bitey IA en 
 const WEATHER_RE = /\b(temperatura|temperaturas|clima|tiempo|timepoe|tiempoe|tiempe|tempo|weather|temperature|forecast|previs[aã]o|previsao)\b/i;
 const EXPLICIT_RESEARCH_RE = /\b(busca|buscar|búsqueda|investiga|investigar|investigación|fuentes|compara|comparar|comparativa|comparativas|contrasta|alternativas|opciones|recomendaciones|recomienda|search|research)\b/i;
 const FRESHNESS_RE = /\b(hoy|ahora|actual(?:mente)?|actualizado|últim[oa]s?|latest|noticias?|news|precio(?:s)?|cuánto cuesta|cotización|cotiza|quién es|quien es|who is|where is|dónde está|how much|when)\b/i;
+const TURTLE_HISTORY_QUERY_RE = /\b(historial|hist[oó]rico|[uú]ltim[oa]s?|evoluci[oó]n|cambios|ha hecho|hizo|durante|horas?|sesiones?)\b/i;
 const RESEARCH_RE = new RegExp('(?:' + EXPLICIT_RESEARCH_RE.source.slice(2, -2) + '|' + FRESHNESS_RE.source.slice(2, -2) + ')', 'i');
 
 export default {
@@ -288,11 +289,67 @@ async function enrichSuccessfulResponse(upstream, request, requestId, env) {
 
 function buildSpecializedToolAnswer(evidence, route, message) {
   const executed = evidence?.tool_execution?.executed || [];
-  const successful = executed.find(item => item.tool === 'time' && item.status === 'success')
+  const successful = executed.find(item => item.tool === 'turtle_sbt' && item.status === 'success')
+    || executed.find(item => item.tool === 'time' && item.status === 'success')
     || executed.find(item => item.tool === 'weather' && item.status === 'success')
     || executed.find(item => item.tool === 'calculator' && item.status === 'success');
   if (!successful) return '';
   const evidenceText = String(evidence?.text || '');
+  if (successful.tool === 'turtle_sbt') {
+    const text = String(evidence?.text || '');
+    const latest = text.match(/TURTLE SNAPSHOT\n([\s\S]*?)(?:\n\n|$)/i)?.[1] || text;
+    const get = key => latest.match(new RegExp('(?:^|\\n)' + key + '=([^\\n]+)', 'i'))?.[1]?.trim() || '—';
+    const direction = get('direction');
+    const regime = get('regime');
+    const units = get('campaign_units');
+    const system = get('campaign_system');
+    const n = get('campaign_n');
+    const bid = get('bid');
+    const ask = get('ask');
+    const equity = get('equity');
+    const openTrades = get('open_trades');
+    const timestamp = get('timestamp');
+    const isHistory = /TURTLE HISTORY FROM BITEY SBT/i.test(text);
+    if (isHistory) {
+      const blocks = text.split(/\n\nSNAPSHOT_\d+\n/i).slice(1);
+      const first = blocks[0] || '';
+      const last = blocks[blocks.length - 1] || '';
+      const extract = (block,key) => block.match(new RegExp('(?:^|\\n)' + key + '=([^\\n]+)','i'))?.[1]?.trim() || '—';
+      const changes = [];
+      if (blocks.length) {
+        let prev = null;
+        for (const block of blocks) {
+          const state = { timestamp:extract(block,'timestamp'), regime:extract(block,'regime'), direction:extract(block,'direction'), units:extract(block,'campaign_units'), equity:extract(block,'equity') };
+          if (prev && (prev.regime !== state.regime || prev.direction !== state.direction || prev.units !== state.units)) {
+            changes.push(state);
+          }
+          prev = state;
+        }
+      }
+      return [
+        '### Turtle — historial SBT',
+        '',
+        'Snapshots consultados: **' + (text.match(/count=(\\d+)/i)?.[1] || blocks.length) + '**.',
+        changes.length
+          ? 'Cambios detectados: ' + changes.slice(-8).map(item => item.timestamp + ' → ' + item.regime + ' / ' + item.direction + ' / ' + item.units + ' unidades').join('; ') + '.'
+          : 'No se detectaron cambios de régimen, dirección o unidades en los snapshots consultados.',
+        'Último snapshot: **' + extract(last,'regime') + '** · **' + extract(last,'direction') + '** · **' + extract(last,'campaign_units') + ' unidades** · equity **' + extract(last,'equity') + '**.',
+        '',
+        '_Fuente: Bitey SBT · MT4 read-only · ejecución bloqueada._'
+      ].join('\n');
+    }
+    return [
+      '### Turtle — estado actual',
+      '',
+      '**' + get('symbol') + '** · ' + get('timeframe') + ' · **' + direction + '** · régimen **' + regime + '**.',
+      '- Campaña: **' + get('campaign_id') + '** · sistema **' + system + '** · unidades **' + units + '**.',
+      '- N/ATR: **' + n + '** · precio: **' + bid + ' / ' + ask + '**.',
+      '- Equity: **' + equity + '** · trades abiertos: **' + openTrades + '**.',
+      '- Snapshot: **' + timestamp + '**.',
+      '',
+      '_Datos obtenidos directamente de Bitey SBT. Solo lectura; no se envían órdenes a MT4._'
+    ].join('\n');
+  }
   if (successful.tool === 'time') {
     const location = evidenceText.match(/LOCATION:\s*(.+)/i)?.[1]?.trim() || 'la ubicación solicitada';
     const time = evidenceText.match(/HOUR:\s*([0-9]{2}:[0-9]{2}:[0-9]{2})/i)?.[1];
@@ -1780,6 +1837,109 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
 
     const executeTool = async (tool, purpose, fallbackFor = null) => {
       if (attempted.has(tool)) return false;
+      if (tool === 'turtle_sbt') {
+        const historyRequested = Boolean(preliminaryRoute?.intent_evaluation?.signals?.turtle_history) || TURTLE_HISTORY_QUERY_RE.test(message);
+        const endpoint = historyRequested
+          ? 'https://bitey-system-bots-trading-api.onrender.com/api/v1/mt4/bitey-history?limit=20'
+          : 'https://bitey-system-bots-trading-api.onrender.com/api/v1/mt4/bitey-latest';
+        try {
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+            cf: { cacheTtl: 0, cacheEverything: false }
+          });
+          if (!response.ok) {
+            record(tool, 'failed', purpose, fallbackFor, { endpoint, status: response.status });
+            return false;
+          }
+          const payload = await response.json();
+          const snapshots = Array.isArray(payload?.snapshots)
+            ? payload.snapshots
+            : Array.isArray(payload?.history)
+              ? payload.history
+              : [];
+          const snapshot = payload?.snapshot || (
+            !Array.isArray(payload?.snapshots) && !Array.isArray(payload?.history) ? payload : null
+          );
+          const latest = snapshot || snapshots[snapshots.length - 1] || null;
+          if (!latest && !snapshots.length) {
+            record(tool, 'success', purpose, fallbackFor, { endpoint, empty: true });
+            return markResult(tool, false, { available: false, reason: 'no_turtle_snapshot' });
+          }
+
+          const source = {
+            title: historyRequested ? 'Bitey SBT — Turtle snapshot history' : 'Bitey SBT — Turtle current snapshot',
+            url: endpoint,
+            snippet: JSON.stringify(historyRequested ? { snapshots: snapshots.slice(-20) } : { snapshot: latest }).slice(0, 7000),
+            authority: 1,
+            freshness: 1
+          };
+
+          const compact = item => {
+            const m = item?.market || {}, a = item?.account || {}, t = item?.turtle || {}, metrics = item?.metrics || {};
+            const direction = Number(t.campaign_direction) > 0 ? 'BUY' : Number(t.campaign_direction) < 0 ? 'SELL' : 'FLAT';
+            return [
+              'TURTLE SNAPSHOT',
+              'timestamp=' + String(item?.timestamp || item?.time || 'unknown'),
+              'symbol=' + String(item?.symbol || 'unknown'),
+              'timeframe=' + String(item?.timeframe || 'unknown'),
+              'mode=' + String(item?.mode || 'read_only'),
+              'regime=' + String(item?.regime || 'FLAT'),
+              'direction=' + direction,
+              'campaign_id=' + String(t.campaign_id ?? 'none'),
+              'campaign_system=' + String(t.campaign_system ?? 'none'),
+              'campaign_units=' + String(t.campaign_units ?? 0),
+              'campaign_last_entry=' + String(t.campaign_last_entry ?? 'unknown'),
+              'campaign_n=' + String(t.campaign_n ?? m.atr ?? 'unknown'),
+              's1_skip_next=' + String(Boolean(t.s1_skip_next)),
+              's1_skip_latched=' + String(Boolean(t.s1_skip_latched)),
+              'bid=' + String(m.bid ?? 'unknown'),
+              'ask=' + String(m.ask ?? 'unknown'),
+              'atr=' + String(m.atr ?? 'unknown'),
+              'rsi=' + String(m.rsi ?? 'unknown'),
+              'adx=' + String(m.adx ?? 'unknown'),
+              'equity=' + String(a.equity ?? 'unknown'),
+              'balance=' + String(a.balance ?? 'unknown'),
+              'open_trades=' + String(a.open_trades ?? 'unknown'),
+              'htf_direction=' + String(metrics.htf_direction || 'FLAT')
+            ].join('\n');
+          };
+
+          let evidenceText;
+          if (historyRequested) {
+            const rows = snapshots.slice(-20);
+            evidenceText = [
+              'TURTLE HISTORY FROM BITEY SBT',
+              'count=' + rows.length,
+              ...rows.map((item, index) => 'SNAPSHOT_' + (index + 1) + '\n' + compact(item))
+            ].join('\n\n');
+          } else {
+            evidenceText = compact(latest);
+          }
+
+          evidenceParts.push(evidenceText);
+          workingContext.evidence.push(evidenceText);
+          sources.push(source);
+          workingContext.sources.push(source);
+          record(tool, 'success', purpose, fallbackFor, {
+            endpoint,
+            history: historyRequested,
+            snapshot_count: historyRequested ? snapshots.length : 1,
+            execution: 'read_only',
+            live_trading_enabled: false
+          });
+          return markResult(tool, true, {
+            available: true,
+            history: historyRequested,
+            snapshot_count: historyRequested ? snapshots.length : 1,
+            execution: 'read_only',
+            live_trading_enabled: false
+          });
+        } catch (error) {
+          record(tool, 'failed', purpose, fallbackFor, { endpoint, error: String(error) });
+          return false;
+        }
+      }
       if (tool === 'time') {
         const time = recoverTime(resolvedToolQuery);
         evidenceParts.push(time.text);
