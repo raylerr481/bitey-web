@@ -41,7 +41,8 @@ class ToolOrchestrator:
     WEB_FACT_RE = re.compile(r"\b(precio|precios|cotizaci[oó]n|disponibilidad|horario|direcci[oó]n|versi[oó]n|release|documentaci[oó]n|ley|leyes|regulaci[oó]n|reglamento|elecciones|resultados|ranking|clasificaci[oó]n|estad[ií]sticas|noticias|fuente|fuentes|comparar|compara|contrasta|rese[nñ]a|reviews?)\b", re.I)
     TRADING_RE = re.compile(r"\b(?:[A-Z]{2,12}(?:USDT|USD)|[A-Z]{6}|XAUUSD|XAGUSD)\b|\b(?:M1|M3|M5|M15|M30|H1|H4|D1|W1|MN1)\b", re.I)
     TURTLE_RE = re.compile(r"\b(?:turtle|tortuga|turtle trading|s1|s2|campa(?:gn|[ñn]a)|piramid(?:e|ing)|unidades?|n/?atr|risk gate|turtle controller)\b", re.I)
-    TURTLE_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?y\s+(?:el|la|los|las)\s+(?:equity|balance|señal|signal|riesgo|posición|posicion|trade|trades|turtle)|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces)\s*\??\s*$", re.I)\n    SBT_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces|¿?qué\s+está\s+haciendo|¿?que\s+esta\s+haciendo)\s*\??\s*$", re.I)\n    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
+    TURTLE_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?y\s+(?:el|la|los|las)\s+(?:equity|balance|señal|signal|riesgo|posición|posicion|trade|trades|turtle)|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces)\s*\??\s*$", re.I)
+    SBT_FOLLOWUP_RE = re.compile(r"^\s*(?:¿?y\s+ahora|ahora|¿?qué\s+pasó|¿?que\s+paso|¿?cómo\s+va|¿?como\s+va|¿?y\s+(?:después|despues)|¿?y\s+entonces|¿?qué\s+está\s+haciendo|¿?que\s+esta\s+haciendo)\s*\??\s*$", re.I)\n    MATH_RE = re.compile(r"^\s*(?:\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*(?:[+\-*/%^]\s*\(?\s*[-+]?\d+(?:\.\d+)?\s*\)?\s*)+)$")
     NATURAL_MATH_RE = re.compile(r"^\s*(?:cu[aá]nto\s+es\s+)?[-+]?\d+(?:[.,]\d+)?\s*(?:%\s+de|por ciento de|\+|menos|m[aá]s|por|entre|dividido(?:\s+por)?|multiplicado(?:\s+por)?|x)\s+[-+]?\d+(?:[.,]\d+)?\s*\??\s*$", re.I)
 
     def __init__(self) -> None:
@@ -275,6 +276,13 @@ class ToolOrchestrator:
             results[name] = result
             executed.add(name)
 
+            # Persist only a short-lived routing marker derived from the actual
+            # tool execution. This is continuity metadata, not evidence.
+            if result.get("ok") and name in {"sbt_turtle", "sbt_ai_context"}:
+                loop_context["sbt_context_active"] = True
+                loop_context["sbt_context_kind"] = "turtle" if name == "sbt_turtle" else "general"
+                loop_context["sbt_last_evidence_class"] = str(result.get("evidence_class") or "NO_EVIDENCE")
+                loop_context["sbt_last_tool"] = name
             evidence_text = str(result.get("evidence") or result.get("page_evidence") or "").strip()
             if result.get("ok") and evidence_text:
                 loop_context["evidence_available"] = True
@@ -364,6 +372,22 @@ class ToolOrchestrator:
                 fallback["specialized_tool_error"] = payload.get("error") or payload.get("reason")
                 results[fallback_name] = fallback
                 executed.add(fallback_name)
+
+        # Expose the derived routing marker to the caller's context so the
+        # next conversational turn can recognize a genuine SBT continuation.
+        caller_context = kwargs.get("context")
+        if isinstance(caller_context, dict):
+            caller_context.update({
+                key: loop_context[key]
+                for key in (
+                    "sbt_context_active",
+                    "sbt_context_kind",
+                    "sbt_last_evidence_class",
+                    "sbt_last_tool",
+                )
+                if key in loop_context
+            })
+            caller_context["executed_tools"] = list(executed)
 
         if agent_loop:
             results["_agent_loop"] = {
