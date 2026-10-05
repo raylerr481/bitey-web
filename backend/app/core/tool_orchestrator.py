@@ -130,15 +130,31 @@ class ToolOrchestrator:
 
         # Calculator is an executable capability, not merely a label. Use it
         # for deterministic arithmetic only; symbolic math remains model work.
+        previous_execution = ctx.get("previous_execution_state")
+        previous_tools = (
+            {str(name) for name in previous_execution.get("executed_tools", [])}
+            if isinstance(previous_execution, dict)
+            else set()
+        )
+        selected_tools = {str(name) for name in (ctx.get("selected_tools") or [])}
         turtle_context = (
             str(ctx.get("current_intent_domain") or ctx.get("intent_family") or "").lower() in {"trading", "turtle"}
-            or "sbt_turtle" in {str(name) for name in (ctx.get("selected_tools") or [])}
-            or "sbt_turtle" in {str(name) for name in ((ctx.get("previous_execution_state") or {}).get("executed_tools", []) if isinstance(ctx.get("previous_execution_state"), dict) else [])}
+            or "sbt_turtle" in selected_tools
+            or "sbt_turtle" in previous_tools
+            or str(ctx.get("sbt_context_kind") or "").lower() == "turtle"
+        )
+        sbt_context = (
+            "sbt_ai_context" in selected_tools
+            or "sbt_ai_context" in previous_tools
+            or str(ctx.get("sbt_context_kind") or "").lower() == "general"
+            or bool(ctx.get("sbt_context_active"))
         )
         if arithmetic_request:
             requested = ["calculator"]
         elif self.TURTLE_RE.search(message) or (self.TURTLE_FOLLOWUP_RE.fullmatch(message) and turtle_context):
             requested = ["sbt_turtle"]
+        elif self.SBT_FOLLOWUP_RE.fullmatch(message) and sbt_context:
+            requested = ["sbt_turtle" if turtle_context else "sbt_ai_context"]
         elif re.search(r"\b(?:sbt|bot|ea|expert advisor|mt4|meta trader|metatrader|tradewill|optimiza|optimización|optimizer|ai bot lab|qué está haciendo|que esta haciendo|qué bot está activo|que bot esta activo|qué está optimizando|que esta optimizando)\b", normalized, re.I):
             requested = ["sbt_ai_context"]
         elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
