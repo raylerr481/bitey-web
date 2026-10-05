@@ -1104,6 +1104,9 @@ def create_chat_v2_router(
             "last_assistant_answer": active_state.get("last_assistant_answer", ""),
             "previous_result_context": active_state.get("previous_result_context", {}),
             "conversation_context": active_state.get("conversation_context", {}),
+            # Validated lessons guide strategy selection only; they are not current evidence.
+            "learning_context": learning_context,
+            "learning_trust": "strategy_context_only_not_current_evidence",
         }
 
         # The context must exist before any dynamic status is rendered.
@@ -1253,11 +1256,21 @@ def create_chat_v2_router(
         elif task_controller.get("action") == "complete":
             emit("✓ La tarea anterior ya está completada; no la reinicio.")
         ctx["active_task"] = active_task
-        ctx["task_lifecycle"] = _classify_task_lifecycle(
-            brain_state.plan_steps,
-            explicit_blockers=active_task.get("blockers") or [],
-            current_phase=active_task.get("execution_phase"),
-        )
+        if task_controller.get("action") == "complete":
+            # A persisted terminal task is authoritative for continuity. A fresh
+            # plan generated from the literal word "continúa" must not resurrect it.
+            ctx["task_lifecycle"] = active_task.get("task_lifecycle") or {
+                "task_status": "completed",
+                "next_action": None,
+                "trust": "continuity_only_not_evidence",
+                "evidence_source": False,
+            }
+        else:
+            ctx["task_lifecycle"] = _classify_task_lifecycle(
+                brain_state.plan_steps,
+                explicit_blockers=active_task.get("blockers") or [],
+                current_phase=active_task.get("execution_phase"),
+            )
         active_task.update(ctx["task_lifecycle"])
         active_task["active"] = active_task.get("task_status") != "completed"
         trace_store.set_plan(trace, brain_state.plan_steps)
@@ -1320,6 +1333,9 @@ def create_chat_v2_router(
             mode == "auto" and (brain_state.evidence_required or tools.needs_web_research(query, ctx))
         )
         tool_execution_required = research_required or mode == "code"
+        if task_controller.get("action") == "complete":
+            tool_execution_required = False
+            research_required = False
         if mode == "chat":
             research_required = False
             tool_execution_required = False
