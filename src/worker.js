@@ -1881,7 +1881,7 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
         const historyRequested = Boolean(preliminaryRoute?.intent_evaluation?.signals?.turtle_history) || TURTLE_HISTORY_QUERY_RE.test(message);
         const endpoint = historyRequested
           ? 'https://bitey-system-bots-trading-api.onrender.com/api/v1/mt4/bitey-history?limit=20'
-          : 'https://bitey-system-bots-trading-api.onrender.com/api/v1/mt4/bitey-latest';
+          : 'https://bitey-system-bots-trading-api.onrender.com/api/v1/turtle/context';
         try {
           const response = await fetch(endpoint, {
             method: 'GET',
@@ -1898,17 +1898,18 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
             : Array.isArray(payload?.history)
               ? payload.history
               : [];
-          const snapshot = payload?.snapshot || (
-            !Array.isArray(payload?.snapshots) && !Array.isArray(payload?.history) ? payload : null
+          const snapshot = payload?.mt4_snapshot || payload?.snapshot || (
+            !Array.isArray(payload?.snapshots) && !Array.isArray(payload?.history) && payload?.symbol ? payload : null
           );
           const latest = snapshot || snapshots[snapshots.length - 1] || null;
+          const controllerState = payload?.state || null;
           if (!latest && !snapshots.length) {
             record(tool, 'success', purpose, fallbackFor, { endpoint, empty: true });
             return markResult(tool, false, { available: false, reason: 'no_turtle_snapshot' });
           }
 
           const source = {
-            title: historyRequested ? 'Bitey SBT — Turtle snapshot history' : 'Bitey SBT — Turtle current snapshot',
+            title: historyRequested ? 'Bitey SBT — Turtle snapshot history' : 'Bitey SBT — Turtle Controller context',
             url: endpoint,
             snippet: JSON.stringify(historyRequested ? { snapshots: snapshots.slice(-20) } : { snapshot: latest }).slice(0, 7000),
             authority: 1,
@@ -1941,7 +1942,12 @@ async function recoverToolEvidence(message, requestId, contextMemory = {}) {
               'equity=' + String(a.equity ?? 'unknown'),
               'balance=' + String(a.balance ?? 'unknown'),
               'open_trades=' + String(a.open_trades ?? 'unknown'),
-              'htf_direction=' + String(metrics.htf_direction || 'FLAT')
+              'htf_direction=' + String(metrics.htf_direction || 'FLAT'),
+              'controller_status=' + String(controllerState?.status || 'unknown'),
+              'controller_next_action=' + String(controllerState?.next_action || 'unknown'),
+              'controller_reason=' + String(controllerState?.reason || 'unknown'),
+              'learning_status=' + String(controllerState?.learning_status || 'unknown'),
+              'execution_enabled=false'
             ].join('\n');
           };
 
