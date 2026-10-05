@@ -432,6 +432,118 @@ def _classify_task_lifecycle(
 
 
 
+def _objective_completion_gate(
+    *,
+    goal: str,
+    plan_steps: list[dict[str, Any]] | None,
+    final_contract: dict[str, Any] | None,
+    answer_verification: dict[str, Any] | None,
+    evidence: str | list[Any] | None,
+    blockers: list[str] | None = None,
+    agent_loop: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Decide whether the actual objective was achieved after execution.
+
+    This is a deterministic completion boundary. Continuity/task state can
+    guide the next action, but it is never treated as current evidence.
+    """
+    contract = final_contract if isinstance(final_contract, dict) else {}
+    verification = answer_verification if isinstance(answer_verification, dict) else {}
+    steps = [dict(step) for step in (plan_steps or []) if isinstance(step, dict) and step.get("id")]
+    explicit_blockers = [
+        " ".join(str(item).split())[:300]
+        for item in (blockers or [])
+        if str(item).strip()
+    ]
+    evidence_present = bool(evidence)
+    verification_valid = bool(verification.get("valid"))
+    verification_completed = bool(contract.get("verification_completed") or verification)
+    contract_ready = bool(contract.get("ready"))
+    failed_steps = [
+        str(step.get("id") or "")
+        for step in steps
+        if str(step.get("status") or "").casefold() in {"failed", "blocked"}
+    ]
+    pending_steps = [
+        str(step.get("id") or "")
+        for step in steps
+        if str(step.get("status") or "").casefold() in {"pending", "required", "conditional", "running"}
+        and str(step.get("id") or "") not in {"understand", "respond"}
+    ]
+
+    missing: list[str] = []
+    if not contract.get("answer_present"):
+        missing.append("answer")
+    if contract.get("evidence_required") and not evidence_present:
+        missing.append("verifiable_evidence")
+    if contract.get("evidence_required") and not verification_valid:
+        missing.append("answer_verification")
+    if failed_steps:
+        missing.extend(f"step:{step_id}" for step_id in failed_steps)
+    missing.extend(step_id for step_id in pending_steps if step_id not in missing)
+    missing = list(dict.fromkeys(missing))
+
+    if explicit_blockers:
+        status = "blocked"
+        reason = "explicit_blocker"
+    elif not contract_ready:
+        status = "blocked" if failed_steps else "partial"
+        reason = "final_contract_not_ready"
+    elif contract.get("evidence_required") and not evidence_present:
+        status = "partial"
+        reason = "evidence_missing"
+    elif contract.get("evidence_required") and not verification_valid:
+        status = "partial"
+        reason = "verification_failed"
+    elif pending_steps:
+        status = "partial"
+        reason = "pending_requirements"
+    elif verification_completed and (not contract.get("evidence_required") or verification_valid):
+        status = "completed"
+        reason = "objective_requirements_met"
+    else:
+        status = "unknown"
+        reason = "insufficient_completion_signal"
+
+    next_action = None
+    if status in {"partial", "failed"}:
+        if "verifiable_evidence" in missing or "answer_verification" in missing:
+            next_action = "Obtener y verificar la evidencia que falta."
+        elif pending_steps:
+            next_action = f"Completar el siguiente requisito pendiente: {pending_steps[0]}."
+        elif failed_steps:
+            next_action = f"Revisar el requisito fallido: {failed_steps[0]}."
+    elif status == "blocked":
+        next_action = f"Resolver el bloqueo: {explicit_blockers[0]}" if explicit_blockers else "Resolver el bloqueo antes de continuar."
+
+    if status == "completed":
+        confidence = 1.0 if contract_ready and (not contract.get("evidence_required") or verification_valid) else 0.8
+    elif status == "partial":
+        confidence = 0.55
+    elif status == "blocked":
+        confidence = 0.25
+    else:
+        confidence = 0.35
+
+    loop = agent_loop if isinstance(agent_loop, dict) else {}
+    loop_complete = bool(loop.get("objective_complete"))
+    if loop_complete and status != "completed":
+        # Never let a generic agent-loop flag override the completion gate.
+        reason = f"{reason};agent_loop_not_sufficient"
+
+    return {
+        "objective_status": status,
+        "completion_confidence": confidence,
+        "missing_requirements": missing[:12],
+        "last_outcome": reason,
+        "replan_required": status in {"partial", "failed"},
+        "next_action": next_action,
+        "goal": " ".join(str(goal).split())[:1000],
+        "trust": "continuity_only_not_evidence",
+        "evidence_source": False,
+    }
+
+
 def _task_controller_decision(
     active_task: dict[str, Any],
     brain_state: Any,
@@ -2429,6 +2541,19 @@ def create_chat_v2_router(
         )
         ctx["final_contract"] = final_contract
         trace.decision["final_contract"] = final_contract
+        objective_gate = _objective_completion_gate(
+            goal=str((active_task.get("goal") or [query])[-1] if active_task.get("goal") else query),
+            plan_steps=brain_state.plan_steps,
+            final_contract=final_contract,
+            answer_verification=answer_verification,
+            evidence=evidence,
+            blockers=active_task.get("blockers") or [],
+            agent_loop=ctx.get("agent_loop"),
+        )
+        ctx["objective_completion"] = objective_gate
+        trace.decision["objective_completion"] = objective_gate
+        active_task["objective_completion"] = objective_gate
+
         if final_contract["ready"]:
             emit(_friendly_status(ctx.get("intent_family"), "done"))
             emit("✓ Respuesta lista.")
@@ -2622,7 +2747,16 @@ def create_chat_v2_router(
             current_phase=(next_step.get("id") if next_step else None),
         )
         active_task.update(final_lifecycle)
-        active_task["active"] = final_lifecycle["task_status"] != "completed"
+        # Objective completion is a second, outcome-based gate. A task is
+        # terminal only when the actual objective passed the final contract;
+        # a partial/blocked outcome creates a bounded replan instead of
+        # pretending the original plan succeeded.
+        if objective_gate["objective_status"] == "completed":
+            active_task["active"] = False
+        else:
+            active_task["active"] = final_lifecycle["task_status"] != "completed" or bool(objective_gate["replan_required"])
+        active_task["replan_required"] = bool(objective_gate["replan_required"])
+        active_task["next_action"] = objective_gate.get("next_action") or final_lifecycle.get("next_action")
         # Keep the execution snapshot internally consistent with the reconciled
         # workflow that is persisted for the next turn.
         active_task["execution_state"]["completed_phases"] = [
