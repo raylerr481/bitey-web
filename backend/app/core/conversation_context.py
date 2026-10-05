@@ -49,7 +49,7 @@ def _topic(text: str) -> str | None:
     normalized = text.casefold()
     # Comparison is a semantic task that should outrank a preceding
     # research verb (for example: "investiga ... y compara ...").
-    comparison_hints = dict(_TOPIC_HINTS)["comparison"][1]
+    comparison_hints = dict(_TOPIC_HINTS)["comparison"]
     if any(hint in normalized for hint in comparison_hints):
         return "comparison"
     for topic, hints in _TOPIC_HINTS:
