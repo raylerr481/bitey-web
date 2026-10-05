@@ -34,7 +34,8 @@ const MULTI_TASK_RE = /\b(y además|y tambien|y también|además|también|tambie
 const PRICE_QUERY_RE = /\b(cu[aá]nto\s+(?:cuesta|vale|valen|costar[aá]?|sale)|precio(?:s)?|cotizaci[oó]n|cotiza|valor(?:\s+actual)?|how\s+much\s+(?:does|is)|price)\b/i;
 const EXPLICIT_CALCULATION_RE = /(?:cu[aá]nto\s+es|calcula(?:r)?|calculate|compute|porcentaje|roi|retorno|rentabilidad|suma|resta|multiplica|divide|operaci[oó]n\s+matem[aá]tica|\b\d+(?:[.,]\d+)?\s*[+*\/\-]\s*\d)/i;
 const QUANTITY_CALCULATION_RE = /\b(cu[aá]ntas?|how\s+many)\s+(?:acciones|unidades|meses|a[nñ]os|d[ií]as|porciones|lotes|unidades)\b/i;
-const TURTLE_SBT_RE = /\b(turtle|tortuga|mt4|metatrader\s*4|s1|s2|campaign|campa[nñ]a|breakout|piramid|piramidaci[oó]n|unidades?|n\s*(?:actual|atr)|equity|turtle\s*trading|entr[oó]|entrada)\b/i;
+const TURTLE_SBT_RE = /\b(turtle|tortuga|mt4|metatrader\s*4|s1|s2|campaign|campa[nñ]a|breakout|piramid|piramidaci[oó]n|unidades?|n\s*(?:actual|atr)|turtle\s*trading)\b/i;
+const TURTLE_CONTEXT_FOLLOWUP_RE = /^\s*(?:¿?y\s+ahora|ahora|¿?y\s+(?:el|la|los|las)\s+(?:equity|balance|señal|signal|riesgo|posición|posicion|trade|trades|n)|¿?cambi[oó]\s+(?:la\s+)?direcci[oó]n|¿?por\s+qu[eé]\s+entr[oó](?:\s+el)?|¿?qu[eé]\s+pas[oó]|¿?c[oó]mo\s+va|¿?y\s+(?:despu[eé]s|entonces))\s*\??\s*$/i;
 const TURTLE_HISTORY_RE = /\b(historial|hist[oó]rico|[uú]ltim[oa]s?|evoluci[oó]n|cambios|ha hecho|hizo|desde|durante|horas?|sesiones?)\b/i;
 
 export function evaluateIntent({ language = {}, route = {}, message = '', context = {} } = {}) {
@@ -52,7 +53,8 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
   const contextFollowup = contextReferences.includes('follow_up') || contextReferences.includes('prior_context');
   const contextRecentTerms = Array.isArray(context?.recent_topic_terms) ? context.recent_topic_terms : [];
   const contextHasData = Boolean(contextEntities.length || contextLocations.length || contextValues.length);
-  const contextTurtle = [...contextEntities, ...contextRecentTerms].some(item => TURTLE_SBT_RE.test(String(item || '')));
+  const contextTurtle = [...contextEntities, ...contextRecentTerms].some(item => TURTLE_SBT_RE.test(String(item || '')))
+    || [...contextEntities, ...contextRecentTerms].some(item => /\b(?:equity|balance|entrada|direcci[oó]n|campaign|campa[nñ]a|turtle|mt4|s1|s2)\b/i.test(String(item || '')));
 
   const signals = {
     current: FRESHNESS_RE.test(lower),
@@ -73,7 +75,9 @@ export function evaluateIntent({ language = {}, route = {}, message = '', contex
     context_has_values: contextValues.length > 0,
     context_has_entity: contextEntities.length > 0,
     context_has_location: contextLocations.length > 0,
-    turtle_sbt: TURTLE_SBT_RE.test(lower) || (contextFollowup && contextTurtle),
+    turtle_sbt: TURTLE_SBT_RE.test(lower)
+      || (contextFollowup && contextTurtle)
+      || (contextTurtle && TURTLE_CONTEXT_FOLLOWUP_RE.test(lower)),
     turtle_history: TURTLE_HISTORY_RE.test(lower) && (TURTLE_SBT_RE.test(lower) || contextTurtle),
     context_turtle: contextTurtle,
     long_or_complex: text.length > 240 || DEEP_RE.test(lower),
