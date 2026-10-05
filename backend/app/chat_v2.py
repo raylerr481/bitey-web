@@ -487,7 +487,9 @@ def _objective_completion_gate(
         status = "blocked"
         reason = "explicit_blocker"
     elif not contract_ready:
-        status = "blocked" if failed_steps else "partial"
+        # A failed step is recoverable by replanning; only an explicit blocker
+        # means the objective is genuinely blocked.
+        status = "partial"
         reason = "final_contract_not_ready"
     elif contract.get("evidence_required") and not evidence_present:
         status = "partial"
