@@ -90,3 +90,39 @@ def test_turtle_context_has_priority_over_general_sbt_context():
         {"selected_tools": ["sbt_ai_context", "sbt_turtle"]},
     )
     assert selected == ["sbt_turtle"]
+
+
+def test_sbt_follow_up_reuses_execution_context():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {"previous_execution_state": {"executed_tools": ["sbt_ai_context"]}},
+    )
+    assert selected == ["sbt_ai_context"]
+
+
+def test_turtle_follow_up_reuses_execution_context_with_priority():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {
+            "previous_execution_state": {
+                "executed_tools": ["sbt_ai_context", "sbt_turtle"]
+            }
+        },
+    )
+    assert selected == ["sbt_turtle"]
+
+
+def test_sbt_follow_up_reuses_persisted_result_context():
+    selected = ToolOrchestrator().select(
+        "¿Qué pasó?",
+        {"sbt_context_active": True, "sbt_context_kind": "general"},
+    )
+    assert selected == ["sbt_ai_context"]
+
+
+def test_turtle_follow_up_reuses_persisted_result_context():
+    selected = ToolOrchestrator().select(
+        "¿Y el equity?",
+        {"sbt_context_active": True, "sbt_context_kind": "turtle"},
+    )
+    assert selected == ["sbt_turtle"]
