@@ -69,3 +69,24 @@ def test_turtle_follow_up_reuses_turtle_context():
 def test_turtle_follow_up_without_context_does_not_hijack_general_chat():
     selected = ToolOrchestrator().select("¿Y ahora?", {})
     assert selected != ["sbt_turtle"]
+
+
+def test_sbt_follow_up_reuses_general_sbt_context():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {"selected_tools": ["sbt_ai_context"]},
+    )
+    assert selected == ["sbt_ai_context"]
+
+
+def test_sbt_follow_up_without_context_does_not_hijack_general_chat():
+    selected = ToolOrchestrator().select("¿Y ahora?", {})
+    assert selected != ["sbt_ai_context"]
+
+
+def test_turtle_context_has_priority_over_general_sbt_context():
+    selected = ToolOrchestrator().select(
+        "¿Y ahora?",
+        {"selected_tools": ["sbt_ai_context", "sbt_turtle"]},
+    )
+    assert selected == ["sbt_turtle"]
