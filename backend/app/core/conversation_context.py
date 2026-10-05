@@ -30,7 +30,7 @@ _TOPIC_HINTS = (
     ("finance", ("bitcoin", "ethereum", "btc", "eth", "acciones", "precio", "mercado", "stock")),
     ("programming", ("código", "codigo", "python", "javascript", "typescript", "api", "bug", "error", "docker")),
     ("research", ("investiga", "investigar", "busca", "fuentes", "investigación", "research")),
-    ("comparison", ("comparar", "comparación", "mejor", "mejor opción", "diferencia", "versus", "vs")),
+    ("comparison", ("comparar", "compara", "comparando", "comparación", "comparativo", "mejor", "mejor opción", "diferencia", "versus", "vs")),
     ("shopping", ("comprar", "compra", "producto", "precio", "tienda", "oferta")),
     ("travel", ("viaje", "hotel", "vuelo", "turismo", "viajar")),
     ("trading", ("trading", "forex", "mt4", "mt5", "eurusd", "btc/usd")),
