@@ -432,3 +432,29 @@ def test_task_controller_failed_outcome_is_not_treated_as_progress():
     assert decision["action"] == "resume"
     assert decision["step_id"] == "verify"
     assert decision["trust"] == "continuity_only_not_evidence"
+
+
+def test_blocked_task_without_recovery_action_waits_instead_of_faking_progress():
+    active_task = {
+        "continuation_detected": True,
+        "goal": ["Desplegar la aplicación"],
+        "task_lifecycle": {
+            "task_status": "blocked",
+            "next_action": {
+                "id": "unblock",
+                "action": "Resolver el bloqueo: faltan credenciales",
+                "kind": "blocked_wait",
+            },
+        },
+        "previous_plan": [
+            {"id": "deploy", "action": "Desplegar", "status": "blocked", "blockers": ["faltan credenciales"]}
+        ],
+    }
+    decision = _task_controller_decision(
+        active_task,
+        type("Brain", (), {"plan_steps": []})(),
+        "continúa",
+    )
+    assert decision["action"] == "wait"
+    assert decision["tool_override"] == []
+    assert decision["requires_confirmation"] is True
