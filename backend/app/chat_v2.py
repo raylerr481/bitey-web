@@ -544,6 +544,90 @@ def _objective_completion_gate(
     }
 
 
+def _bounded_replan(
+    *,
+    objective_gate: dict[str, Any],
+    plan_steps: list[dict[str, Any]],
+    previous_actions: list[str] | None = None,
+    max_replans: int = 2,
+) -> dict[str, Any]:
+    """Choose one new unmet action without repeating a failed action forever."""
+    previous = [" ".join(str(item).split())[:500] for item in (previous_actions or []) if str(item).strip()]
+    replan_count = sum(1 for item in previous if item.startswith("replan:"))
+    status = str(objective_gate.get("objective_status") or "")
+    if status == "completed":
+        return {"required": False, "next_action": None, "replan_count": replan_count}
+
+    missing = [str(item).strip() for item in (objective_gate.get("missing_requirements") or []) if str(item).strip()]
+    candidates = []
+    for step in plan_steps:
+        if not isinstance(step, dict):
+            continue
+        step_id = str(step.get("id") or "").strip()
+        status_value = str(step.get("status") or "").casefold()
+        if step_id and status_value in {"pending", "required", "conditional", "running"}:
+            candidates.append(step)
+
+    # Prefer an unmet requirement that has not already been attempted.
+    for step in candidates:
+        action = " ".join(str(step.get("action") or step.get("id") or "").split())
+        signature = f"replan:{step.get('id')}"
+        if signature not in previous:
+            return {
+                "required": True,
+                "next_action": {
+                    "id": str(step.get("id") or ""),
+                    "action": action[:500],
+                    "kind": "replan",
+                },
+                "reason": "unmet_requirement",
+                "replan_count": replan_count + 1,
+                "attempted_actions": (previous + [signature])[-12:],
+            }
+
+    # If the same plan has already been exhausted, do not create a retry loop.
+    if replan_count >= max_replans:
+        return {
+            "required": False,
+            "blocked": True,
+            "reason": "replan_limit_reached",
+            "next_action": {
+                "id": "unblock",
+                "action": "No repetir automáticamente la misma estrategia; se requiere una nueva condición o instrucción.",
+                "kind": "blocked_wait",
+            },
+            "replan_count": replan_count,
+            "attempted_actions": previous[-12:],
+        }
+
+    missing_label = missing[0] if missing else "el requisito pendiente"
+    signature = f"replan:{missing_label}"
+    if signature in previous:
+        return {
+            "required": False,
+            "blocked": True,
+            "reason": "same_replan_already_attempted",
+            "next_action": {
+                "id": "unblock",
+                "action": "La estrategia ya fue intentada sin resolver el objetivo; no la repetiré automáticamente.",
+                "kind": "blocked_wait",
+            },
+            "replan_count": replan_count,
+            "attempted_actions": previous[-12:],
+        }
+    return {
+        "required": True,
+        "next_action": {
+            "id": "replan",
+            "action": f"Atender {missing_label}.",
+            "kind": "replan",
+        },
+        "reason": "missing_requirement",
+        "replan_count": replan_count + 1,
+        "attempted_actions": (previous + [signature])[-12:],
+    }
+
+
 def _task_controller_decision(
     active_task: dict[str, Any],
     brain_state: Any,
@@ -2755,8 +2839,23 @@ def create_chat_v2_router(
             active_task["active"] = False
         else:
             active_task["active"] = final_lifecycle["task_status"] != "completed" or bool(objective_gate["replan_required"])
-        active_task["replan_required"] = bool(objective_gate["replan_required"])
-        active_task["next_action"] = objective_gate.get("next_action") or final_lifecycle.get("next_action")
+        replan = _bounded_replan(
+            objective_gate=objective_gate,
+            plan_steps=reconciled_plan,
+            previous_actions=active_task.get("replan_history") or [],
+        )
+        active_task["replan_required"] = bool(objective_gate["replan_required"] and replan.get("required"))
+        active_task["replan_history"] = list(replan.get("attempted_actions") or active_task.get("replan_history") or [])[-12:]
+        active_task["replan_count"] = int(replan.get("replan_count", active_task.get("replan_count", 0)) or 0)
+        active_task["next_action"] = (
+            replan.get("next_action")
+            or objective_gate.get("next_action")
+            or final_lifecycle.get("next_action")
+        )
+        if replan.get("blocked"):
+            active_task["blockers"] = list(dict.fromkeys(
+                list(active_task.get("blockers") or []) + [str(replan.get("reason") or "replan_blocked")]
+            ))[-8:]
         # Keep the execution snapshot internally consistent with the reconciled
         # workflow that is persisted for the next turn.
         active_task["execution_state"]["completed_phases"] = [
@@ -2764,6 +2863,9 @@ def create_chat_v2_router(
             for step in reconciled_plan
             if isinstance(step, dict) and str(step.get("status") or "") == "completed"
         ][-12:]
+        active_task["execution_state"]["objective_completion"] = objective_gate
+        active_task["execution_state"]["replan_count"] = active_task.get("replan_count", 0)
+        active_task["execution_state"]["replan_required"] = active_task.get("replan_required", False)
         active_task["execution_state"]["next_step"] = (
             {
                 "id": str(next_step.get("id") or ""),
