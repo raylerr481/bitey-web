@@ -137,17 +137,21 @@ class ToolOrchestrator:
             else set()
         )
         selected_tools = {str(name) for name in (ctx.get("selected_tools") or [])}
+        active_task = ctx.get("active_task") if isinstance(ctx.get("active_task"), dict) else {}
+        active_sbt = active_task.get("sbt_context") if isinstance(active_task.get("sbt_context"), dict) else {}
         turtle_context = (
             str(ctx.get("current_intent_domain") or ctx.get("intent_family") or "").lower() in {"trading", "turtle"}
             or "sbt_turtle" in selected_tools
             or "sbt_turtle" in previous_tools
             or str(ctx.get("sbt_context_kind") or "").lower() == "turtle"
+            or str(active_sbt.get("kind") or "").lower() == "turtle"
         )
         sbt_context = (
             "sbt_ai_context" in selected_tools
             or "sbt_ai_context" in previous_tools
             or str(ctx.get("sbt_context_kind") or "").lower() == "general"
             or bool(ctx.get("sbt_context_active"))
+            or bool(active_sbt.get("active"))
         )
         if arithmetic_request:
             requested = ["calculator"]
