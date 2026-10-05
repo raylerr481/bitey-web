@@ -54,6 +54,7 @@ class ToolOrchestrator:
         self.register(ToolSpec("weather", "Consulta meteorología actual mediante Open-Meteo, como fuente especializada del buscador.", ("weather", "current", "forecast"), self._weather))
         self.register(ToolSpec("sbt_market", "Consulta el mercado SBT y ejecuta inteligencia técnica únicamente con datos verificables; no ejecuta órdenes.", ("trading", "market_intelligence", "market_data", "risk"), self._sbt_market))
         self.register(ToolSpec("sbt_turtle", "Consulta el estado real del Turtle Controller en SBT; solo lectura y sin ejecución de órdenes.", ("trading", "turtle", "state", "risk", "evidence"), self._sbt_turtle, timeout_seconds=12.0, max_retries=1))
+        self.register(ToolSpec("sbt_ai_context", "Consulta el contexto general del bot activo en MT4 y el estado del AI Bot Lab de SBT; solo lectura.", ("trading", "mt4", "bot", "sbt", "ai_bot_lab", "state", "evidence"), self._sbt_ai_context, timeout_seconds=12.0, max_retries=1))
         self.register(ToolSpec("calculator", "Calculadora local determinista para expresiones aritméticas simples; no requiere proveedor externo.", ("math", "calculation"), self._calculator))
         self.register(ToolSpec("time", "Hora actual para una ubicación explícita usando zonas horarias IANA.", ("time", "current"), self._time))
         self.register(ToolSpec("local_search", "Búsqueda localizada mediante el motor web de Bitey.", ("local_search", "web", "search"), self._local_search))
@@ -137,6 +138,8 @@ class ToolOrchestrator:
             requested = ["calculator"]
         elif self.TURTLE_RE.search(message) or (self.TURTLE_FOLLOWUP_RE.fullmatch(message) and turtle_context):
             requested = ["sbt_turtle"]
+        elif re.search(r"\b(?:sbt|bot|ea|expert advisor|mt4|meta trader|metatrader|tradewill|optimiza|optimización|optimizer|ai bot lab|qué está haciendo|que esta haciendo|qué bot está activo|que bot esta activo|qué está optimizando|que esta optimizando)\b", normalized, re.I):
+            requested = ["sbt_ai_context"]
         elif str(cognitive.intention.get("domain", "general")).lower() == "trading" and re.search(r"\b(analiza|analizar|backtest|backtesting|estrategia|señal|signal|setup)\b", normalized, re.I):
             requested = ["sbt_market"]
         elif self.WEATHER_RE.search(message) and (
@@ -458,6 +461,37 @@ class ToolOrchestrator:
             return {"ok": True, "value": value, "expression": message.strip(), "source": "local-calculator", "evidence": f"Local deterministic calculation: {message.strip()} = {rendered}"}
         except Exception as exc:
             return {"ok": False, "error": type(exc).__name__, "source": "local-calculator"}
+
+    async def _sbt_ai_context(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Read the general SBT AI Bot Lab context; no trading execution."""
+        base_url = os.getenv("SBT_MODULE_URL", "https://bitey-system-bots-trading-api.onrender.com").strip().rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                response = await client.get(f"{base_url}/api/v1/ai-bot-lab/context", headers={"Accept": "application/json"})
+            if response.status_code >= 400:
+                return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_ai_context_unavailable", "status_code": response.status_code, "evidence": f"SBT AI Bot Lab returned HTTP {response.status_code}. No active bot was inferred."}
+            payload = response.json()
+            bot = payload.get("bot") or {}
+            connected = bool((payload.get("mt4") or {}).get("connected") or bot.get("connected"))
+            if not connected:
+                return {"ok": True, "available": True, "verified": False, "execution_enabled": False, "source": "sbt_ai_bot_lab", "observed": False, "context": payload, "evidence": "SBT AI Bot Lab is reachable, but no MT4 bot snapshot is currently connected. No active bot, account mode, signal, or optimization result was inferred."}
+            return {
+                "ok": True, "available": True, "verified": True, "evidence_verified": True, "execution_enabled": False,
+                "source": "sbt_ai_bot_lab", "observed": True, "bot": bot,
+                "analysis": payload.get("analysis") or {},
+                "optimization": payload.get("optimization") or {},
+                "activity": payload.get("activity") or [],
+                "context": payload,
+                "evidence": (
+                    "SBT AI Bot Lab verified from MT4 context. "
+                    f"Bot: {bot.get('name') or 'unknown'}; strategy: {bot.get('strategy') or 'unknown'}; "
+                    f"symbol: {bot.get('symbol') or '—'}; timeframe: {bot.get('timeframe') or '—'}; "
+                    f"mode: {bot.get('mode') or 'UNKNOWN'}; regime: {bot.get('regime') or 'UNKNOWN'}. "
+                    "SBT remains read-only for this Bitey IA capability; parameter application is not automatic."
+                ),
+            }
+        except (httpx.HTTPError, ValueError) as exc:
+            return {"ok": False, "available": False, "verified": False, "execution_enabled": False, "reason": "sbt_ai_context_connection_error", "error": type(exc).__name__, "evidence": "Bitey IA could not reach SBT AI Bot Lab. No active bot or optimization state was inferred."}
 
     async def _sbt_turtle(self, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Read the SBT Turtle Controller state without creating trading state."""
