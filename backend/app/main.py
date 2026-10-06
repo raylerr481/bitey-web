@@ -164,11 +164,14 @@ async def capabilities() -> dict:
 class QLearningExperience(BaseModel):
     state_context: dict[str, Any] = Field(default_factory=dict)
     action: str = Field(min_length=1, max_length=120)
-    reward: float = Field(ge=-1.0, le=1.0)
+    reward: float = Field(default=0.0, ge=-1.0, le=1.0)
     next_context: dict[str, Any] = Field(default_factory=dict)
     source: str = Field(default="bitey_ia", max_length=80)
     domain: str = Field(default="general", max_length=80)
     outcome: str = Field(default="UNKNOWN", max_length=40)
+    pnl_usd: float | None = None
+    drawdown_pct: float | None = None
+    risk_used_pct: float | None = None
 
 @app.post("/api/v1/q-learning/experience")
 async def q_learning_experience(payload: QLearningExperience):
@@ -176,7 +179,14 @@ async def q_learning_experience(payload: QLearningExperience):
     ctx["current_intent_domain"] = str(payload.domain or "general").lower()
     ctx["source"] = payload.source
     nxt = dict(payload.next_context or ctx)
-    result = await q_learning.learn(ctx, action=payload.action, reward=payload.reward, next_context=nxt)
+    reward = payload.reward
+    if ctx["current_intent_domain"] == "trading" and payload.pnl_usd is not None:
+        reward = q_learning.trading_reward(
+            pnl_usd=payload.pnl_usd,
+            drawdown_pct=payload.drawdown_pct,
+            risk_used_pct=payload.risk_used_pct,
+        )
+    result = await q_learning.learn(ctx, action=payload.action, reward=reward, next_context=nxt)
     return {"ok": True, "source": payload.source, "domain": ctx["current_intent_domain"],
             "algorithm": q_learning.VERSION, "learning": result,
             "safety_boundary": {"q_learning_can_change_risk": False, "q_learning_can_execute_orders": False}}
