@@ -103,6 +103,11 @@ class BiteyQLearning:
         source = str(context.get("source") or context.get("learning_source") or "bitey").lower()
         domain_context = context.get("domain_context")
         if not isinstance(domain_context, dict):
+            for candidate in ("sbt", "jobia", "research", "workspace", "automation"):
+                if isinstance(context.get(candidate), dict):
+                    domain_context = context[candidate]
+                    break
+        if not isinstance(domain_context, dict):
             domain_context = {}
         safe_context = {
             str(k): str(domain_context[k])[:80]
