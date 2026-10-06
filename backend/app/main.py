@@ -159,6 +159,49 @@ async def cognitive_trace_recent(conversation_id: str | None = None, request_id:
 async def capabilities() -> dict:
     return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","true").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))}, "email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True,"q_learning":q_learning.status}
 
+class SBTQLearningExperience(BaseModel):
+    state_context: dict[str, Any] = Field(default_factory=dict)
+    action: str = Field(min_length=1, max_length=120)
+    reward: float = Field(ge=-1.0, le=1.0)
+    next_context: dict[str, Any] = Field(default_factory=dict)
+    source: str = Field(default="bitey_sbt", max_length=80)
+    outcome: str = Field(default="UNKNOWN", max_length=40)
+    symbol: str = Field(default="", max_length=40)
+    timeframe: str = Field(default="", max_length=20)
+    risk_gate_allowed: bool = True
+    operational_capital_usd: float = Field(default=500.0, ge=0)
+
+@app.post("/api/v1/q-learning/sbt-experience")
+async def q_learning_sbt_experience(payload: SBTQLearningExperience):
+    # SBT can teach the shared Q-policy, but never the safety boundary.
+    ctx = dict(payload.state_context or {})
+    ctx["domain"] = "trading"
+    ctx["sbt"] = {
+        "source": payload.source,
+        "symbol": payload.symbol,
+        "timeframe": payload.timeframe,
+        "risk_gate_allowed": bool(payload.risk_gate_allowed),
+        "operational_capital_usd": min(500.0, float(payload.operational_capital_usd)),
+    }
+    nxt = dict(payload.next_context or ctx)
+    result = await q_learning.learn(ctx, action=payload.action, reward=payload.reward, next_context=nxt)
+    return {
+        "ok": True,
+        "source": "bitey_sbt",
+        "algorithm": q_learning.VERSION,
+        "learning": result,
+        "safety_boundary": {
+            "risk_gate": "SBT authoritative",
+            "operational_capital_usd": 500.0,
+            "q_learning_can_change_risk": False,
+            "q_learning_can_execute_orders": False,
+        },
+    }
+
+@app.get("/api/v1/q-learning/status")
+def q_learning_status():
+    return q_learning.status
+
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
     return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"q_learning":q_learning.status,"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names(),"cognitive_trace":True}
