@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import Any
 
 from .background_worker import process_once
 from .core.context_engine import ContextEngine
