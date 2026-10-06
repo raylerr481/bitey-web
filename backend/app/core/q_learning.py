@@ -32,6 +32,40 @@ class BiteyQLearning:
         self._samples: dict[tuple[str, str], int] = defaultdict(int)
         self._transitions = 0
         self._last: dict[str, dict[str, Any]] = {}
+        self._hydrated = False
+
+    async def hydrate(self) -> dict[str, Any]:
+        """Load persisted Q-values once so learning survives API restarts."""
+        if self._hydrated:
+            return {"hydrated": True, "loaded": 0}
+        self._hydrated = True
+        if not self.persistent:
+            return {"hydrated": True, "loaded": 0, "persistent": False}
+        headers = {"apikey": self.key, "Authorization": "Bearer " + self.key}
+        loaded = 0
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                response = await client.get(
+                    f"{self.url}/rest/v1/cognitive_learning_candidates",
+                    headers=headers,
+                    params={"candidate_type": "eq.q_learning_policy", "select": "payload", "limit": "5000"},
+                )
+                response.raise_for_status()
+                rows = response.json()
+            for row in rows if isinstance(rows, list) else []:
+                payload = row.get("payload") if isinstance(row, dict) else None
+                if not isinstance(payload, dict):
+                    continue
+                state = str(payload.get("state") or "")
+                action = str(payload.get("action") or "")
+                if not state or not action:
+                    continue
+                self._q.setdefault(state, {})[action] = float(payload.get("q_value") or 0.0)
+                self._samples[(state, action)] = max(self._samples[(state, action)], int(payload.get("samples") or 0))
+                loaded += 1
+            return {"hydrated": True, "loaded": loaded, "persistent": True}
+        except Exception:
+            return {"hydrated": True, "loaded": 0, "persistent": True, "error": "persistence_read_failed"}
 
     @property
     def persistent(self) -> bool:
@@ -80,6 +114,10 @@ class BiteyQLearning:
     def _scores(self, state: str, actions: list[str]) -> dict[str, float]:
         return {action: float(self._q.get(state, {}).get(action, 0.0)) for action in actions}
 
+    async def choose_async(self, context: dict[str, Any], selected: list[str]) -> dict[str, Any]:
+        await self.hydrate()
+        return self.choose(context, selected)
+
     def choose(self, context: dict[str, Any], selected: list[str]) -> dict[str, Any]:
         if not self.enabled:
             return {"enabled": False, "selected": list(selected), "action": (selected or [self.DEFAULT_ACTION])[0]}
@@ -123,6 +161,7 @@ class BiteyQLearning:
         if not self.enabled:
             return {"enabled": False}
 
+        await self.hydrate()
         state = self._state(context)
         next_state = self._state(next_context or context)
         clean_reward = max(-1.0, min(1.0, float(reward)))
