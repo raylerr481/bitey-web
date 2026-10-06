@@ -206,9 +206,26 @@ async def q_learning_sbt_experience(payload: SBTQLearningExperience):
                   "risk_gate_allowed": bool(payload.risk_gate_allowed),
                   "operational_capital_usd": min(500.0, float(payload.operational_capital_usd))}
     nxt = dict(payload.next_context or ctx)
-    result = await q_learning.learn(ctx, action=payload.action, reward=payload.reward, next_context=nxt)
+
+    # Backward-compatible SBT endpoint: when authoritative closed-trade PnL
+    # is supplied, derive the learning reward from the real result. The
+    # caller's legacy reward field is retained for compatibility but must not
+    # override authoritative PnL. Risk/drawdown penalties apply only when the
+    # trading system actually supplies those measurements.
+    reward = payload.reward
+    if payload.pnl_usd is not None:
+        reward = q_learning.trading_reward(
+            pnl_usd=payload.pnl_usd,
+            drawdown_pct=payload.drawdown_pct,
+            risk_used_pct=payload.risk_used_pct,
+        )
+
+    result = await q_learning.learn(ctx, action=payload.action, reward=reward, next_context=nxt)
     return {"ok": True, "source": "bitey_sbt", "algorithm": q_learning.VERSION,
             "learning": result,
+            "reward_source": "pnl_usd" if payload.pnl_usd is not None else "explicit_reward",
+            "pnl_usd": payload.pnl_usd,
+            "reward_used": reward,
             "safety_boundary": {"risk_gate": "SBT authoritative", "operational_capital_usd": 500.0,
                                 "q_learning_can_change_risk": False, "q_learning_can_execute_orders": False}}
 
