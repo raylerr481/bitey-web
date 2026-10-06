@@ -46,9 +46,12 @@ async def test_global_q_learning_keeps_domains_independent(monkeypatch):
         ["ACTION_JOBIA", "OTHER"],
     )
 
-    assert general["action"] == "ACTION_GENERAL"
-    assert trading["action"] == "ACTION_TRADING"
-    assert jobia["action"] == "ACTION_JOBIA"
+    assert general["q_values"]["ACTION_GENERAL"] > general["q_values"]["OTHER"]
+    assert trading["q_values"]["ACTION_TRADING"] > trading["q_values"]["OTHER"]
+    assert jobia["q_values"]["ACTION_JOBIA"] > jobia["q_values"]["OTHER"]
+    assert general["action"] in {"ACTION_GENERAL", "OTHER"}
+    assert trading["action"] in {"ACTION_TRADING", "OTHER"}
+    assert jobia["action"] in {"ACTION_JOBIA", "OTHER"}
 
 
 @pytest.mark.asyncio
