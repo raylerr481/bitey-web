@@ -74,3 +74,14 @@ async def test_global_q_learning_preserves_sbt_safety_boundary():
     decision = q.choose(ctx, ["ENSEMBLE", "HOLD"])
     assert decision["action"] in {"ENSEMBLE", "HOLD"}
     assert decision["action"] != "NEW_UNAUTHORIZED_ACTION"
+
+
+def test_trading_reward_prefers_profit_and_penalizes_excess_risk():
+    q = BiteyQLearning()
+    low_risk_win = q.trading_reward(pnl_usd=25.0, drawdown_pct=1.0, risk_used_pct=0.25)
+    high_risk_same_win = q.trading_reward(pnl_usd=25.0, drawdown_pct=1.0, risk_used_pct=2.0)
+    loss = q.trading_reward(pnl_usd=-25.0, drawdown_pct=3.0, risk_used_pct=0.25)
+
+    assert 0.0 < low_risk_win <= 1.0
+    assert high_risk_same_win < low_risk_win
+    assert loss < 0.0
