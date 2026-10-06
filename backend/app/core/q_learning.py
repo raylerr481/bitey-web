@@ -136,6 +136,31 @@ class BiteyQLearning:
     def normalize_reward(self, reward: float) -> float:
         return max(-1.0, min(1.0, float(reward)))
 
+    def trading_reward(
+        self,
+        *,
+        pnl_usd: float,
+        drawdown_pct: float | None = None,
+        risk_used_pct: float | None = None,
+    ) -> float:
+        """Convert a trading outcome into a bounded reward without martingale incentives.
+
+        Profit contributes positively, while drawdown and excessive risk reduce the reward.
+        The reward is bounded so Q-learning cannot turn a single large win into unlimited
+        preference for larger risk.
+        """
+        pnl = float(pnl_usd)
+        # Smooth PnL contribution: approximately +/-1 around +/-$50, then saturates.
+        pnl_component = math.tanh(pnl / 50.0)
+        penalty = 0.0
+        if drawdown_pct is not None:
+            penalty += max(0.0, float(drawdown_pct) / 10.0)
+        if risk_used_pct is not None:
+            # Risk above 0.50% is increasingly penalized; this does not authorize
+            # changing the configured Risk Gate.
+            penalty += max(0.0, (float(risk_used_pct) - 0.50) / 1.50)
+        return self.normalize_reward(pnl_component - penalty)
+
     def reward_from_outcome(self, *, success: bool | None = None, quality: float | None = None,
                             user_feedback: float | None = None, evidence_quality: float | None = None,
                             tool_success: bool | None = None, penalty: float = 0.0) -> float:
