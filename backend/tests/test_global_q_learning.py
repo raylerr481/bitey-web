@@ -127,3 +127,48 @@ async def test_sbt_compatibility_endpoint_derives_reward_from_authoritative_pnl(
     assert result["reward_used"] == 0.53
     assert result["learning"]["reward"] == 0.53
 
+
+
+@pytest.mark.asyncio
+async def test_learning_reports_persistence_outcome(monkeypatch):
+    q = BiteyQLearning()
+    q.url = "https://example.supabase.co"
+    q.key = "test-key"
+
+    async def fake_persist(state, action, q_value, reward):
+        return {"status": "persisted", "operation": "insert", "title": "test-policy"}
+
+    monkeypatch.setattr(q, "_persist", fake_persist)
+
+    result = await q.learn(
+        {"current_intent_domain": "general", "domain_context": {"task_type": "answer"}},
+        action="DIRECT_ANSWER",
+        reward=0.5,
+    )
+
+    assert result["persistent"] is True
+    assert result["persistence"]["status"] == "persisted"
+    assert result["persistence"]["operation"] == "insert"
+
+
+@pytest.mark.asyncio
+async def test_learning_reports_persistence_failure_without_breaking_learning(monkeypatch):
+    q = BiteyQLearning()
+    q.url = "https://example.supabase.co"
+    q.key = "test-key"
+
+    async def fake_persist(state, action, q_value, reward):
+        return {"status": "error", "operation": "supabase", "error": "HTTPStatusError"}
+
+    monkeypatch.setattr(q, "_persist", fake_persist)
+
+    result = await q.learn(
+        {"current_intent_domain": "trading", "domain_context": {"symbol": "EURUSD"}},
+        action="HOLD",
+        reward=-0.2,
+    )
+
+    assert result["enabled"] is True
+    assert result["reward"] == -0.2
+    assert result["persistence"]["status"] == "error"
+    assert result["persistence"]["error"] == "HTTPStatusError"
