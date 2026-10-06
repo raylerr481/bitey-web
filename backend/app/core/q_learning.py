@@ -270,7 +270,7 @@ class BiteyQLearning:
             "apikey": self.key,
             "Authorization": f"Bearer {self.key}",
             "Content-Type": "application/json",
-            "Prefer": "return=minimal",
+            "Prefer": "return=representation",
         }
         try:
             title = row["title"]
@@ -286,7 +286,8 @@ class BiteyQLearning:
                     json=row,
                 )
                 update.raise_for_status()
-                if update.status_code == 204:
+                updated_rows = update.json() if update.content else []
+                if isinstance(updated_rows, list) and updated_rows:
                     return
                 # If no matching row existed, create the policy row.
                 created = await client.post(
