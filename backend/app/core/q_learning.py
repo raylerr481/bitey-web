@@ -273,12 +273,28 @@ class BiteyQLearning:
             "Prefer": "return=minimal",
         }
         try:
+            title = row["title"]
             async with httpx.AsyncClient(timeout=8) as client:
-                await client.post(
+                params = {
+                    "candidate_type": "eq.q_learning_policy",
+                    "title": f"eq.{title}",
+                }
+                update = await client.patch(
+                    f"{self.url}/rest/v1/cognitive_learning_candidates",
+                    headers=headers,
+                    params=params,
+                    json=row,
+                )
+                update.raise_for_status()
+                if update.status_code == 204:
+                    return
+                # If no matching row existed, create the policy row.
+                created = await client.post(
                     f"{self.url}/rest/v1/cognitive_learning_candidates",
                     headers=headers,
                     json=row,
                 )
+                created.raise_for_status()
         except Exception:
             # Learning must never make a user request fail.
             pass
