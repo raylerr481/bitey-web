@@ -93,3 +93,37 @@ def test_trading_reward_uses_real_pnl_when_no_risk_telemetry():
     q = BiteyQLearning()
     assert q.trading_reward(pnl_usd=26.50) == q.normalize_reward(26.50 / 50.0)
     assert q.trading_reward(pnl_usd=-26.50) < 0.0
+
+@pytest.mark.asyncio
+async def test_sbt_compatibility_endpoint_derives_reward_from_authoritative_pnl(monkeypatch):
+    from app import main
+
+    captured = {}
+
+    async def fake_learn(ctx, *, action, reward, next_context=None):
+        captured["reward"] = reward
+        captured["action"] = action
+        return {"action": action, "reward": reward}
+
+    monkeypatch.setattr(main.q_learning, "learn", fake_learn)
+
+    payload = main.SBTQLearningExperience(
+        state_context={"symbol": "EURUSD", "timeframe": "H1"},
+        action="TREND_PULLBACK",
+        reward=0.0,
+        source="bitey_sbt",
+        pnl_usd=26.50,
+        symbol="EURUSD",
+        timeframe="H1",
+        operational_capital_usd=500.0,
+        risk_gate_allowed=True,
+    )
+
+    result = await main.q_learning_sbt_experience(payload)
+
+    assert captured["reward"] == 0.53
+    assert result["reward_source"] == "pnl_usd"
+    assert result["pnl_usd"] == 26.50
+    assert result["reward_used"] == 0.53
+    assert result["learning"]["reward"] == 0.53
+
