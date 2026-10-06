@@ -161,13 +161,27 @@ async def cognitive_trace_recent(conversation_id: str | None = None, request_id:
 async def capabilities() -> dict:
     return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","true").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))}, "email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True,"q_learning":q_learning.status}
 
-class SBTQLearningExperience(BaseModel):
+class QLearningExperience(BaseModel):
     state_context: dict[str, Any] = Field(default_factory=dict)
     action: str = Field(min_length=1, max_length=120)
     reward: float = Field(ge=-1.0, le=1.0)
     next_context: dict[str, Any] = Field(default_factory=dict)
-    source: str = Field(default="bitey_sbt", max_length=80)
+    source: str = Field(default="bitey_ia", max_length=80)
+    domain: str = Field(default="general", max_length=80)
     outcome: str = Field(default="UNKNOWN", max_length=40)
+
+@app.post("/api/v1/q-learning/experience")
+async def q_learning_experience(payload: QLearningExperience):
+    ctx = dict(payload.state_context or {})
+    ctx["current_intent_domain"] = str(payload.domain or "general").lower()
+    ctx["source"] = payload.source
+    nxt = dict(payload.next_context or ctx)
+    result = await q_learning.learn(ctx, action=payload.action, reward=payload.reward, next_context=nxt)
+    return {"ok": True, "source": payload.source, "domain": ctx["current_intent_domain"],
+            "algorithm": q_learning.VERSION, "learning": result,
+            "safety_boundary": {"q_learning_can_change_risk": False, "q_learning_can_execute_orders": False}}
+
+class SBTQLearningExperience(QLearningExperience):
     symbol: str = Field(default="", max_length=40)
     timeframe: str = Field(default="", max_length=20)
     risk_gate_allowed: bool = True
@@ -175,30 +189,18 @@ class SBTQLearningExperience(BaseModel):
 
 @app.post("/api/v1/q-learning/sbt-experience")
 async def q_learning_sbt_experience(payload: SBTQLearningExperience):
-    # SBT can teach the shared Q-policy, but never the safety boundary.
     ctx = dict(payload.state_context or {})
-    ctx["domain"] = "trading"
-    ctx["sbt"] = {
-        "source": payload.source,
-        "symbol": payload.symbol,
-        "timeframe": payload.timeframe,
-        "risk_gate_allowed": bool(payload.risk_gate_allowed),
-        "operational_capital_usd": min(500.0, float(payload.operational_capital_usd)),
-    }
+    ctx["current_intent_domain"] = "trading"
+    ctx["source"] = payload.source
+    ctx["sbt"] = {"symbol": payload.symbol, "timeframe": payload.timeframe,
+                  "risk_gate_allowed": bool(payload.risk_gate_allowed),
+                  "operational_capital_usd": min(500.0, float(payload.operational_capital_usd))}
     nxt = dict(payload.next_context or ctx)
     result = await q_learning.learn(ctx, action=payload.action, reward=payload.reward, next_context=nxt)
-    return {
-        "ok": True,
-        "source": "bitey_sbt",
-        "algorithm": q_learning.VERSION,
-        "learning": result,
-        "safety_boundary": {
-            "risk_gate": "SBT authoritative",
-            "operational_capital_usd": 500.0,
-            "q_learning_can_change_risk": False,
-            "q_learning_can_execute_orders": False,
-        },
-    }
+    return {"ok": True, "source": "bitey_sbt", "algorithm": q_learning.VERSION,
+            "learning": result,
+            "safety_boundary": {"risk_gate": "SBT authoritative", "operational_capital_usd": 500.0,
+                                "q_learning_can_change_risk": False, "q_learning_can_execute_orders": False}}
 
 @app.get("/api/v1/q-learning/status")
 async def q_learning_status():
@@ -208,37 +210,26 @@ async def q_learning_status():
 class QLearningRecommendation(BaseModel):
     state_context: dict[str, Any] = Field(default_factory=dict)
     allowed_actions: list[str] = Field(default_factory=list, max_length=32)
-    source: str = Field(default="bitey_sbt", max_length=80)
-    symbol: str = Field(default="", max_length=40)
-    timeframe: str = Field(default="", max_length=20)
+    source: str = Field(default="bitey_ia", max_length=80)
+    domain: str = Field(default="general", max_length=80)
     risk_gate_allowed: bool = True
     operational_capital_usd: float = Field(default=500.0, ge=0)
 
 @app.post("/api/v1/q-learning/recommendation")
 async def q_learning_recommendation(payload: QLearningRecommendation):
     ctx = dict(payload.state_context or {})
-    ctx["current_intent_domain"] = "trading"
-    ctx["sbt"] = {
-        "source": payload.source,
-        "symbol": payload.symbol,
-        "timeframe": payload.timeframe,
-        "risk_gate_allowed": bool(payload.risk_gate_allowed),
-        "operational_capital_usd": min(500.0, float(payload.operational_capital_usd)),
-    }
+    ctx["current_intent_domain"] = str(payload.domain or "general").lower()
+    ctx["source"] = payload.source
+    if ctx["current_intent_domain"] == "trading":
+        ctx["sbt"] = {"risk_gate_allowed": bool(payload.risk_gate_allowed),
+                      "operational_capital_usd": min(500.0, float(payload.operational_capital_usd))}
     allowed = [str(x) for x in payload.allowed_actions if str(x)]
     decision = await q_learning.choose_async(ctx, allowed)
-    return {
-        "ok": True,
-        "source": "bitey_ia",
-        "algorithm": q_learning.VERSION,
-        "recommendation": decision,
-        "safety_boundary": {
-            "risk_gate": "SBT authoritative",
-            "operational_capital_usd": 500.0,
-            "q_learning_can_change_risk": False,
-            "q_learning_can_execute_orders": False,
-        },
-    }
+    return {"ok": True, "source": "bitey_ia", "domain": ctx["current_intent_domain"],
+            "algorithm": q_learning.VERSION, "recommendation": decision,
+            "safety_boundary": {"risk_gate": "SBT authoritative" if ctx["current_intent_domain"] == "trading" else "executive policy",
+                                "operational_capital_usd": 500.0 if ctx["current_intent_domain"] == "trading" else None,
+                                "q_learning_can_change_risk": False, "q_learning_can_execute_orders": False}}
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
