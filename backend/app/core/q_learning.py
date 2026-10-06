@@ -206,7 +206,8 @@ class BiteyQLearning:
         await self.hydrate()
         state = self._state(context)
         next_state = self._state(next_context or context)
-        action = str(action or self.DEFAULT_ACTION)\n        clean_reward = self.normalize_reward(reward)
+        action = str(action or self.DEFAULT_ACTION)
+        clean_reward = self.normalize_reward(reward)
         current = float(self._q.setdefault(state, {}).get(action, 0.0))
         next_actions = list(self._q.get(next_state, {}).values())
         next_best = max(next_actions) if next_actions else 0.0
