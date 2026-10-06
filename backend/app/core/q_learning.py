@@ -150,14 +150,21 @@ class BiteyQLearning:
         preference for larger risk.
         """
         pnl = float(pnl_usd)
-        # Smooth PnL contribution: approximately +/-1 around +/-$50, then saturates.
-        pnl_component = math.tanh(pnl / 50.0)
+        # The reward must represent the real closed-trade result. PnL is the
+        # primary signal; drawdown/risk only apply when those measurements were
+        # actually supplied by the trading system. Never invent them.
+        if drawdown_pct is None and risk_used_pct is None:
+            # Preserve the sign and relative magnitude of the real PnL while
+            # bounding the learning signal. This is not a martingale/recovery reward.
+            return self.normalize_reward(pnl / 50.0)
+
+        # When authoritative risk telemetry is available, penalize only measured
+        # excess risk/drawdown. This never changes Risk Gate settings.
+        pnl_component = pnl / 50.0
         penalty = 0.0
         if drawdown_pct is not None:
             penalty += max(0.0, float(drawdown_pct) / 10.0)
         if risk_used_pct is not None:
-            # Risk above 0.50% is increasingly penalized; this does not authorize
-            # changing the configured Risk Gate.
             penalty += max(0.0, (float(risk_used_pct) - 0.50) / 1.50)
         return self.normalize_reward(pnl_component - penalty)
 
