@@ -88,3 +88,8 @@ def test_trading_reward_prefers_profit_and_penalizes_excess_risk():
     assert 0.0 < low_risk_win <= 1.0
     assert high_risk_same_win < low_risk_win
     assert loss < 0.0
+
+def test_trading_reward_uses_real_pnl_when_no_risk_telemetry():
+    q = BiteyQLearning()
+    assert q.trading_reward(pnl_usd=26.50) == q.normalize_reward(26.50 / 50.0)
+    assert q.trading_reward(pnl_usd=-26.50) < 0.0
