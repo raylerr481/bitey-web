@@ -20,6 +20,7 @@ from .core.evaluation_engine import EvaluationEngine
 from .core.module_registry import ModuleRegistry, ModuleSpec
 from .core.deep_research import DeepResearchEngine
 from .core.learning import LearningEngine
+from .core.q_learning import BiteyQLearning
 from .core.memory import MemoryStore
 from .core.provider_gateway import ProviderGateway
 from .core.research_engine import ResearchEngine
@@ -51,7 +52,7 @@ app = FastAPI(title="Bitey IA — Cognitive Core", version="0.15.0", description
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 app.include_router(workspace_router)
 
-context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_trace = CognitiveTraceStore(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); tools = ToolOrchestrator(); modules = ModuleRegistry()
+context_engine = ContextEngine(); cognition = CognitiveModel(); brain = BiteyBrain(); cognitive_trace = CognitiveTraceStore(); cognitive_memory = CognitiveMemoryAdapter(); evaluator = EvaluationEngine(); research_engine = ResearchEngine(); deep_research = DeepResearchEngine(); memory = MemoryStore(); vector_memory = QdrantVectorMemory(); providers = ProviderGateway(); workspace = WorkspaceStore(); learning = LearningEngine(); q_learning = BiteyQLearning(); tools = ToolOrchestrator(); modules = ModuleRegistry()
 
 chat_v2_router = create_chat_v2_router(memory, providers, tools, brain, cognition, cognitive_trace=cognitive_trace, evaluator=evaluator, learning=learning)
 app.include_router(chat_v2_router)
@@ -142,7 +143,7 @@ tools.register(ToolSpec("code_reasoning", "Analiza código sin ejecutar código 
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status":"ok","system":"bitey-ia-cognitive-core","scope":"general_ai","version":"0.16.0","supabase_persistence":memory.persistent,"cognitive_memory_persistence":cognitive_memory.persistent,"vector_memory":await vector_memory.health(),"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"background_cognitive_engine":True,"deep_research":True,"general_search":"duckduckgo","tool_orchestration":True,"cognitive_model":True,"bitey_brain":brain.status(),"response_evaluator":True,"module_registry":True,"registered_modules":modules.names(),"ollama": "ollama-local" in providers.available(),"cognitive_trace":True}
+    return {"status":"ok","system":"bitey-ia-cognitive-core","scope":"general_ai","version":"0.16.0","supabase_persistence":memory.persistent,"cognitive_memory_persistence":cognitive_memory.persistent,"vector_memory":await vector_memory.health(),"workspace_persistence":workspace.persistent,"learning_persistence":learning.persistent,"q_learning":q_learning.status,"background_cognitive_engine":True,"deep_research":True,"general_search":"duckduckgo","tool_orchestration":True,"cognitive_model":True,"bitey_brain":brain.status(),"response_evaluator":True,"module_registry":True,"registered_modules":modules.names(),"ollama": "ollama-local" in providers.available(),"cognitive_trace":True}
 
 @app.get("/api/v1/cognitive/traces/{trace_id}")
 async def cognitive_trace_detail(trace_id: str) -> dict:
@@ -156,11 +157,11 @@ async def cognitive_trace_recent(conversation_id: str | None = None, request_id:
 
 @app.get("/api/v1/capabilities")
 async def capabilities() -> dict:
-    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","true").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))}, "email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True}
+    return {"conversation":True,"dynamic_context":True,"memory":True,"persistent_memory":memory.persistent,"cognitive_memory":True,"cognitive_memory_persistence":cognitive_memory.persistent,"semantic_vector_memory":vector_memory.configured,"projects":True,"project_files_metadata":True,"web_research":True,"deep_research":True,"web_search":True,"web_search_provider":"duckduckgo","web_url_fetch":True,"feedback":True,"guarded_incremental_learning":learning.persistent,"background_cognitive_engine":True,"provider_orchestration":True,"tool_orchestration":True,"agent_orchestration":True,"cognitive_model":True,"bitey_brain":True,"response_evaluator":True,"evidence_engine":True,"hypothesis_engine":True,"provenance":True,"context_selection":True,"context_budgeting":True,"evaluator_decisions":["accept","revise","reject"],"cognitive_stages":["perception","intention","context","memory","planning","evidence","hypothesis","reasoning","risk","decision","generation","evaluation","memory_learning"],"tools":tools.available(),"cost_mode":"free_only","providers":providers.available(),"modules":modules.available(),"module_registry":True,"free_registry":{"enabled":bool(os.getenv("OPENROUTER_API_KEY")) and os.getenv("OPENROUTER_ENABLED","true").lower() != "false","refresh_seconds":max(30,int(os.getenv("OPENROUTER_CATALOG_REFRESH_SECONDS","900")))}, "email_notifications":bool(os.getenv('RESEND_API_KEY')),"cognitive_trace":True,"q_learning":q_learning.status}
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
-    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names(),"cognitive_trace":True}
+    return {"architecture":"bitey-independent-cognitive-core","architecture_version":"1.5.0","executive_brain":brain.status(),"q_learning":q_learning.status,"native_model_enabled":os.getenv("BITEY_NATIVE_MODEL_ENABLED","true").lower()=="true","evaluator_enabled":True,"memory_adapter_configured":cognitive_memory.persistent,"learning_persistence":learning.persistent,"provider_mode":"free_only","council_mode":"local_first_provider_failover","search":{"provider":"duckduckgo","general":True,"specialized_weather":"open-meteo"},"reasoning_layers":{"evidence":True,"hypotheses":True,"provenance":True,"candidate_comparison":True,"context_budgeting":True},"memory_organs":{"supabase":memory.persistent,"qdrant":vector_memory.configured},"live_trading_enabled":False,"news_auto_execution":False,"modules":modules.names(),"cognitive_trace":True}
 
 @app.get("/api/v1/cognitive/brain")
 async def cognitive_brain() -> dict: return brain.status()
@@ -275,7 +276,16 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         selected=list(initial_brain.tool_priority)
         if not selected:
             selected=tools.select(payload.message,ctx)
-        trace.tools={"selected":list(selected)}
+        # Free tabular Q-learning learns routing preferences without replacing
+        # the executive brain. It may only reorder tools already authorized by
+        # the current cognitive policy.
+        q_decision=q_learning.choose(ctx, selected)
+        ctx["q_learning"]=q_decision
+        if q_decision.get("action") in selected:
+            preferred=str(q_decision["action"])
+            selected=[preferred]+[name for name in selected if name != preferred]
+            emit_activity(f"Q-learning: priorizando {preferred}…")
+        trace.tools={"selected":list(selected),"q_learning":q_decision}
         if selected:
             emit_activity("Consultando las herramientas seleccionadas…")
         tool_results=await tools.execute(selected,message=payload.message,context=ctx)
@@ -469,7 +479,22 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             except Exception:
                 pass
         trace.provider={"available":providers.available(),"selected":provider_context.get("provider_selected"),"model_role":brain_state.model_role,"executive_evaluation":provider_context.get("executive_evaluation"),"revision_attempted":bool(provider_context.get("executive_revision_attempted",False))}
-        evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence,conflict_detected=conflict_detected); ctx["evaluation"]=evaluation.as_dict(); trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
+        evaluation=evaluator.evaluate(user_message=payload.message,answer=answer,context=ctx,evidence=evidence,conflict_detected=conflict_detected); ctx["evaluation"]=evaluation.as_dict()
+        try:
+            q_action=str(q_decision.get("action") or (selected[0] if selected else "DIRECT_ANSWER"))
+            q_reward=q_learning.reward_from_evaluation(
+                evaluation.as_dict(),
+                evidence=bool(evidence),
+                tool_success=bool(selected and any(
+                    isinstance(tool_results.get(name),dict) and tool_results.get(name,{}).get("ok")
+                    for name in selected
+                )),
+            )
+            q_update=await q_learning.learn(ctx, action=q_action, reward=q_reward)
+            ctx["q_learning_update"]=q_update
+            emit_activity(f"Q-learning: recompensa {q_reward:+.2f}…")
+        except Exception:
+            pass trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
         if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
         elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
         await memory.append(conversation_id,{"role":"assistant","content":answer})
