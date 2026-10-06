@@ -494,7 +494,8 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             ctx["q_learning_update"]=q_update
             emit_activity(f"Q-learning: recompensa {q_reward:+.2f}…")
         except Exception:
-            pass trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
+            pass
+        trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
         if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
         elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
         await memory.append(conversation_id,{"role":"assistant","content":answer})
