@@ -201,8 +201,44 @@ async def q_learning_sbt_experience(payload: SBTQLearningExperience):
     }
 
 @app.get("/api/v1/q-learning/status")
-def q_learning_status():
-    return q_learning.status
+async def q_learning_status():
+    hydration = await q_learning.hydrate()
+    return {**q_learning.status, "hydration": hydration}
+
+class QLearningRecommendation(BaseModel):
+    state_context: dict[str, Any] = Field(default_factory=dict)
+    allowed_actions: list[str] = Field(default_factory=list, max_length=32)
+    source: str = Field(default="bitey_sbt", max_length=80)
+    symbol: str = Field(default="", max_length=40)
+    timeframe: str = Field(default="", max_length=20)
+    risk_gate_allowed: bool = True
+    operational_capital_usd: float = Field(default=500.0, ge=0)
+
+@app.post("/api/v1/q-learning/recommendation")
+async def q_learning_recommendation(payload: QLearningRecommendation):
+    ctx = dict(payload.state_context or {})
+    ctx["current_intent_domain"] = "trading"
+    ctx["sbt"] = {
+        "source": payload.source,
+        "symbol": payload.symbol,
+        "timeframe": payload.timeframe,
+        "risk_gate_allowed": bool(payload.risk_gate_allowed),
+        "operational_capital_usd": min(500.0, float(payload.operational_capital_usd)),
+    }
+    allowed = [str(x) for x in payload.allowed_actions if str(x)]
+    decision = await q_learning.choose_async(ctx, allowed)
+    return {
+        "ok": True,
+        "source": "bitey_ia",
+        "algorithm": q_learning.VERSION,
+        "recommendation": decision,
+        "safety_boundary": {
+            "risk_gate": "SBT authoritative",
+            "operational_capital_usd": 500.0,
+            "q_learning_can_change_risk": False,
+            "q_learning_can_execute_orders": False,
+        },
+    }
 
 @app.get("/api/v1/cognitive/status")
 async def cognitive_status() -> dict:
@@ -324,7 +360,7 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
         # Free tabular Q-learning learns routing preferences without replacing
         # the executive brain. It may only reorder tools already authorized by
         # the current cognitive policy.
-        q_decision=q_learning.choose(ctx, selected)
+        q_decision=await q_learning.choose_async(ctx, selected)
         ctx["q_learning"]=q_decision
         if q_decision.get("action") in selected:
             preferred=str(q_decision["action"])
