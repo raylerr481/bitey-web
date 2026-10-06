@@ -18,7 +18,7 @@ class BiteyQLearning:
     Without Supabase it still works in-process at zero cost.
     """
 
-    VERSION = "q-routing-v1"
+    VERSION = "q-routing-v2-global"
     DEFAULT_ACTION = "DIRECT_ANSWER"
 
     def __init__(self) -> None:
@@ -99,17 +99,54 @@ class BiteyQLearning:
         prior = context.get("previous_execution_state")
         prior_ok = "1" if isinstance(prior, dict) and prior.get("success") else "0"
         tools = context.get("selected_tools") or []
-        tool_sig = ",".join(sorted(str(x) for x in tools)[:6])
-        raw = "|".join((domain, evidence, fresh, continuity, prior_ok, tool_sig))
+        tool_sig = ",".join(sorted(str(x) for x in tools)[:8])
+        source = str(context.get("source") or context.get("learning_source") or "bitey").lower()
+        domain_context = context.get("domain_context")
+        if not isinstance(domain_context, dict):
+            domain_context = {}
+        safe_context = {
+            str(k): str(domain_context[k])[:80]
+            for k in sorted(domain_context)
+            if str(k) in {
+                "task_type", "task_mode", "symbol", "timeframe", "strategy",
+                "regime", "signal", "tool_class", "provider_class",
+                "workflow", "job_type", "research_type"
+            }
+        }
+        context_sig = hashlib.sha1(
+            repr(sorted(safe_context.items())).encode("utf-8")
+        ).hexdigest()[:10] if safe_context else "none"
+        raw = "|".join((domain, source, evidence, fresh, continuity, prior_ok, tool_sig, context_sig))
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
 
     def _allowed(self, selected: list[str], context: dict[str, Any]) -> list[str]:
         allowed = [str(x) for x in selected if str(x)]
         if not allowed:
             allowed = [self.DEFAULT_ACTION]
-        # Q-learning may only choose among the executive brain's current
-        # candidates. This prevents a learned policy from inventing tools.
         return list(dict.fromkeys(allowed))
+
+    def state_for(self, context: dict[str, Any]) -> str:
+        return self._state(context)
+
+    def normalize_reward(self, reward: float) -> float:
+        return max(-1.0, min(1.0, float(reward)))
+
+    def reward_from_outcome(self, *, success: bool | None = None, quality: float | None = None,
+                            user_feedback: float | None = None, evidence_quality: float | None = None,
+                            tool_success: bool | None = None, penalty: float = 0.0) -> float:
+        parts: list[float] = []
+        if success is not None:
+            parts.append(1.0 if success else -1.0)
+        if quality is not None:
+            parts.append(self.normalize_reward(quality))
+        if user_feedback is not None:
+            parts.append(self.normalize_reward(user_feedback))
+        if evidence_quality is not None:
+            parts.append(self.normalize_reward(evidence_quality))
+        if tool_success is not None:
+            parts.append(0.5 if tool_success else -0.5)
+        reward = sum(parts) / len(parts) if parts else 0.0
+        return self.normalize_reward(reward - float(penalty))
 
     def _scores(self, state: str, actions: list[str]) -> dict[str, float]:
         return {action: float(self._q.get(state, {}).get(action, 0.0)) for action in actions}
@@ -164,7 +201,7 @@ class BiteyQLearning:
         await self.hydrate()
         state = self._state(context)
         next_state = self._state(next_context or context)
-        clean_reward = max(-1.0, min(1.0, float(reward)))
+        action = str(action or self.DEFAULT_ACTION)\n        clean_reward = self.normalize_reward(reward)
         current = float(self._q.setdefault(state, {}).get(action, 0.0))
         next_actions = list(self._q.get(next_state, {}).values())
         next_best = max(next_actions) if next_actions else 0.0
@@ -177,12 +214,16 @@ class BiteyQLearning:
             await self._persist(state, action, updated, clean_reward)
 
         return {
+            "enabled": True,
+            "algorithm": self.VERSION,
             "state": state,
             "next_state": next_state,
             "action": action,
             "reward": clean_reward,
             "q_value": round(updated, 6),
             "samples": self._samples[(state, action)],
+            "persistent": self.persistent,
+            "safety": "advisory_only",
         }
 
     def reward_from_evaluation(self, evaluation: dict[str, Any] | None, *, evidence: bool, tool_success: bool) -> float:
