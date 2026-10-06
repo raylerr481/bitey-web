@@ -248,8 +248,9 @@ class BiteyQLearning:
         self._samples[(state, action)] += 1
         self._transitions += 1
 
+        persistence = {"status": "skipped", "reason": "supabase_not_configured"}
         if self.persistent:
-            await self._persist(state, action, updated, clean_reward)
+            persistence = await self._persist(state, action, updated, clean_reward)
 
         return {
             "enabled": True,
@@ -261,6 +262,7 @@ class BiteyQLearning:
             "q_value": round(updated, 6),
             "samples": self._samples[(state, action)],
             "persistent": self.persistent,
+            "persistence": persistence,
             "safety": "advisory_only",
         }
 
@@ -281,7 +283,13 @@ class BiteyQLearning:
             reward += 0.10
         return max(-1.0, min(1.0, reward))
 
-    async def _persist(self, state: str, action: str, q_value: float, reward: float) -> None:
+    async def _persist(self, state: str, action: str, q_value: float, reward: float) -> dict[str, Any]:
+        """Persist one policy row and return a safe, observable outcome.
+
+        Persistence failures are deliberately non-fatal to user requests, but they
+        are no longer silent: callers can distinguish persisted, skipped, and
+        failed persistence without exposing credentials or response bodies.
+        """
         row = {
             "candidate_type": "q_learning_policy",
             "title": f"{self.VERSION}:{state}:{action}",
@@ -320,14 +328,19 @@ class BiteyQLearning:
                 update.raise_for_status()
                 updated_rows = update.json() if update.content else []
                 if isinstance(updated_rows, list) and updated_rows:
-                    return
-                # If no matching row existed, create the policy row.
+                    return {"status": "persisted", "operation": "update", "title": title}
                 created = await client.post(
                     f"{self.url}/rest/v1/cognitive_learning_candidates",
                     headers=headers,
                     json=row,
                 )
                 created.raise_for_status()
-        except Exception:
-            # Learning must never make a user request fail.
-            pass
+                return {"status": "persisted", "operation": "insert", "title": title}
+        except Exception as exc:
+            # Learning must never make a user request fail, but observability must
+            # tell the caller that the durable write did not succeed.
+            return {
+                "status": "error",
+                "operation": "supabase",
+                "error": exc.__class__.__name__,
+            }
