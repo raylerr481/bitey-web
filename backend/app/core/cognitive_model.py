@@ -26,7 +26,7 @@ class CognitiveModel:
     _INTENT_FAMILIES = ("knowledge", "current_info", "weather", "time", "math", "programming", "file_analysis", "local_search", "comparison", "recommendation", "translation", "summarization", "planning", "creative", "research", "conversation")
     _KNOWN_LOCATIONS = ("brasil", "cuba", "esteio", "porto alegre", "são leopoldo", "novo hamburgo", "canoas", "gramado", "caxias do sul", "são paulo", "rio de janeiro", "brasília", "curitiba", "florianópolis", "belo horizonte", "salvador", "lisboa", "madrid", "barcelona", "miami", "new york", "london")
     # High-confidence concepts with explicit deterministic native definitions.
-    # Unknown conceptual topics remain evidence-first to avoid silent factual fallback.
+    # General conceptual questions are direct-answer tasks. External evidence is reserved for explicit research/current-data requests.
     _STABLE_NATIVE_CONCEPTS = ("nasa", "adn", "dna", "cohete", "cohete espacial", "docker")
 
     _DOMAIN_HINTS = {
@@ -683,9 +683,7 @@ class CognitiveModel:
         conceptual_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", lower_message, re.I)
         if conceptual_match:
             conceptual_subject = re.sub(r"\s+", " ", conceptual_match.group(1)).strip(" ?¿!¡.").casefold()
-        if conceptual and conceptual_subject and conceptual_subject not in self._STABLE_NATIVE_CONCEPTS:
-            evidence = True
-
+        # Do not force web research for ordinary conceptual questions.\n        # Explicit research/current-data signals are handled above.\n
         # Short noun-phrase knowledge requests are still factual requests.
         # Keep stable native concepts local, but send unknown concepts such as
         # "la ameba" to web research instead of falling into an unhelpful
