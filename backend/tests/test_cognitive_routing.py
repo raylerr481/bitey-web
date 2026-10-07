@@ -38,13 +38,13 @@ def test_generic_client_question_stays_general():
     assert _domain("qué necesita un cliente") == "general"
 
 
-def test_substantive_general_question_enters_evidence_first_loop():
+def test_substantive_general_question_is_direct_by_default():
     from backend.app.core.tool_orchestrator import ToolOrchestrator
     orchestrator = ToolOrchestrator()
     context = {}
     selected = orchestrator.cognitive_selection("qué es el mercado", context)
-    assert "web_research" in selected["selected_tools"]
-    assert selected["brain"]["evidence_required"] is True
+    assert "web_research" not in selected["selected_tools"]
+    assert selected["brain"]["evidence_required"] is False
 
 
 def test_explicit_current_market_question_requires_web_evidence():
@@ -86,7 +86,7 @@ def test_brain_greeting_does_not_require_evidence():
     assert state.tool_priority == []
 
 
-def test_brain_conceptual_general_question_requires_evidence():
+def test_brain_conceptual_general_question_is_direct():
     from backend.app.core.bitey_brain import BiteyBrain
     state = BiteyBrain().think("qué es el mercado", {"cognition": {
         "intention": {"domain": "general"},
@@ -123,11 +123,11 @@ def test_native_model_does_not_bypass_required_evidence():
     assert "evidencia verificable suficiente" in answer
 
     
-def test_orchestrator_normalizes_legacy_search_to_canonical_web_research():
+def test_orchestrator_keeps_general_knowledge_on_direct_path():
     from backend.app.core.tool_orchestrator import ToolOrchestrator
     orchestrator = ToolOrchestrator()
     result = orchestrator.cognitive_selection("qué es el mercado", {})
-    assert result["selected_tools"] == ["web_research"]
+    assert result["selected_tools"] == []
 
 def test_web_research_preserves_verified_source_metadata(monkeypatch):
     import asyncio
