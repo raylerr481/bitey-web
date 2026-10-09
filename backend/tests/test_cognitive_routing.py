@@ -122,7 +122,7 @@ def test_native_model_does_not_bypass_required_evidence():
     assert "Un mercado es un sistema o espacio" not in answer
     assert "evidencia verificable suficiente" in answer
 
-    
+
 def test_orchestrator_keeps_general_knowledge_on_direct_path():
     from backend.app.core.tool_orchestrator import ToolOrchestrator
     orchestrator = ToolOrchestrator()
