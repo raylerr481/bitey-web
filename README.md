@@ -49,7 +49,7 @@ The Bitey ecosystem uses **two separate Supabase/Postgres projects with explicit
 
 **BiteFixes Backend** remains the specialized enterprise implementation for BiteFixes. It owns the BiteFixes business/API domain and provides contextual enterprise AI capabilities through explicit contracts with the central Bitey IA layer.
 
-The two systems have different responsibilities but share the same canonical Supabase memory/data architecture.
+The two systems have different responsibilities and separate databases. Bitey IA may call BiteFixes through explicit authorized API contracts, but they do not share database writes or schemas.
 
 ## Language and naming standard
 
