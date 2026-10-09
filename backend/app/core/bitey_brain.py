@@ -89,8 +89,6 @@ class BiteyBrain:
         perception_question = bool(perception.get("question"))
         conversational_only = bool(perception.get("greeting") or perception.get("identity_request") or intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"} or re.fullmatch(r"(?:hola|hol[aá]|buenos días|buenas tardes|buenas noches|quién eres|quien eres|qué eres|que eres|qué puedes hacer|que puedes hacer)[!.?\s]*", low, re.I))
         explicit_evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research)
-        question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
-        evidence = False if conversational_only else (explicit_evidence or question_requires_evidence or freshness)
         conceptual_subject_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", low, re.I)
         conceptual_subject = re.sub(r"\s+", " ", conceptual_subject_match.group(1)).strip(" ?¿!¡.").casefold() if conceptual_subject_match else ""
         native_concepts = {"nasa", "adn", "dna", "cohete", "cohete espacial", "docker"}
@@ -100,6 +98,18 @@ class BiteyBrain:
             and bool(conceptual_subject)
             and conceptual_subject in native_concepts
         )
+        # Substantive questions require evidence unless a deterministic native
+        # definition explicitly covers the concept. Greetings and identity
+        # requests remain on the direct conversational path.
+        question_requires_evidence = (
+            perception_question
+            and not conversational_only
+            and (
+                domain in {"research", "weather", "trading"}
+                or (domain == "general" and not conceptual_fallback)
+            )
+        )
+        evidence = False if conversational_only else (explicit_evidence or question_requires_evidence or freshness)
         if intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"}:
             evidence = False
             freshness = False
