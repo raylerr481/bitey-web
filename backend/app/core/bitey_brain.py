@@ -89,10 +89,28 @@ class BiteyBrain:
         perception_question = bool(perception.get("question"))
         conversational_only = bool(perception.get("greeting") or perception.get("identity_request") or intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"} or re.fullmatch(r"(?:hola|hol[aá]|buenos días|buenas tardes|buenas noches|quién eres|quien eres|qué eres|que eres|qué puedes hacer|que puedes hacer)[!.?\s]*", low, re.I))
         explicit_evidence = bool(ctx.get("requires_web_research") or ctx.get("needs_web") or ctx.get("research") or evidence_available or cognition.get("plan", {}).get("needs_evidence") or lexical_research)
-        question_requires_evidence = perception_question and not conversational_only and domain in {"research", "weather", "trading"}
+        conceptual_subject_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", low, re.I)
+        conceptual_subject = re.sub(r"\s+", " ", conceptual_subject_match.group(1)).strip(" ?¿!¡.").casefold() if conceptual_subject_match else ""
+        native_concepts = {"nasa", "adn", "dna", "cohete", "cohete espacial", "docker"}
+        conceptual_fallback = (
+            domain == "general"
+            and not evidence_available
+            and bool(conceptual_subject)
+            and conceptual_subject in native_concepts
+        )
+        # Substantive questions require evidence unless a deterministic native
+        # definition explicitly covers the concept. Greetings and identity
+        # requests remain on the direct conversational path.
+        question_requires_evidence = (
+            perception_question
+            and not conversational_only
+            and (
+                domain in {"research", "weather", "trading"}
+                or (domain == "general" and not conceptual_fallback)
+            )
+        )
         evidence = False if conversational_only else (explicit_evidence or question_requires_evidence or freshness)
-        conceptual_fallback = (domain == "general" and not evidence_available and any(cue in low for cue in ("qué es", "que es", "qué son", "que son", "qué significa", "que significa", "definición", "definicion", "define", "concepto", "what is", "what are", "qual é", "o que é")))
-        # General conceptual questions are direct-answer tasks. Do not force web research merely because the subject is not on a small native allowlist.\n        conceptual_subject_match = re.match(r"^(?:¿|\?)?\s*(?:qué|que|cuál|cual|cómo|como)\s+(?:es|son|significa|funciona)\s+(?:la|el|los|las|un|una)?\s*(.+?)[?!.\s]*$", low, re.I)\n        conceptual_subject = re.sub(r"\s+", " ", conceptual_subject_match.group(1)).strip(" ?¿!¡.").casefold() if conceptual_subject_match else ""\n        if intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"}:
+        if intent_family == "conversation" or str(intention.get("intent") or "").lower() in {"greeting", "self_identity"}:
             evidence = False
             freshness = False
         risk = "low"
