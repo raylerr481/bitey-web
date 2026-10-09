@@ -6,11 +6,11 @@ It is not merely a web channel and it is not a second independent intelligence s
 
 ## Central architecture
 
-The Bitey ecosystem uses **one shared Supabase/Postgres instance for canonical memory and data persistence**:
+The Bitey ecosystem uses **two separate Supabase/Postgres projects with explicit ownership boundaries**:
 
-- Supabase project: **`bitefixes-backed`**
-- The shared persistence layer is used by the central Bitey IA architecture and the specialized BiteFixes enterprise AI.
-- Separate application repositories do not create parallel Supabase memory systems for the same ecosystem.
+- **Bitey IA Web** uses its own project, **`bitey-ia`**, for general conversation memory, cognition, learning, and Bitey IA modules.
+- **BiteFixes Backend** keeps its business data and existing structure in **`bitefixes-backed`**.
+- The projects remain separate. Bitey IA may call BiteFixes through authorized API contracts, but it must not write to, migrate, or absorb BiteFixes tables.
 
 ```text
                          BITEY IA ECOSYSTEM
@@ -25,9 +25,11 @@ The Bitey ecosystem uses **one shared Supabase/Postgres instance for canonical m
                          shared contracts
                                   │
                                   ▼
-                     Supabase/Postgres
-                       `bitefixes-backed`
-                     single shared memory/data
+             ┌─────────────────────┐     ┌─────────────────────┐
+             │ Supabase/Postgres   │     │ Supabase/Postgres   │
+             │ `bitey-ia`          │     │ `bitefixes-backed`  │
+             │ Bitey IA data       │     │ BiteFixes data      │
+             └─────────────────────┘     └─────────────────────┘
 ```
 
 ### Responsibilities
@@ -91,13 +93,9 @@ Bitey Trainer → validates capabilities → specialized modules → channels
 
 ## Data and persistence
 
-**`bitefixes-backed` is the single canonical Supabase/Postgres persistence and memory instance for the Bitey/BiteFixes architecture.**
+**The two Supabase projects remain independent.** `bitey-ia` is the persistence target for Bitey IA Web and its general cognitive memory. `bitefixes-backed` is the persistence target for BiteFixes Backend and its existing business domain. Do not merge their schemas or data, and do not redirect Bitey IA memory writes into `bitefixes-backed`.
 
-The shared instance provides the canonical data foundation while application responsibilities remain separated by repository and API contract.
-
-Neo4j and MongoDB are not architectural dependencies.
-
-A new module must not create another Supabase memory instance merely to duplicate ecosystem state.
+Neo4j and MongoDB are not architectural dependencies. A module must use its assigned project and explicit API contracts rather than duplicating or crossing domain-owned data.
 
 ## BiteFixes boundary
 
@@ -131,7 +129,7 @@ Gemini API is not required.
 
 ## Principle
 
-> **Bitey IA Web is the central cognitive brain. BiteFixes Backend is the specialized BiteFixes enterprise AI/business backend. Both integrate with the same canonical Supabase memory/data instance, `bitefixes-backed`. Specialized modules remain separated by explicit contracts and must not create parallel ecosystem memory systems.**
+> **Bitey IA Web is the central cognitive brain and uses `bitey-ia`. BiteFixes Backend is the specialized BiteFixes enterprise AI/business backend and keeps `bitefixes-backed`. The databases remain separate; integration occurs only through authorized, explicit contracts.**
 
 
 ## ChatGPT-style interaction layer
