@@ -29,7 +29,7 @@ from .core.research_engine import ResearchEngine
 from .core.tool_orchestrator import ToolOrchestrator, ToolSpec, safe_calculate
 from .core.vector_memory import QdrantVectorMemory
 from .core.workspace import WorkspaceStore
-from .notifications import send_trainer_test_email
+from .notifications import send_trainer_test_email, send_review_note_email
 from .schemas import ConversationCreate, MessageCreate, MessageResponse
 from .workspace_api import router as workspace_router
 from .chat_v2 import create_chat_v2_router
@@ -578,7 +578,19 @@ async def send_message(conversation_id: str,payload: MessageCreate) -> MessageRe
             pass
         trace.evaluation={"generic":evaluation.as_dict(),"executive":provider_context.get("executive_evaluation")}; trace.revision={"attempted":bool(provider_context.get("executive_revision_attempted",False)),"executive":provider_context.get("executive_evaluation")}; emit_activity(f"Evaluando respuesta: {evaluation.decision} ({evaluation.confidence:.2f})…")
         if evaluation.decision == "reject": answer="La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida. Si quieres, puedo reformular la solicitud con evidencia y límites más precisos."
-        elif evaluation.decision == "revise": answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
+        elif evaluation.decision == "revise":
+            try:
+                await send_review_note_email(
+                    question=payload.message,
+                    answer=answer,
+                    decision=str(evaluation.decision),
+                    confidence=float(evaluation.confidence) if evaluation.confidence is not None else None,
+                )
+            except Exception:
+                import logging
+                logging.getLogger("bitey.notifications").exception(
+                    "internal_review_email_failed channel=legacy_chat"
+                )
         await memory.append(conversation_id,{"role":"assistant","content":answer})
         if learning.persistent: await learning.observe(title="conversation_observation",payload={"conversation_id":conversation_id,"message":payload.message,"answer":answer[:4000],"selected_tools":selected,"cognitive_domain":domain,"cognitive_confidence":cognitive.confidence,"brain":brain_state.as_dict(),"selected_modules":[m.name for m in resolved_modules],"learned_context_available":learned_memory.get("available",False),"evaluation":evaluation.as_dict()},source="conversation",confidence=min(.8,max(.2,evaluation.confidence)))
         elapsed_ms=int((time.perf_counter()-started)*1000); cognitive_trace.finish(trace,evaluation.decision)

@@ -19,6 +19,7 @@ from .core.provider_gateway import ProviderGateway
 from .core.tool_orchestrator import ToolOrchestrator
 from .core.native_model import NativeReasoningModel
 from .core.conversation_context import build_conversation_context
+from .notifications import send_review_note_email
 
 
 class ChatV2Request(BaseModel):
@@ -2665,7 +2666,19 @@ def create_chat_v2_router(
         if evaluation.decision == "reject":
             answer = "La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida."
         elif evaluation.decision == "revise":
-            answer += "\n\n_Nota de Bitey: esta respuesta queda sujeta a revisión por evidencia/confianza; verifica los puntos críticos antes de actuar._"
+            # Internal review notes go to the developer, never into the user-facing answer.
+            import logging
+            try:
+                await send_review_note_email(
+                    question=query,
+                    answer=answer,
+                    decision=str(evaluation.decision),
+                    confidence=float(evaluation.confidence) if evaluation.confidence is not None else None,
+                )
+            except Exception:
+                logging.getLogger("bitey.notifications").exception(
+                    "internal_review_email_failed channel=chat_v2"
+                )
 
         # Final deterministic contract checkpoint. The model may synthesize,
         # but it cannot silently erase the evidence/tool contract established
