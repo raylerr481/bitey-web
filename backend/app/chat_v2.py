@@ -2665,8 +2665,13 @@ def create_chat_v2_router(
             emit("Detectada una discrepancia entre fuentes; ajustando la respuesta…")
         if evaluation.decision == "reject":
             answer = "La respuesta generada no superó los controles internos de seguridad/calidad. No la presentaré como válida."
-        elif evaluation.decision == "revise":
-            # Internal review notes go to the developer, never into the user-facing answer.
+        elif (
+            evaluation.decision == "revise"
+            or answer_verification.get("unsupported_count", 0) > 0
+            or answer_verification.get("partial_count", 0) > 0
+        ):
+            # Send internal evidence/confidence review details to the developer.
+            # These notes must never be included in the user-facing answer.
             import logging
             try:
                 await send_review_note_email(
@@ -2679,6 +2684,19 @@ def create_chat_v2_router(
                 logging.getLogger("bitey.notifications").exception(
                     "internal_review_email_failed channel=chat_v2"
                 )
+
+        # Strip accidental internal review disclaimers from model output. The
+        # detailed review remains in server-side logs/email, not in chat.
+        answer = re.sub(
+            r"(?im)^\s*(?:[-*]\s*)?(?:nota de bitey|nota interna de bitey|internal review note)\s*:?[^\n]*(?:\n|$)",
+            "",
+            str(answer),
+        ).strip()
+        answer = re.sub(
+            r"(?im)^\s*(?:esta respuesta queda sujeta a revisión por evidencia/confianza;?\s*verifica los puntos críticos antes de actuar\.?|this answer is subject to evidence/confidence review[^\n]*)\s*(?:\n|$)",
+            "",
+            answer,
+        ).strip()
 
         # Final deterministic contract checkpoint. The model may synthesize,
         # but it cannot silently erase the evidence/tool contract established
