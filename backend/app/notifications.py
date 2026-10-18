@@ -41,3 +41,31 @@ async def send_trainer_test_email() -> dict:
     <p>La siguiente etapa será enviar informes reales de oportunidades laborales.</p>
     """
     return await send_email(to=to, subject="Bitey Trainer — email_notification de prueba", html=html)
+
+
+async def send_review_note_email(*, question: str, answer: str, decision: str, confidence: float | None = None) -> dict:
+    """Send internal evidence/confidence review notes to the developer, never to chat."""
+    to = os.getenv("BITEY_REVIEW_REPORT_EMAIL", "raylerr481@gmail.com").strip()
+    if not to:
+        raise RuntimeError("BITEY_REVIEW_REPORT_EMAIL is not configured")
+
+    from html import escape
+    import datetime
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    confidence_text = "n/d" if confidence is None else f"{confidence:.2f}"
+    html = f"""
+    <h2>Bitey IA — revisión interna de respuesta</h2>
+    <p><strong>Fecha UTC:</strong> {escape(timestamp)}</p>
+    <p><strong>Decisión:</strong> {escape(str(decision))}</p>
+    <p><strong>Confianza:</strong> {escape(confidence_text)}</p>
+    <h3>Pregunta del usuario</h3>
+    <pre style="white-space:pre-wrap">{escape(str(question)[:12000])}</pre>
+    <h3>Respuesta evaluada</h3>
+    <pre style="white-space:pre-wrap">{escape(str(answer)[:16000])}</pre>
+    <p>Mensaje interno automático. No debe mostrarse al usuario final.</p>
+    """
+    return await send_email(
+        to=to,
+        subject=f"Bitey IA — revisión interna ({decision})",
+        html=html,
+    )
