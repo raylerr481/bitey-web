@@ -2688,14 +2688,9 @@ def create_chat_v2_router(
         # Strip accidental internal review disclaimers from model output. The
         # detailed review remains in server-side logs/email, not in chat.
         answer = re.sub(
-            r"(?im)^\s*(?:[-*]\s*)?(?:nota de bitey|nota interna de bitey|internal review note)\s*:?[^\n]*(?:\n|$)",
+            r"(?im)^.*(?:nota de bitey|nota interna de bitey|internal review note|esta respuesta queda sujeta a revisión por evidencia/confianza|this answer is subject to evidence/confidence review).*$\n?",
             "",
             str(answer),
-        ).strip()
-        answer = re.sub(
-            r"(?im)^\s*(?:esta respuesta queda sujeta a revisión por evidencia/confianza;?\s*verifica los puntos críticos antes de actuar\.?|this answer is subject to evidence/confidence review[^\n]*)\s*(?:\n|$)",
-            "",
-            answer,
         ).strip()
 
         # Final deterministic contract checkpoint. The model may synthesize,
