@@ -470,6 +470,6 @@ class ProviderGateway:
                 self._provider_cooldowns[provider.name]=time.monotonic()+cooldown_seconds
                 if conversation_id and self._conversation_provider.get(conversation_id)==provider.name:
                     self._conversation_provider.pop(conversation_id,None)
-                logger.warning("provider_generation_failed provider=%s attempt=%s error=%s cooldown=%ss",provider.name,attempt,type(exc).__name__,int(cooldown_seconds))
+                error_detail = re.sub(r"(?i)(bearer\\s+)[^\\s,;]+", r"\\1[REDACTED]", str(exc))[:220]\n                logger.warning("provider_generation_failed provider=%s attempt=%s error_type=%s detail=%s cooldown=%ss",provider.name,attempt,type(exc).__name__,error_detail,int(cooldown_seconds))
                 continue
         return "Ahora mismo no puedo completar esta consulta de forma segura. Inténtalo nuevamente en unos momentos."
