@@ -467,6 +467,11 @@ class ProviderGateway:
                 failure_count=self._health_for(provider.name).consecutive_failures
                 cooldown_cap=max(base_cooldown, float(os.getenv("AI_PROVIDER_FAILURE_COOLDOWN_MAX_SECONDS","300")))
                 cooldown_seconds=min(cooldown_cap, base_cooldown * (2 ** max(0, min(failure_count - 1, 3))))
+                # Daily token quotas will not recover in a few minutes. Avoid
+                # repeatedly calling the exhausted provider and let later free
+                # providers/native fallback handle the request for a longer window.
+                if provider.name == "groq-free" and re.search(r"tokens per day\\s*\\(TPD\\)|daily token quota", str(exc), re.I):
+                    cooldown_seconds=max(cooldown_seconds, float(os.getenv("AI_PROVIDER_DAILY_QUOTA_COOLDOWN_SECONDS", "43200")))
                 self._provider_cooldowns[provider.name]=time.monotonic()+cooldown_seconds
                 if conversation_id and self._conversation_provider.get(conversation_id)==provider.name:
                     self._conversation_provider.pop(conversation_id,None)
