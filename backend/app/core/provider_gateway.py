@@ -470,7 +470,7 @@ class ProviderGateway:
                 # Daily token quotas will not recover in a few minutes. Avoid
                 # repeatedly calling the exhausted provider and let later free
                 # providers/native fallback handle the request for a longer window.
-                if provider.name == "groq-free" and re.search(r"tokens per day\\s*\\(TPD\\)|daily token quota", str(exc), re.I):
+                if provider.name == "groq-free" and re.search(r"tokens per day\s*\(TPD\)|daily token quota", str(exc), re.I):
                     cooldown_seconds=max(cooldown_seconds, float(os.getenv("AI_PROVIDER_DAILY_QUOTA_COOLDOWN_SECONDS", "43200")))
                 self._provider_cooldowns[provider.name]=time.monotonic()+cooldown_seconds
                 if conversation_id and self._conversation_provider.get(conversation_id)==provider.name:
